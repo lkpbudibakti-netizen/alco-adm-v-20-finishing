@@ -19,6 +19,7 @@ import {
   deriveScopeCode,
   generateSemanticTPCode,
 } from '../src/services/cpWorkflowService';
+import { checkTPSemanticFidelity } from '../src/services/tpSemanticFidelity';
 import { validateWorkflowDependencies } from '../src/services/workflowEngine';
 import {
   aiFetch,
@@ -720,6 +721,96 @@ async function runAll() {
 
     assert.strictEqual(realignedItems.length, 1);
     assert.strictEqual(realignedItems[0].id, 'atp-new-1', 'Changed step must receive new ID');
+  });
+
+  runTest('Scenario F (TP Semantic Fidelity): Individual Relevance and Aggregate Coverage', () => {
+    const analysisItems = [
+      {
+        id: 'ana-1',
+        cpCompetence: 'Mengenali',
+        materialScope: 'strategi mencari bantuan kepada orang dewasa terpercaya',
+      },
+      {
+        id: 'ana-2',
+        cpCompetence: 'Mempraktikkan',
+        materialScope: 'gerak lokomotor; gerak non-lokomotor; gerak manipulatif',
+      },
+    ];
+
+    // Case 1: Valid individual relevance & aggregate coverage
+    const validTPs = [
+      {
+        id: 'tp-1',
+        code: 'E1-SB-01',
+        competence: 'Mengenali',
+        contentScope: 'strategi mencari bantuan kepada orang dewasa terpercaya',
+        statement: 'Peserta didik mampu mengenali strategi mencari bantuan kepada orang dewasa terpercaya.',
+        cpAnalysisItemIds: ['ana-1'],
+      },
+      {
+        id: 'tp-2',
+        code: 'E1-LOK-01',
+        competence: 'Mempraktikkan',
+        contentScope: 'gerak lokomotor',
+        statement: 'Peserta didik mempraktikkan gerak lokomotor.',
+        cpAnalysisItemIds: ['ana-2'],
+      },
+      {
+        id: 'tp-3',
+        code: 'E1-NLOK-01',
+        competence: 'Mempraktikkan',
+        contentScope: 'gerak non-lokomotor',
+        statement: 'Peserta didik mempraktikkan gerak non-lokomotor.',
+        cpAnalysisItemIds: ['ana-2'],
+      },
+      {
+        id: 'tp-4',
+        code: 'E1-MAN-01',
+        competence: 'Mempraktikkan',
+        contentScope: 'gerak manipulatif',
+        statement: 'Peserta didik mempraktikkan gerak manipulatif.',
+        cpAnalysisItemIds: ['ana-2'],
+      },
+    ];
+
+    const check1 = checkTPSemanticFidelity(validTPs, analysisItems);
+    assert.strictEqual(check1.isValid, true, 'Valid TPs with correct individual relevance and aggregate coverage must pass');
+
+    // Case 2: Individual relevance failure (TP points to ana-1 but content is lokomotor)
+    const invalidIndividualTPs = [
+      {
+        id: 'tp-invalid',
+        code: 'E1-SB-01',
+        competence: 'Mempraktikkan',
+        contentScope: 'gerak lokomotor',
+        statement: 'Peserta didik mempraktikkan gerak lokomotor.',
+        cpAnalysisItemIds: ['ana-1'],
+      },
+    ];
+    const check2 = checkTPSemanticFidelity(invalidIndividualTPs, analysisItems);
+    assert.strictEqual(check2.isValid, false, 'TP pointing to ana-1 with lokomotor content must fail individual relevance');
+
+    // Case 3: Aggregate coverage failure (ana-2 missing manipulatif chunk)
+    const missingAggregateTPs = [
+      {
+        id: 'tp-2',
+        code: 'E1-LOK-01',
+        competence: 'Mempraktikkan',
+        contentScope: 'gerak lokomotor',
+        statement: 'Peserta didik mempraktikkan gerak lokomotor.',
+        cpAnalysisItemIds: ['ana-2'],
+      },
+      {
+        id: 'tp-3',
+        code: 'E1-NLOK-01',
+        competence: 'Mempraktikkan',
+        contentScope: 'gerak non-lokomotor',
+        statement: 'Peserta didik mempraktikkan gerak non-lokomotor.',
+        cpAnalysisItemIds: ['ana-2'],
+      },
+    ];
+    const check3 = checkTPSemanticFidelity(missingAggregateTPs, analysisItems);
+    assert.strictEqual(check3.isValid, false, 'Missing aggregate chunk (manipulatif) must fail aggregate coverage');
   });
 
   console.log(`\n=== All Regression Tests Passed: ${passedTests} / ${totalTests} ===\n`);

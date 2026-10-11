@@ -12,6 +12,7 @@ import {
   AcademicSetting,
   normalizeCPVerificationStatus,
 } from '../types';
+import { checkTPSemanticFidelity } from './tpSemanticFidelity';
 
 export interface CPValidationDetails {
   status: WorkflowCompletionStatus;
@@ -736,6 +737,15 @@ export function validateTPDataWorkflow(
       if (anaItem.id && !referencedAnalysisItemIds.has(anaItem.id)) {
         issues.push(`Butir Analisis CP "${anaItem.elementName || 'Elemen'}" (${anaItem.cpCompetence || 'Analisis'}) belum ditautkan oleh TP manapun.`);
       }
+    }
+
+    const semanticFidelity = checkTPSemanticFidelity(tp.items, cpAnalysis.items);
+    if (!semanticFidelity.isValid) {
+      semanticFidelity.issues.forEach((iss) => {
+        if (!issues.includes(iss)) {
+          issues.push(iss);
+        }
+      });
     }
   }
 

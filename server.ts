@@ -29,6 +29,7 @@ import {
 } from './server/mappingAnalysis';
 import { validateGraduateProfileDimensions } from './src/constants/graduateProfileDimensions';
 import { checkSemanticCoverage } from './server/cpAnalysisSemanticCoverage';
+import { checkTPSemanticFidelity } from './src/services/tpSemanticFidelity';
 import {
   getCognitiveAdaptationProfile,
   CognitiveAdaptationProfile,
@@ -922,7 +923,12 @@ Kembalikan respon dalam format JSON sesuai schema:`;
             };
           });
 
-          return res.json({ success: true, items: sanitizedItems, engine: 'gemini' });
+          const semanticFidelityCheck = checkTPSemanticFidelity(sanitizedItems, validAnalysisItems);
+          if (!semanticFidelityCheck.isValid) {
+            console.warn('AI TP output failed semantic fidelity guard:', semanticFidelityCheck.issues);
+          } else {
+            return res.json({ success: true, items: sanitizedItems, engine: 'gemini' });
+          }
         }
       }
     } catch (error: any) {
