@@ -27,37 +27,21 @@ export function resolveATPUnitMappingReadiness(
 ): MappingReadiness {
   const blockers: string[] = [];
 
-  // 1. canSaveDraft check
-  let canSaveDraft = Boolean(mapping || academicSetting);
+  // 5. Mapping validity and completeness
+  const validationResult = validateATPUnitMappingCanonical(mapping, atp, tp);
+
+  // 1. canSaveDraft check: requires valid lineage
+  let canSaveDraft = Boolean(mapping && validationResult.isValid);
   if (mapping && academicSetting && mapping.academicSettingId && academicSetting.id) {
     if (mapping.academicSettingId !== academicSetting.id) {
       canSaveDraft = false;
       blockers.push(`ID Academic Setting pada pemetaan (${mapping.academicSettingId}) tidak sesuai dengan konteks aktif (${academicSetting.id}).`);
     }
   }
-  if (!mapping && !academicSetting) {
-    canSaveDraft = false;
-  }
 
   // 2. TP & ATP canonical availability & readiness
-  const tpStatus = tp?.workflowStatus;
-  const atpStatus = atp?.workflowStatus;
-
-  const isTpReady = Boolean(
-    tp &&
-    Array.isArray(tp.items) &&
-    tp.items.length > 0 &&
-    (tpStatus === 'SIAP' || (tp as any).status === 'SIAP') &&
-    !tp.needsReview
-  );
-
-  const isAtpReady = Boolean(
-    atp &&
-    Array.isArray(atp.items) &&
-    atp.items.length > 0 &&
-    (atpStatus === 'SIAP' || (atp as any).status === 'SIAP') &&
-    !atp.needsReview
-  );
+  const isTpReady = Boolean(tp && Array.isArray(tp.items) && tp.items.length > 0 && tp.workflowStatus === 'SIAP' && !tp.needsReview);
+  const isAtpReady = Boolean(atp && Array.isArray(atp.items) && atp.items.length > 0 && atp.workflowStatus === 'SIAP' && !atp.needsReview);
 
   if (!isTpReady) {
     blockers.push('Tujuan Pembelajaran (TP) canonical belum berstatus SIAP atau belum lengkap.');
@@ -74,8 +58,15 @@ export function resolveATPUnitMappingReadiness(
   if (mapping && atp && mapping.academicSettingId && atp.academicSettingId && mapping.academicSettingId !== atp.academicSettingId) {
     blockers.push('Ketiadaan konsistensi academicSettingId antara Pemetaan dan ATP.');
   }
+  // ATP-TP relationship check
+  if (atp && tp) {
+    const tpRefId = atp.tpDataId || atp.tpId;
+    if (tpRefId && tpRefId !== tp.id) {
+      blockers.push('Relasi ATP–TP tidak konsisten.');
+    }
+  }
 
-  // 4. Upstream staleness check (only if source metadata exists and strictly newer; do not assume freshness if metadata is missing)
+  // 4. Upstream staleness check (only if source metadata exists and strictly newer)
   let isStale = false;
   if (mapping && atp?.updatedAt && mapping.basedOnAtpUpdatedAt) {
     if (isUpstreamStale(atp.updatedAt, mapping.basedOnAtpUpdatedAt)) {
@@ -90,16 +81,12 @@ export function resolveATPUnitMappingReadiness(
     }
   }
 
-  // 5. Mapping validity and completeness
-  const validationResult = validateATPUnitMappingCanonical(mapping, atp, tp);
-
   const hasUnits = Boolean(mapping && Array.isArray(mapping.units) && mapping.units.length > 0);
   if (!hasUnits) {
     blockers.push('Pemetaan Unit/Bab masih kosong.');
   }
 
   if (!validationResult.isValid) {
-    blockers.push('Pemetaan Unit/Bab memiliki kesalahan validasi.');
     validationResult.issues.forEach((iss) => {
       if (!blockers.includes(iss)) {
         blockers.push(iss);
@@ -113,9 +100,7 @@ export function resolveATPUnitMappingReadiness(
 
   const canProceed =
     canSaveDraft &&
-    Boolean(mapping) &&
     hasUnits &&
-    validationResult.isValid &&
     validationResult.isComplete &&
     !isStale &&
     isTpReady &&

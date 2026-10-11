@@ -417,24 +417,11 @@ export const ATPUnitMappingManager: React.FC<ATPUnitMappingManagerProps> = ({
 
   // Shared production readiness resolver for Step 07 and Step 08
   const mappingReadiness = useMemo(() => {
-    const tempMappingData: ATPUnitMappingData = {
-      id: mapping?.id || 'temp',
-      academicSettingId: academicSetting?.id || 'temp',
-      atpId: atp.id,
-      units,
-      updatedAt: new Date().toISOString()
-    };
-    return resolveATPUnitMappingReadiness(tempMappingData, atp, tp, academicSetting);
-  }, [units, atp, tp, academicSetting, mapping?.id]);
+    return resolveATPUnitMappingReadiness(mapping, atp, tp, academicSetting);
+  }, [units, atp, tp, academicSetting, mapping]);
 
   const localValidation = useMemo(() => {
-    const validation = mappingReadiness.validationResult || validateATPUnitMappingCanonical({
-      id: mapping?.id || 'temp',
-      academicSettingId: academicSetting?.id || 'temp',
-      atpId: atp.id,
-      units,
-      updatedAt: new Date().toISOString()
-    }, atp, tp);
+    const validation = mappingReadiness.validationResult || validateATPUnitMappingCanonical(mapping, atp, tp);
 
     const zCount = validation.unmappedAtpIds.length + validation.uncoveredTpIds.length;
 
