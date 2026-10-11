@@ -758,38 +758,16 @@ CP → Elemen CP → Analisis CP → Rumusan TP.
 
 PRINSIP PEDAGOGIS & KONTRAK ATOMIK TP (WAJIB DIPATUHI - ATOMIC TP CONTRACT):
 1. ATOMIC TP CONTRACT (1 TP = 1 TUJUAN PEMBELAJARAN SPESIFIK):
-   - Setiap butir TP HANYA BOLEH merujuk ke TEPAT 1 BUTIR Analisis CP (CPAnalysisItem).
-   - Properti "cpAnalysisItemIds" WAJIB berupa array yang berisi TEPAT 1 ID valid (panjang array = 1).
-   - JANGAN PERNAH menggabungkan (merge) dua atau lebih butir Analisis CP menjadi satu TP!
-     DILARANG merge meskipun:
-     * Berada pada elemen yang sama
-     * Memiliki competence tier / KKO yang sama
-     * Memiliki lingkup materi yang mirip
-     * Terdapat irisan kata kunci (keyword overlap).
-2. PROSES INDEPENDEN SETIAP BUTIR ANALISIS CP (1..N TP PER ANALISIS ITEM):
-   - Proses setiap butir Analisis CP secara independen.
-   - 1 butir Analisis CP dapat menghasilkan 1 TP atomik.
-   - DEKOMPOSISI (DECOMPOSE): Jika satu butir Analisis CP memuat beberapa kompetensi atau beberapa lingkup materi yang berbeda secara pedagogis (misalnya dipisahkan tanda titik koma atau bermakna ganda), pecah menjadi beberapa butir TP atomik terfokus.
-   - Semua butir TP hasil dekomposisi tersebut WAJIB merujuk ke ID CPAnalysisItem yang sama pada "cpAnalysisItemIds" (masing-masing tetap berupa array dengan tepat 1 ID tersebut).
-   Contoh:
-   Analisis Item A: Kompetensi = Mempraktikkan, Lingkup Materi = Lokomotor; Non-Lokomotor; Manipulatif
-   Maka dihasilkan:
-   * TP 1: Mempraktikkan gerak lokomotor (cpAnalysisItemIds: ["A"])
-   * TP 2: Mempraktikkan gerak non-lokomotor (cpAnalysisItemIds: ["A"])
-   * TP 3: Mempraktikkan gerak manipulatif (cpAnalysisItemIds: ["A"])
-   DILARANG KERAS menggabungkan Analisis A + Analisis B menjadi satu TP!
-3. BUKAN KUOTA:
-   - Jumlah TP adalah hasil murni analisis kurikulum dan dekomposisi atomik, BUKAN berdasarkan target kuota angka.
-4. KUALITAS BUTIR TP:
-   - Setiap TP harus eksplisit memuat: Kompetensi (KKO operasional terukur) dan Lingkup Materi (konten esensial).
-   - Format standar: "Peserta didik mampu [Kompetensi/KKO] [Lingkup Materi] melalui [Konteks/Aktivitas/Kondisi] secara [Karakter/Kriteria]."
-5. PELACAKAN SILSILAH (LINEAGE):
-   - Properti "cpAnalysisItemIds" WAJIB berupa array dengan TEPAT 1 ID rujukan dari daftar HASIL ANALISIS CP di bawah. JANGAN PERNAH mengarang ID fiktif dan JANGAN memasukkan lebih dari 1 ID.
-6. FORMAT KODE TP SEMANTIK:
-   - Kode TP HARUS menggunakan format: [elementCode]-[scopeCode]-[sequence 2 digit]
-   - Contoh: E1-PGD-01, E1-PGD-02, E1-PGD-03, E2-PGD-01.
-   - Urutan sequence dihitung per kombinasi elementCode + scopeCode.
-   - JANGAN menyertakan kelas/fase dalam kode TP (seperti TP 4.1).
+   - 1 butir Analisis CP menghasilkan TP spesifik.
+   - JANGAN menggabungkan (merge) butir Analisis CP secara asal.
+2. FOKUS TP (COMPETENCE-MATERIAL ALIGNMENT):
+   - TP WAJIB memiliki kompetensi yang spesifik (bukan sekadar "Memahami & Menerapkan" global).
+   - Gunakan kompetensi yang benar-benar dituntut oleh substansi materi TP.
+   - JANGAN mengulang kompetensi yang sama dalam satu TP (misalnya: "menerapkan menerapkan").
+   - Jika satu Analisis CP memiliki beberapa kompetensi/materi yang berbeda secara pedagogis, DEKOMPOSISI menjadi beberapa TP atomik terfokus.
+3. FORMAT KODE TP:
+   - Format: [elementCode]-[scopeCode]-[sequence 2 digit] (misal: E1-PGD-01).
+   - JANGAN sertakan kelas/fase dalam kode TP.
 
 DATA PEMBELAJARAN:
 - Mata Pelajaran: ${subject || '-'}

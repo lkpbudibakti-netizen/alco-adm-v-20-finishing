@@ -140,22 +140,24 @@ function buildTpSubstance(tp: TPItem) {
 
 function detectCompetenceGroups(value?: string): string[] {
   const tokens = new Set(uniqueTokens(value));
-  const groups: string[] = [];
+  const detectedGroups = new Set<string>();
 
   for (const [group, words] of Object.entries(COMPETENCE_GROUPS)) {
     if (words.map(normalizeToken).some((word) => tokens.has(word))) {
-      groups.push(group);
+      detectedGroups.add(group);
     }
   }
 
-  return groups;
+  return Array.from(detectedGroups);
 }
 
 function hasCompatibleCompetence(focusGroups: Set<string>, tpGroups: string[]): boolean {
   if (tpGroups.length === 0) return true;
-  return tpGroups.every((group) => {
-    const candidates = COMPETENCE_EQUIVALENCE[group] || [group];
-    return candidates.some((candidate) => focusGroups.has(candidate));
+  
+  // Every group required by TP must have at least one focus competence that covers it
+  return tpGroups.every((tpGroup) => {
+    const equivalence = COMPETENCE_EQUIVALENCE[tpGroup] || [tpGroup];
+    return equivalence.some((eq) => focusGroups.has(eq));
   });
 }
 
