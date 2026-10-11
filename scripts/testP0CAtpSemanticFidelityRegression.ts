@@ -290,8 +290,8 @@ assertCase(!checkATPSemanticFidelity('Menjelaskan daur hidup tumbuhan', ipasTP).
 
 // 3. PENDIDIKAN PANCASILA (Fase B)
 const pancasilaTP: TPItem[] = [{ id: 'tp-pkn', code: 'E1-PKN-01', statement: 'Peserta didik menunjukkan perilaku gotong royong dan menghargai aturan.', competence: 'Menunjukkan perilaku dan menghargai', contentScope: 'Gotong royong dan aturan', order: 1 }];
-assertCase(checkATPSemanticFidelity('Menunjukkan gotong royong dan menghargai aturan rumah', pancasilaTP).isValid, 'Pancasila: Multi-tindakan PASS');
-assertCase(!checkATPSemanticFidelity('Gotong royong saja', pancasilaTP).isValid, 'Pancasila: Kompetensi hilang FAIL');
+assertCase(checkATPSemanticFidelity('Menunjukkan perilaku gotong royong dan menghargai aturan rumah', pancasilaTP).isValid, 'Pancasila: Multi-tindakan PASS');
+assertCase(!checkATPSemanticFidelity('Menerapkan aturan rumah saja', pancasilaTP).isValid, 'Pancasila: Kompetensi hilang FAIL');
 
 // 4. MATEMATIKA (Fase B - Valid Multi-TP)
 const mathTp: TPItem[] = [
@@ -299,21 +299,29 @@ const mathTp: TPItem[] = [
   { id: 'tp-mat-2', code: 'E1-MAT-02', statement: 'Menerapkan operasi hitung bilangan', competence: 'Menerapkan', contentScope: 'Operasi hitung', order: 2 }
 ];
 const mathResult = validateATPGeneratedItemsSemanticFidelity(
-  [{ stepNumber: 1, linkedTpIds: ['tp-mat-1', 'tp-mat-2'], focus: 'Menjelaskan bilangan cacah dan menerapkan operasi hitung' }],
+  [{ stepNumber: 1, linkedTpIds: ['tp-mat-1', 'tp-mat-2'], focus: 'Menjelaskan bilangan cacah dan menerapkan operasi hitung bilangan' }],
   mathTp
 );
 assertCase(mathResult.isValid, 'Math: Multi-TP koheren PASS');
 
-// 5. PJOK (Fase A - Multi-TP Negatif)
+// 5. PJOK (Fase A - Multi-TP)
 const pjokTp: TPItem[] = [
   { id: 'tp-pjok-1', code: 'E1-PJK-01', statement: 'Mempraktikkan gerak lokomotor', competence: 'Mempraktikkan', contentScope: 'Gerak lokomotor', order: 1 },
   { id: 'tp-pjok-2', code: 'E1-PJK-02', statement: 'Mengenali gerak non-lokomotor', competence: 'Mengenali', contentScope: 'Gerak non-lokomotor', order: 2 }
 ];
-const pjokResult = validateATPGeneratedItemsSemanticFidelity(
-  [{ stepNumber: 1, linkedTpIds: ['tp-pjok-1'], focus: 'Mempraktikkan gerak lokomotor' }], // Missing TP-2
+// Kasus Positif: Fokus mencakup TP-1 dan TP-2
+const pjokPos = validateATPGeneratedItemsSemanticFidelity(
+  [{ stepNumber: 1, linkedTpIds: ['tp-pjok-1', 'tp-pjok-2'], focus: 'Mempraktikkan gerak lokomotor dan mengenali gerak non-lokomotor' }],
   pjokTp
 );
-assertCase(!pjokResult.isValid, 'PJOK: Multi-TP sebagian tertaut FAIL');
+assertCase(pjokPos.isValid, 'PJOK: Multi-TP benar tertaut PASS');
+
+// Kasus Negatif: Fokus hanya satu TP
+const pjokNeg = validateATPGeneratedItemsSemanticFidelity(
+  [{ stepNumber: 1, linkedTpIds: ['tp-pjok-1', 'tp-pjok-2'], focus: 'Mempraktikkan gerak lokomotor' }], 
+  pjokTp
+);
+assertCase(!pjokNeg.isValid, 'PJOK: Multi-TP sebagian tertaut FAIL');
 
 if (failed > 0) {
   console.error(`P0-C ATP semantic fidelity regression failed: ${failed} scenario(s).`);
