@@ -773,7 +773,28 @@ runTest('30. validateATPDataWorkflow() tetap melakukan deep validateTPDataWorkfl
   );
 });
 
+runTest('31. handleSaveCPAnalysis does not rebase basedOnCpUpdatedAt unconditionally', () => {
+  const appPath = path.resolve(process.cwd(), 'src/App.tsx');
+  const appSource = fs.readFileSync(appPath, 'utf-8');
+
+  assert.strictEqual(
+    appSource.includes('basedOnCpUpdatedAt: persistedCP.updatedAt,'),
+    false,
+    'handleSaveCPAnalysis must not have unconditional basedOnCpUpdatedAt: persistedCP.updatedAt'
+  );
+  assert.ok(
+    appSource.includes('basedOnCpUpdatedAt:\n') || appSource.includes('basedOnCpUpdatedAt:'),
+    true,
+    'handleSaveCPAnalysis must specify basedOnCpUpdatedAt with fallback logic'
+  );
+  assert.ok(
+    appSource.includes('analysis.basedOnCpUpdatedAt'),
+    'handleSaveCPAnalysis must prioritize analysis.basedOnCpUpdatedAt'
+  );
+});
+
 console.log(`\n========================================`);
 console.log(`MERDEKA CP ANALYSIS INTEGRITY: ALL ${passedTests}/${totalTests} TESTS PASSED`);
 console.log(`========================================\n`);
+
 
