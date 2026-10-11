@@ -42,6 +42,7 @@ import {
   computeMappingFingerprint,
   type MappingActionItem,
 } from '../services/atpMappingActionApplyService';
+import { runGuardedAnalysis } from '../services/atpAsyncGuard';
 import {
   parseBabMateriXlsx,
   downloadBabMateriTemplateXlsx,
@@ -852,6 +853,18 @@ export const ATPUnitMappingManager: React.FC<ATPUnitMappingManagerProps> = ({
     unitsRef.current = units;
   }, [units]);
 
+  const atpRef = useRef(atp);
+  useEffect(() => {
+    atpRef.current = atp;
+  }, [atp]);
+
+  const tpRef = useRef(tp);
+  useEffect(() => {
+    tpRef.current = tp;
+  }, [tp]);
+
+  const analysisRequestIdRef = useRef(0);
+
   // Import Bab & Materi State (Section 4, 5, 6)
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [isImporting, setIsImporting] = useState(false);
@@ -951,47 +964,61 @@ export const ATPUnitMappingManager: React.FC<ATPUnitMappingManagerProps> = ({
     setAnalysisError(null);
     setAppliedNotice(null);
 
+    const requestId = ++analysisRequestIdRef.current;
     const snapshotUnits = JSON.parse(JSON.stringify(unitsRef.current));
-    const expectedFp = computeMappingFingerprint(snapshotUnits, atp, tp);
+    const expectedFp = computeMappingFingerprint(snapshotUnits, atpRef.current, tpRef.current);
 
-    try {
-      const currentDraft = buildCurrentMappingDraftFromUnits(
-        snapshotUnits,
-        mapping?.id,
-        academicSetting?.id || atp.academicSettingId,
-        atp.id,
-        tp.id || atp.tpDataId,
-        tp.updatedAt || atp.basedOnTpUpdatedAt,
-        atp.updatedAt
-      );
+    const currentDraft = buildCurrentMappingDraftFromUnits(
+      snapshotUnits,
+      mapping?.id,
+      academicSetting?.id || atpRef.current.academicSettingId,
+      atpRef.current.id,
+      tpRef.current.id || atpRef.current.tpDataId,
+      tpRef.current.updatedAt || atpRef.current.basedOnTpUpdatedAt,
+      atpRef.current.updatedAt
+    );
 
-      const result = await analyzeATPUnitMappingWithAI({
+    const guardResult = await runGuardedAnalysis({
+      requestId,
+      getCurrentRequestId: () => analysisRequestIdRef.current,
+      unitsGetter: () => unitsRef.current,
+      atpGetter: () => atpRef.current,
+      tpGetter: () => tpRef.current,
+      expectedFingerprint: expectedFp,
+      fetchFn: () => analyzeATPUnitMappingWithAI({
         subject: academicSetting?.subject,
         grade: academicSetting?.grade,
         phase: academicSetting?.phase,
-        tpData: tp,
-        atpData: atp,
+        tpData: tpRef.current,
+        atpData: atpRef.current,
         currentMapping: currentDraft,
-      });
+      }),
+    });
 
-      const freshFp = computeMappingFingerprint(unitsRef.current, atp, tp);
-      if (expectedFp !== freshFp) {
-        setAnalysisError('Analisis diabaikan karena draf, ATP, atau TP telah berubah selama proses analisis.');
-        setIsAnalyzing(false);
-        return;
-      }
-
-      setAnalysisResult(result);
-      setLastAnalysisSnapshot(result);
-      setAnalysisFingerprint(freshFp);
-      setSelectedAnalysisActionIds(new Set());
-    } catch (err: any) {
-      setAnalysisError(err?.message || 'Gagal menganalisis pemetaan Bab & Lingkup Materi.');
-      setAnalysisResult(null);
-      setAnalysisFingerprint(null);
-    } finally {
-      setIsAnalyzing(false);
+    if (requestId !== analysisRequestIdRef.current) {
+      return;
     }
+
+    if (!guardResult.success) {
+      if (!guardResult.isStaleOrOutdated) {
+        setAnalysisError(guardResult.error || 'Gagal menganalisis pemetaan Bab & Lingkup Materi.');
+        setAnalysisResult(null);
+        setAnalysisFingerprint(null);
+      } else {
+        setAnalysisError(guardResult.error || 'Data Bab, ATP, atau TP berubah selama analisis. Jalankan analisis ulang.');
+        setAnalysisResult(null);
+        setAnalysisFingerprint(null);
+      }
+      setIsAnalyzing(false);
+      return;
+    }
+
+    const freshFp = computeMappingFingerprint(unitsRef.current, atpRef.current, tpRef.current);
+    setAnalysisResult(guardResult.result!);
+    setLastAnalysisSnapshot(guardResult.result!);
+    setAnalysisFingerprint(freshFp);
+    setSelectedAnalysisActionIds(new Set());
+    setIsAnalyzing(false);
   };
 
   const handleToggleAction = (findingId: string) => {
