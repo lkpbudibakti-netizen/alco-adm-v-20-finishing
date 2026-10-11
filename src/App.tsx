@@ -102,6 +102,7 @@ import { BackupModal } from './components/BackupModal';
 import { ProjectTransferImportModal } from './components/ProjectTransferImportModal';
 import { isK13, getCurriculumTypeFromSetting } from './services/curriculumRouter';
 import { validateAcademicSettingReadiness } from './services/academicSettingReadiness';
+import { resolveATPUnitMappingReadiness } from './services/atpMappingReadinessService';
 import { Plus, Copy, Trash2, X, FolderPlus, AlertCircle, FileSpreadsheet } from 'lucide-react';
 import { GRADE_PHASE_MAP, SUBJECT_OPTIONS } from './data/curriculumDefaults';
 import { APP_BUILD_ID } from './config/buildInfo';
@@ -572,7 +573,33 @@ export function App() {
     ? transitionalAcademicSetting
     : semesterAcademicSetting;
 
+  const handleEnterAnnualPlanning = () => {
+    const isMerdeka = !isK13(transitionalAcademicSetting);
+
+    if (isMerdeka) {
+      const readiness = resolveATPUnitMappingReadiness(
+        activeATPUnitMapping,
+        activeATP,
+        activeTP,
+        transitionalAcademicSetting
+      );
+      if (!readiness.canProceed) {
+        setAppNotice({
+          type: 'error',
+          message: readiness.blockers.join(', ') || 'Pemetaan belum siap.',
+        });
+        setCurrentStep('atp-mapping');
+        return;
+      }
+    }
+    setCurrentStep('annual-planning');
+  };
+
   const handleSelectStep = (step: WorkflowStepId) => {
+    if (step === 'annual-planning') {
+      handleEnterAnnualPlanning();
+      return;
+    }
     const isMerdeka = !isK13(transitionalAcademicSetting);
     if (isMerdeka && step === 'admin' && !isActiveSemesterValid) {
       setCurrentStep('semester');
@@ -1653,7 +1680,7 @@ export function App() {
               mapping={activeATPUnitMapping}
               academicSetting={transitionalAcademicSetting}
               onSaveMapping={handleSaveATPUnitMapping}
-              onNextStep={() => setCurrentStep('annual-planning')}
+              onNextStep={handleEnterAnnualPlanning}
               onBackToATP={() => setCurrentStep('atp')}
             />
           )}
