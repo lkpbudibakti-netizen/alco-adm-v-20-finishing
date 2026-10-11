@@ -1042,7 +1042,17 @@ ${tps
 PRINSIP & INSTRUKSI PENYUSUNAN ATP MULTI-TP (CANONICAL):
 1. Pengelompokan (Grouping): Satu langkah ATP (ATP Step) dapat merujuk 1 atau beberapa (1..n) TP atomik yang secara pedagogis masuk akal dan koheren dipelajari bersama dalam satu alur (misal: memadukan pemahaman konsep dengan penerapan, atau menautkan kompetensi konten dengan dimensi penguatan karakter).
 2. Pengurutan (Sequencing): Urutkan kelompok langkah pembelajaran secara pedagogis logis (misal dari konkret ke abstrak, mudah ke sukar, atau hierarki keterampilan).
-3. Fokus Langkah (Focus): Tentukan ringkasan fokus capaian/pembelajaran untuk setiap langkah alur.
+    3. Fokus Langkah (Focus): Tentukan ringkasan fokus capaian/pembelajaran untuk setiap langkah alur.
+       - SETIAP fokus WAJIB menunjukkan:
+         a. Substansi/materi TP yang ditautkan.
+         b. Kompetensi atau tindakan pembelajaran yang dapat dikenali untuk setiap TP tertaut.
+         c. Kesetaraan makna kompetensi; tidak harus menyalin seluruh kalimat TP, namun tindakan spesifik harus terlihat jelas (misalnya: "Mempraktikkan" harus tampak sebagai praktik/demonstrasi).
+         d. Kata kerja spesifik seperti "Menjaga", "Mengenali", dan "Menerapkan" tidak boleh direduksi menjadi frasa umum (misal: "memahami kesehatan" dilarang).
+       - Jika satu langkah menggabungkan beberapa TP:
+         a. Semua TP tertaut harus terwakili secara substantif dalam fokus.
+         b. Kompetensi berbeda harus tetap terlihat, termasuk tindakan majemuk.
+         c. Jika penggabungan membuat fokus terlalu umum/kabur, lebih baik pisahkan menjadi langkah ATP yang lebih koheren.
+       - Sebelum mengembalikan JSON, periksa kembali apakah fokus telah benar-benar mewakili kompetensi dan materi dari setiap TP yang tertaut.
 4. INTEGRITAS RUJUKAN KETAT:
    - Setiap elemen dalam array 'linkedTpIds' WAJIB sama persis dengan string [TP_ID: ...] dari daftar input di atas. JANGAN gunakan kode TP, nomor urut, atau rumusan teks sebagai ID.
    - JANGAN ada duplikasi TP ID di dalam langkah yang sama.
