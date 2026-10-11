@@ -1794,7 +1794,7 @@ export const ATPUnitMappingManager: React.FC<ATPUnitMappingManagerProps> = ({
           {/* Metrics Overview Pills */}
           <div className={`grid grid-cols-2 gap-3 ${analysisResult.summary.missingMaterialSuggestions > 0 ? 'sm:grid-cols-3 lg:grid-cols-6' : 'sm:grid-cols-5'}`}>
             <div className="bg-emerald-50/80 border border-emerald-200 rounded-xl p-3">
-              <div className="text-[11px] font-bold text-emerald-800 uppercase">ATP Selaras</div>
+              <div className="text-[11px] font-bold text-emerald-800 uppercase">Selaras berdasarkan bukti</div>
               <div className="text-lg font-extrabold text-emerald-900 mt-0.5">
                 {analysisResult.summary.alignedAtp} <span className="text-xs font-normal text-emerald-700">Langkah</span>
               </div>
@@ -1922,7 +1922,7 @@ export const ATPUnitMappingManager: React.FC<ATPUnitMappingManagerProps> = ({
               <div className="space-y-2.5">
                 <h5 className="text-xs font-bold text-rose-950 uppercase tracking-wider flex items-center gap-1.5">
                   <AlertCircle className="w-4 h-4 text-rose-700" />
-                  <span>Langkah ATP yang Perlu Ditinjau Guru</span>
+                  <span>Perlu tinjauan keselarasan</span>
                 </h5>
 
                 <div className="space-y-2">
@@ -1953,7 +1953,7 @@ export const ATPUnitMappingManager: React.FC<ATPUnitMappingManagerProps> = ({
                             </p>
                           </div>
                           <span className="text-[11px] font-bold text-rose-700 bg-rose-100 px-2.5 py-1 rounded-lg border border-rose-300 shrink-0">
-                            Perlu ditinjau guru
+                            Perlu tinjauan keselarasan
                           </span>
                         </div>
                       );
@@ -2123,7 +2123,7 @@ export const ATPUnitMappingManager: React.FC<ATPUnitMappingManagerProps> = ({
               <div className="space-y-2.5">
                 <h5 className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
                   <AlertCircle className="w-4 h-4 text-slate-600" />
-                  <span>Lingkup Materi Manual yang Perlu Ditinjau</span>
+                  <span>Perlu tinjauan guru</span>
                 </h5>
 
                 <div className="space-y-2">
@@ -2168,7 +2168,7 @@ export const ATPUnitMappingManager: React.FC<ATPUnitMappingManagerProps> = ({
             {analysisResult.atpFindings.filter((f) => f.status === 'ALIGNED').length > 0 && (
               <details className="bg-slate-50/70 p-3 rounded-xl border border-slate-200 text-xs text-slate-700 space-y-2">
                 <summary className="font-bold text-emerald-800 cursor-pointer hover:underline">
-                  Lihat {analysisResult.summary.alignedAtp} Langkah ATP yang Sudah Selaras
+                  Lihat {analysisResult.summary.alignedAtp} Langkah ATP Selaras berdasarkan bukti yang tersedia
                 </summary>
                 <div className="space-y-1.5 pt-2">
                   {analysisResult.atpFindings
@@ -2198,7 +2198,7 @@ export const ATPUnitMappingManager: React.FC<ATPUnitMappingManagerProps> = ({
             {analysisResult.materialFindings.filter((m) => m.status === 'SUPPORTED').length > 0 && (
               <details className="bg-slate-50/70 p-3 rounded-xl border border-slate-200 text-xs text-slate-700 space-y-2">
                 <summary className="font-bold text-emerald-800 cursor-pointer hover:underline">
-                  Lihat {analysisResult.materialFindings.filter((m) => m.status === 'SUPPORTED').length} Lingkup Materi yang Didukung TP/ATP
+                  Lihat {analysisResult.materialFindings.filter((m) => m.status === 'SUPPORTED').length} Materi selaras berdasarkan bukti yang tersedia
                 </summary>
                 <div className="space-y-1.5 pt-2">
                   {analysisResult.materialFindings
@@ -2213,7 +2213,7 @@ export const ATPUnitMappingManager: React.FC<ATPUnitMappingManagerProps> = ({
                             <span>{mat?.title || 'Materi'}</span>
                           </div>
                           <span className="text-[11px] font-semibold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
-                            Didukung TP/ATP
+                            Selaras berdasarkan bukti
                           </span>
                         </div>
                       );

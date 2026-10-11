@@ -1,4 +1,5 @@
 import { TPData, ATPData, ATPUnitMappingData } from '../src/types';
+import { checkMappingSemanticEvidence } from './mappingSemanticEvidence';
 
 export interface MappingAnalysisResult {
   summary: {
@@ -220,6 +221,27 @@ export function buildMappingAnalysisPrompt(params: AnalyzeATPUnitMappingServerPa
   (tpData.items || []).forEach((t) => {
     tpMap.set(t.id, t);
   });
+
+  const getAtpTps = (atpItem: any, subsetIds?: string[]) => {
+    const canonicalIds = getCanonicalTpsForAtpItem(atpItem).filter((id) => validTpIds.has(id));
+    const effectiveIds = Array.isArray(subsetIds) && subsetIds.length > 0
+      ? subsetIds.filter((id) => canonicalIds.includes(id))
+      : canonicalIds;
+    return effectiveIds.map((id) => tpMap.get(id)).filter(Boolean);
+  };
+
+  const unitHasSemanticEvidence = (unit: any, atpItem: any, subsetIds?: string[]) => {
+    const tpItemsForUnit = getAtpTps(atpItem, subsetIds);
+    const unitLabel = [
+      unit?.title || '',
+      ...(unit?.materials || []).map((m: any) => m.title || ''),
+    ].join(' ');
+    return checkMappingSemanticEvidence({
+      label: unitLabel,
+      atpItems: [atpItem],
+      tpItems: tpItemsForUnit,
+    });
+  };
 
   // Prepare ATP context using canonical linkedTpIds
   const atpContext = (atpData.items || []).map((item, idx) => {
@@ -444,7 +466,7 @@ export function sanitizeMappingAnalysisResult(
     const atpItemId = String(f?.atpItemId || '').trim();
     if (!validAtpIds.has(atpItemId)) return; // Drop invalid ATP reference
 
-    const status = f?.status === 'ALIGNED' || f?.status === 'UNMAPPED' || f?.status === 'REVIEW'
+    const proposedStatus = f?.status === 'ALIGNED' || f?.status === 'UNMAPPED' || f?.status === 'REVIEW'
       ? f.status
       : 'REVIEW';
 
@@ -513,24 +535,36 @@ export function sanitizeMappingAnalysisResult(
       unitSubsets.forEach((s) => s.subset.forEach((id) => unionSubset.add(id)));
       const allCanonicalCovered = canonicalTpIds.length > 0 && canonicalTpIds.every((id) => unionSubset.has(id));
 
+      const semanticEvidenceByUnit = unitSubsets.map((s) => unitHasSemanticEvidence(s.unit, atpObj, s.subset));
+      const everyMappedUnitHasSemanticEvidence = semanticEvidenceByUnit.every((ev) => ev.supported);
       const isMultiBabValid = allSubsetsNonEmpty && allCanonicalCovered;
+      const canBeAligned = isMultiBabValid && everyMappedUnitHasSemanticEvidence;
       atpFindings.push({
         id: f?.id ? String(f.id) : `finding-atp-${idx + 1}`,
         atpItemId,
-        status: isMultiBabValid ? 'ALIGNED' : 'REVIEW',
+        status: canBeAligned ? 'ALIGNED' : 'REVIEW',
         currentUnitId: undefined,
         suggestedUnitId: undefined,
         suggestedMaterialId: undefined,
         supportingTpIds: canonicalTpIds,
-        strength: isMultiBabValid ? 'STRONG' : 'LOW',
-        reason: isMultiBabValid
+        strength: canBeAligned ? 'STRONG' : 'LOW',
+        reason: canBeAligned
           ? (f?.reason && typeof f.reason === 'string' && f.reason.trim().length > 0 ? f.reason.trim() : 'Pembagian TP lintas Bab valid dan lengkap.')
-          : 'Pembagian TP lintas Bab belum lengkap atau ada subset TP kosong sehingga perlu peninjauan guru.',
+          : `Pembagian TP lintas Bab belum cukup terbukti selaras secara semantik. ${semanticEvidenceByUnit.map((ev) => ev.reason).join(' ')}`,
         action: action,
       });
       return;
 
     }
+
+    const atpObj = atpMap.get(atpItemId);
+    const mappedUnit = currentUnitId ? (currentMapping.units || []).find((u) => u.id === currentUnitId) : undefined;
+    const semanticEvidence = mappedUnit ? unitHasSemanticEvidence(mappedUnit, atpObj, supportingTpIds) : undefined;
+    const status = proposedStatus === 'UNMAPPED'
+      ? 'UNMAPPED'
+      : proposedStatus === 'ALIGNED' && semanticEvidence?.supported
+        ? 'ALIGNED'
+        : 'REVIEW';
 
     atpFindings.push({
       id: f?.id ? String(f.id) : `finding-atp-${idx + 1}`,
@@ -541,7 +575,9 @@ export function sanitizeMappingAnalysisResult(
       suggestedMaterialId,
       supportingTpIds,
       strength: f?.strength === 'STRONG' || f?.strength === 'LOW' ? f.strength : 'MODERATE',
-      reason: f?.reason && typeof f.reason === 'string' ? f.reason.trim() : 'Perlu ditinjau keselarasan materi.',
+      reason: status === 'ALIGNED'
+        ? (f?.reason && typeof f.reason === 'string' ? f.reason.trim() : semanticEvidence?.reason || 'Selaras berdasarkan bukti yang tersedia.')
+        : (semanticEvidence?.reason ? `${semanticEvidence.reason} Perlu tinjauan keselarasan.` : (f?.reason && typeof f.reason === 'string' ? f.reason.trim() : 'Perlu ditinjau keselarasan materi.')),
       action,
     });
   });
@@ -665,6 +701,23 @@ export function sanitizeMappingAnalysisResult(
       }
     }
 
+    if (status === 'ALIGNABLE' && action?.type === 'ALIGN_EXISTING_MATERIAL') {
+      const targetUnit = (currentMapping.units || []).find((u) => u.id === action.targetUnitId);
+      const targetMaterial = (targetUnit?.materials || []).find((mat) => mat.id === action.targetMaterialId);
+      const actionAtpItems = action.linkedAtpItemIds.map((id) => atpMap.get(id)).filter(Boolean);
+      const actionTpItems = action.linkedTpIds.map((id) => tpMap.get(id)).filter(Boolean);
+      const semanticEvidence = checkMappingSemanticEvidence({
+        label: targetMaterial?.title || suggestedTitle || '',
+        atpItems: actionAtpItems,
+        tpItems: actionTpItems,
+      });
+
+      if (!semanticEvidence.supported) {
+        status = 'MANUAL_REVIEW';
+        action = undefined;
+      }
+    }
+
     rawProcessedMaterialFindings.push({
       id: m?.id ? String(m.id) : `finding-mat-${idx + 1}`,
       status,
@@ -773,13 +826,44 @@ export function sanitizeMappingAnalysisResult(
         if (!allAtpCanonical || !allTpCanonical || !isSubset || !allTpSupported) {
           // Invalid supported -> try deterministic first
           finalFinding = null;
+        } else {
+          const materialAtpItems = matAtpIds.map(id => atpMap.get(id)).filter(Boolean);
+          const materialTpItems = matTpIds.map(id => tpMap.get(id)).filter(Boolean);
+          const semanticEvidence = checkMappingSemanticEvidence({
+            label: m.title || '',
+            atpItems: materialAtpItems,
+            tpItems: materialTpItems,
+          });
+
+          if (!semanticEvidence.supported) {
+            finalFinding = {
+              ...finalFinding,
+              status: 'MANUAL_REVIEW',
+              strength: 'LOW',
+              reason: `Lineage materi valid secara struktural, tetapi substansi judul belum cukup terbukti selaras. ${semanticEvidence.reason}`,
+              action: undefined,
+            };
+          } else {
+            finalFinding = {
+              ...finalFinding,
+              reason: finalFinding.reason || semanticEvidence.reason,
+            };
+          }
         }
       }
 
       // C5: AI Omission or invalid supported -> Try deterministic alignment
       if (!finalFinding) {
         const detResult = findDeterministicMaterialAlignment({ material: m, unit: u, atpItems, tpMap });
-        if (detResult) {
+        const detAtpItem = detResult ? atpMap.get(detResult.atpItemId) : undefined;
+        const detTpItems = detResult ? detResult.tpIds.map((id) => tpMap.get(id)).filter(Boolean) : [];
+        const detEvidence = detResult ? checkMappingSemanticEvidence({
+          label: m.title || '',
+          atpItems: detAtpItem ? [detAtpItem] : [],
+          tpItems: detTpItems,
+        }) : undefined;
+
+        if (detResult && detEvidence?.supported) {
           finalFinding = {
             id: `det-align-${u.id}-${m.id}`,
             status: 'ALIGNABLE',
@@ -806,7 +890,7 @@ export function sanitizeMappingAnalysisResult(
             supportingTpIds: m.linkedTpIds || [],
             supportingAtpItemIds: m.linkedAtpItemIds || [],
             strength: 'LOW',
-            reason: 'Materi ini belum dianalisis secara meyakinkan oleh AI/mesin dan perlu ditinjau guru.',
+            reason: detEvidence?.reason || 'Materi ini belum dianalisis secara meyakinkan oleh AI/mesin dan perlu ditinjau guru.',
             action: undefined
           };
         }
