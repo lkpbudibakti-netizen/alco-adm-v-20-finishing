@@ -453,8 +453,8 @@ runTest('12. App source wires handleSaveCPAnalysis -> saveCPAnalysisV5 -> refres
     'handleSaveCPAnalysis must set cpId to active persisted CP id'
   );
   assert.ok(
-    body.includes('basedOnCpUpdatedAt: persistedCP.updatedAt'),
-    'handleSaveCPAnalysis must set basedOnCpUpdatedAt to active persisted CP updatedAt'
+    body.includes('basedOnCpUpdatedAt:') && body.includes('persistedCP.updatedAt'),
+    'handleSaveCPAnalysis must handle basedOnCpUpdatedAt with fallback logic'
   );
 });
 

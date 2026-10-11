@@ -11,6 +11,7 @@ import {
   getInitialCPAnalysisItems,
   deriveAnalysisItemsFromCP,
 } from '../src/components/CPAnalysisManager';
+import { checkSemanticCoverage } from '../server/cpAnalysisSemanticCoverage';
 
 console.log('=== RUNNING AUDIT: MERDEKA CP ANALYSIS INTEGRITY (NO DATA > FAKE DATA) ===\n');
 
@@ -808,6 +809,45 @@ runTest('32. /api/ai/analyze-cp enforces semantic coverage and includes PJOK Fas
   assert.ok(
     serverSource.toLowerCase().includes('setiap klausa/kompetensi berbeda pada uraian elemen'),
     'Gemini prompt must include instruction about clauses/competencies separated by ;'
+  );
+});
+
+runTest('33. checkSemanticCoverage behavioral test: complete passes, missing clause fails', () => {
+  const baselineItems = [
+    {
+      elementId: 'elem-pjok-1',
+      materialScope: 'mengenali situasi dan potensi yang berisiko terhadap kesehatan dan keselamatan; strategi mencari bantuan kepada orang dewasa terpercaya',
+    },
+  ];
+
+  const completeSanitized = [
+    {
+      elementId: 'elem-pjok-1',
+      cpCompetence: 'Mengenali & Mencari',
+      materialScope: 'situasi potensi berisiko kesehatan keselamatan serta strategi mencari bantuan kepada orang dewasa terpercaya',
+      suggestedTp: 'Peserta didik mampu mengenali risiko dan mencari bantuan orang dewasa terpercaya.',
+    },
+  ];
+
+  const partialMissingSanitized = [
+    {
+      elementId: 'elem-pjok-1',
+      cpCompetence: 'Mengenali',
+      materialScope: 'situasi potensi berisiko kesehatan keselamatan',
+      suggestedTp: 'Peserta didik mampu mengenali risiko kesehatan.',
+    },
+  ];
+
+  assert.strictEqual(
+    checkSemanticCoverage(baselineItems, completeSanitized),
+    true,
+    'Complete semantic coverage must pass'
+  );
+
+  assert.strictEqual(
+    checkSemanticCoverage(baselineItems, partialMissingSanitized),
+    false,
+    'Semantic coverage missing crucial clause must fail'
   );
 });
 

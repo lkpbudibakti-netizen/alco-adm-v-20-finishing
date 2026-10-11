@@ -28,6 +28,7 @@ import {
   fallbackAnalyzeMapping,
 } from './server/mappingAnalysis';
 import { validateGraduateProfileDimensions } from './src/constants/graduateProfileDimensions';
+import { checkSemanticCoverage } from './server/cpAnalysisSemanticCoverage';
 import {
   getCognitiveAdaptationProfile,
   CognitiveAdaptationProfile,
@@ -669,32 +670,11 @@ Kembalikan respon JSON sesuai schema:`;
         }
 
         if (isGeminiValid && sanitizedItems.length > 0) {
-          // Semantic coverage guard against baseline (fallbackAnalyzeCP)
+          // Semantic coverage guard against baseline (fallbackAnalyzeCP) using checkSemanticCoverage
           const baseline = fallbackAnalyzeCP({ cpText, elements: validElements, subject, grade, phase, curriculum });
           if (baseline && Array.isArray(baseline.items) && baseline.items.length > 0) {
-            for (const bItem of baseline.items) {
-              const bElemId = bItem.elementId ? String(bItem.elementId).trim() : '';
-              if (!bElemId) continue;
-              const baselineTokens = getSubstantiveTokens(bItem.materialScope);
-              if (baselineTokens.length === 0) continue;
-
-              const geminiItemsForElem = sanitizedItems.filter(i => i.elementId === bElemId);
-              const geminiTextPool = geminiItemsForElem.map(i => `${i.cpCompetence} ${i.materialScope} ${i.meaningfulUnderstanding} ${i.suggestedTp}`).join(' ');
-              const geminiTokens = new Set(getSubstantiveTokens(geminiTextPool));
-
-              const matched = baselineTokens.filter(t => geminiTokens.has(t));
-              if (baselineTokens.length <= 2) {
-                if (matched.length < baselineTokens.length) {
-                  isGeminiValid = false;
-                  break;
-                }
-              } else {
-                const minOverlap = Math.max(2, Math.ceil(0.5 * baselineTokens.length));
-                if (matched.length < minOverlap) {
-                  isGeminiValid = false;
-                  break;
-                }
-              }
+            if (!checkSemanticCoverage(baseline.items, sanitizedItems)) {
+              isGeminiValid = false;
             }
           }
         }
