@@ -33,7 +33,7 @@ export function checkSemanticCoverage(baselineItems: any[], sanitizedItems: any[
       if (chunkTokens.length === 0) continue;
 
       const matched = chunkTokens.filter(t => geminiTokens.has(t));
-      if (chunkTokens.length <= 2) {
+      if (chunkTokens.length <= 5) {
         if (matched.length < chunkTokens.length) {
           return false;
         }

@@ -849,6 +849,43 @@ runTest('33. checkSemanticCoverage behavioral test: complete passes, missing cla
     false,
     'Semantic coverage missing crucial clause must fail'
   );
+
+  const baselineShort = [
+    {
+      elementId: 'elem-pjok-short',
+      materialScope: 'Berpartisipasi di dalam berbagai aktivitas jasmani dan mengidentifikasi manfaatnya.',
+    },
+  ];
+
+  const shortComplete = [
+    {
+      elementId: 'elem-pjok-short',
+      cpCompetence: 'Berpartisipasi',
+      materialScope: 'berbagai aktivitas jasmani serta mengidentifikasi manfaatnya',
+      suggestedTp: 'Peserta didik berpartisipasi dalam aktivitas jasmani dan mengidentifikasi manfaatnya.',
+    },
+  ];
+
+  const shortPartialMissing = [
+    {
+      elementId: 'elem-pjok-short',
+      cpCompetence: 'Berpartisipasi',
+      materialScope: 'berbagai aktivitas jasmani',
+      suggestedTp: 'Peserta didik berpartisipasi dalam aktivitas jasmani.',
+    },
+  ];
+
+  assert.strictEqual(
+    checkSemanticCoverage(baselineShort, shortComplete),
+    true,
+    'Short baseline complete coverage must pass'
+  );
+
+  assert.strictEqual(
+    checkSemanticCoverage(baselineShort, shortPartialMissing),
+    false,
+    'Short baseline missing benefit/manfaat must fail'
+  );
 });
 
 console.log(`\n========================================`);
