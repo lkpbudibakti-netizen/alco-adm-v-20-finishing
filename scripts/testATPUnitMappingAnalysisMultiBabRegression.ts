@@ -349,7 +349,7 @@ console.log('Testing Case M: Material Closure...');
         order: 2, 
         linkedAtpItemIds: ['atp-1'], 
         linkedTpIds: ['TP3'], 
-        materials: [{ id: 'm-2', title: 'Pecahan', order: 1, linkedAtpItemIds: [], linkedTpIds: [] }] 
+        materials: [{ id: 'm-2', title: 'Pecahan Sederhana', order: 1, linkedAtpItemIds: [], linkedTpIds: [] }] 
       },
     ],
     updatedAt: '2026-01-01T00:00:00Z',
@@ -360,7 +360,11 @@ console.log('Testing Case M: Material Closure...');
   
   assert.ok(matFinding, 'Material finding m-2 must exist');
   console.log('Status found:', matFinding?.status);
-  assert.ok(['ALIGNABLE', 'SUPPORTED', 'MANUAL_REVIEW'].includes(matFinding?.status || ''), 'Status should be ALIGNABLE or SUPPORTED');
+  assert.strictEqual(
+    matFinding?.status,
+    'ALIGNABLE',
+    'Material Pecahan Sederhana must be deterministically alignable'
+  );
   assert.strictEqual(matFinding?.action?.type, 'ALIGN_EXISTING_MATERIAL');
   assert.deepStrictEqual(matFinding?.action?.linkedAtpItemIds, ['atp-1']);
   assert.deepStrictEqual(matFinding?.action?.linkedTpIds, ['TP3']);
@@ -379,6 +383,51 @@ console.log('Testing Case M: Material Closure...');
   assert.deepStrictEqual(finalValidation.uncoveredTpIds, []);
   
   console.log('✅ Case M passed');
+}
+
+// ==========================================
+// CASE N: Lock TP to ATP Canonical Parent
+// ==========================================
+console.log('Testing Case N: Reject TP belonging to another ATP...');
+{
+  const customATPData: ATPData = {
+    ...mockATPData,
+    items: [
+      { id: 'atp-1', stepNumber: 1, linkedTpIds: ['TP1'], focus: 'Bilangan', jp: 4, semester: 'GANJIL' },
+      { id: 'atp-2', stepNumber: 2, linkedTpIds: ['TP2'], focus: 'Operasi', jp: 4, semester: 'GANJIL' },
+    ],
+  };
+  const rawResult = {
+    atpFindings: [
+      {
+        id: 'f-1',
+        atpItemId: 'atp-1',
+        status: 'UNMAPPED',
+        action: {
+          type: 'ASSIGN_ATP_TO_UNIT',
+          atpItemId: 'atp-1',
+          targetUnitId: 'unit-1',
+          linkedTpIds: ['TP2'], // Belongs to atp-2, not atp-1
+        },
+      },
+    ],
+    materialFindings: [],
+  };
+  const mapping: ATPUnitMappingData = {
+    id: 'map-n',
+    academicSettingId: 'acad-001',
+    atpId: 'atp-001',
+    tpDataId: 'tp-data-001',
+    units: [{ id: 'unit-1', title: 'Bab 1', order: 1, linkedAtpItemIds: [], linkedTpIds: [], materials: [] }],
+    updatedAt: '2026-01-01T00:00:00Z',
+  };
+  const sanitized = sanitizeMappingAnalysisResult(rawResult, {
+    tpData: mockTPData,
+    atpData: customATPData,
+    currentMapping: mapping,
+  });
+  assert.strictEqual(sanitized.atpFindings[0].action, undefined, 'Action must be undefined when TP belongs to another ATP');
+  console.log('✅ Case N passed');
 }
 
 console.log('=== ALL MULTI-BAB ANALYSIS REGRESSION TESTS PASSED SUCCESSFULLY ===');

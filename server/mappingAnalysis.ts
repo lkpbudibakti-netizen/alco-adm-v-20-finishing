@@ -325,7 +325,11 @@ ${JSON.stringify(atpContext, null, 2)}
 
 === INSTRUKSI ANALISIS ===
 1. ANALISIS ATP (atpFindings):
-   - Periksa setiap ATP dalam DAFTAR ATP. Rekomendasikan unitId jika belum dipetakan.
+   - Periksa setiap ATP terhadap semua Bab yang belum memiliki ATP tersebut.
+   - ATP yang sudah berada pada satu atau lebih Bab tetap boleh direkomendasikan ke Bab lain jika relevansi semantiknya kuat.
+   - Jangan memindahkan ATP dari Bab yang sudah memilikinya.
+   - Setiap ASSIGN_ATP_TO_UNIT wajib menyertakan linkedTpIds berupa subset TP canonical yang relevan terhadap target Bab.
+   - Jika subset TP tidak dapat ditentukan dengan yakin, gunakan REVIEW tanpa action.
 
 2. ANALISIS LINGKUP MATERI (materialFindings):
    - Periksa semua Lingkup Materi manual yang ada pada Bab.
