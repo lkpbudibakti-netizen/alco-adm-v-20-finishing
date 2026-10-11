@@ -66,6 +66,13 @@ export interface MappingAnalysisResult {
       targetMaterialId: string;
       linkedAtpItemIds: string[];
       linkedTpIds: string[];
+    } | {
+      type: 'RECOVER_ATP_LINEAGE';
+      targetUnitId: string;
+      targetMaterialId?: string;
+      removeAtpItemIds: string[];
+      linkedAtpItemIds: string[];
+      linkedTpIds: string[];
     };
   }>;
 }
@@ -780,6 +787,79 @@ export function sanitizeMappingAnalysisResult(
       strength: m?.strength === 'STRONG' || m?.strength === 'LOW' ? m.strength : 'MODERATE',
       reason: m?.reason && typeof m.reason === 'string' ? m.reason.trim() : 'Peninjauan lingkup materi.',
       action,
+    });
+  });
+
+  const findRecoveryCandidate = (label: string, linkedTpIds: string[]) => {
+    const validLinkedTpIds = (linkedTpIds || []).filter((id) => validTpIds.has(id));
+    if (validLinkedTpIds.length === 0) return null;
+
+    const candidates = atpItems
+      .map((item) => {
+        const canonicalTpIds = getCanonicalTpsForAtpItem(item).filter((id) => validLinkedTpIds.includes(id));
+        if (canonicalTpIds.length === 0) return null;
+        const evidence = checkMappingSemanticEvidence({
+          label,
+          atpItems: [item],
+          tpItems: canonicalTpIds.map((id) => tpMap.get(id)).filter(Boolean),
+        });
+        return evidence.supported ? { item, canonicalTpIds, evidence } : null;
+      })
+      .filter(Boolean) as Array<{ item: any; canonicalTpIds: string[]; evidence: any }>;
+
+    if (candidates.length !== 1) return null;
+    return candidates[0];
+  };
+
+  (currentMapping.units || []).forEach((u) => {
+    const staleUnitAtpIds = (u.linkedAtpItemIds || []).filter((id) => !validAtpIds.has(id));
+    if (staleUnitAtpIds.length > 0) {
+      const unitLabel = [u.title || '', ...(u.materials || []).map((m: any) => m.title || '')].join(' ');
+      const recovery = findRecoveryCandidate(unitLabel, u.linkedTpIds || []);
+      rawProcessedMaterialFindings.push({
+        id: `recover-unit-${u.id}`,
+        status: recovery ? 'ALIGNABLE' : 'MANUAL_REVIEW',
+        unitId: u.id,
+        supportingTpIds: recovery?.canonicalTpIds || (u.linkedTpIds || []).filter((id: string) => validTpIds.has(id)),
+        supportingAtpItemIds: recovery ? [recovery.item.id] : [],
+        strength: recovery ? 'STRONG' : 'LOW',
+        reason: recovery
+          ? `Ditemukan referensi ATP lama pada Bab. Saran recovery mengganti [${staleUnitAtpIds.join(', ')}] dengan ATP canonical terbaru berdasarkan TP dan substansi Bab.`
+          : `Bab memuat referensi ATP lama [${staleUnitAtpIds.join(', ')}], tetapi pengganti canonical tidak dapat dipastikan otomatis.`,
+        action: recovery ? {
+          type: 'RECOVER_ATP_LINEAGE',
+          targetUnitId: u.id,
+          removeAtpItemIds: staleUnitAtpIds,
+          linkedAtpItemIds: [recovery.item.id],
+          linkedTpIds: recovery.canonicalTpIds,
+        } : undefined,
+      });
+    }
+
+    (u.materials || []).forEach((m) => {
+      const staleMatAtpIds = (m.linkedAtpItemIds || []).filter((id: string) => !validAtpIds.has(id));
+      if (staleMatAtpIds.length === 0) return;
+      const recovery = findRecoveryCandidate(`${u.title || ''} ${m.title || ''}`, m.linkedTpIds || []);
+      rawProcessedMaterialFindings.push({
+        id: `recover-mat-${u.id}-${m.id}`,
+        status: recovery ? 'ALIGNABLE' : 'MANUAL_REVIEW',
+        unitId: u.id,
+        materialId: m.id,
+        supportingTpIds: recovery?.canonicalTpIds || (m.linkedTpIds || []).filter((id: string) => validTpIds.has(id)),
+        supportingAtpItemIds: recovery ? [recovery.item.id] : [],
+        strength: recovery ? 'STRONG' : 'LOW',
+        reason: recovery
+          ? `Ditemukan referensi ATP lama pada materi. Saran recovery mengganti [${staleMatAtpIds.join(', ')}] dengan ATP canonical terbaru berdasarkan TP dan substansi materi.`
+          : `Materi memuat referensi ATP lama [${staleMatAtpIds.join(', ')}], tetapi pengganti canonical tidak dapat dipastikan otomatis.`,
+        action: recovery ? {
+          type: 'RECOVER_ATP_LINEAGE',
+          targetUnitId: u.id,
+          targetMaterialId: m.id,
+          removeAtpItemIds: staleMatAtpIds,
+          linkedAtpItemIds: [recovery.item.id],
+          linkedTpIds: recovery.canonicalTpIds,
+        } : undefined,
+      });
     });
   });
 

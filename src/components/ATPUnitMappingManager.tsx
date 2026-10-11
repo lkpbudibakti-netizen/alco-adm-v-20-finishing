@@ -40,7 +40,9 @@ import { validateATPUnitMappingCanonical } from '../services/atpUnitMappingValid
 import { resolveATPUnitMappingReadiness } from '../services/atpMappingReadinessService';
 import {
   applyATPMappingActions,
+  computeAtpSubstantiveFingerprint,
   computeMappingFingerprint,
+  computeTpSubstantiveFingerprint,
   type MappingActionItem,
 } from '../services/atpMappingActionApplyService';
 import { runGuardedAnalysis } from '../services/atpAsyncGuard';
@@ -212,7 +214,9 @@ export function buildCurrentMappingDraftFromUnits(
   atpId?: string,
   tpDataId?: string,
   basedOnTpUpdatedAt?: string,
-  basedOnAtpUpdatedAt?: string
+  basedOnAtpUpdatedAt?: string,
+  basedOnTpFingerprint?: string,
+  basedOnAtpFingerprint?: string
 ): ATPUnitMappingData {
   const finalUnits: ATPUnitMapping[] = units.map((u, idx) => {
     const uId = u.id && u.id.trim() ? u.id.trim() : `unit-${Date.now()}-${idx + 1}`;
@@ -251,6 +255,8 @@ export function buildCurrentMappingDraftFromUnits(
     units: finalUnits,
     basedOnTpUpdatedAt,
     basedOnAtpUpdatedAt,
+    basedOnTpFingerprint,
+    basedOnAtpFingerprint,
     updatedAt: new Date().toISOString(),
   };
 }
@@ -422,7 +428,10 @@ export const ATPUnitMappingManager: React.FC<ATPUnitMappingManagerProps> = ({
       id: mapping?.id || 'temp',
       academicSettingId: academicSetting?.id || atp.academicSettingId || '',
       atpId: atp.id,
+      tpDataId: tp.id || atp.tpDataId,
       units,
+      basedOnTpFingerprint: computeTpSubstantiveFingerprint(tp),
+      basedOnAtpFingerprint: computeAtpSubstantiveFingerprint(atp),
       updatedAt: mapping?.updatedAt || new Date().toISOString(),
     } as ATPUnitMappingData;
 
@@ -841,7 +850,9 @@ export const ATPUnitMappingManager: React.FC<ATPUnitMappingManagerProps> = ({
       atp.id,
       tp.id || atp.tpDataId,
       tp.updatedAt || atp.basedOnTpUpdatedAt,
-      atp.updatedAt
+      atp.updatedAt,
+      computeTpSubstantiveFingerprint(tp),
+      computeAtpSubstantiveFingerprint(atp)
     );
   };
 
@@ -983,7 +994,9 @@ export const ATPUnitMappingManager: React.FC<ATPUnitMappingManagerProps> = ({
       atpRef.current.id,
       tpRef.current.id || atpRef.current.tpDataId,
       tpRef.current.updatedAt || atpRef.current.basedOnTpUpdatedAt,
-      atpRef.current.updatedAt
+      atpRef.current.updatedAt,
+      computeTpSubstantiveFingerprint(tpRef.current),
+      computeAtpSubstantiveFingerprint(atpRef.current)
     );
 
     const guardResult = await runGuardedAnalysis({
@@ -2064,10 +2077,10 @@ export const ATPUnitMappingManager: React.FC<ATPUnitMappingManagerProps> = ({
                       const targetMat = (targetUnit?.materials || []).find((mat) => mat.id === finding.materialId);
                       const isSelected = selectedAnalysisActionIds.has(finding.id);
 
-                      const recAtpId = finding.action?.type === 'ALIGN_EXISTING_MATERIAL' ? finding.action.linkedAtpItemIds[0] : null;
+                      const recAtpId = finding.action?.type === 'ALIGN_EXISTING_MATERIAL' || finding.action?.type === 'RECOVER_ATP_LINEAGE' ? finding.action.linkedAtpItemIds[0] : null;
                       const recAtpItem = recAtpId ? atpItemMap.get(recAtpId) : null;
 
-                      const recTpIds = finding.action?.type === 'ALIGN_EXISTING_MATERIAL' ? finding.action.linkedTpIds : [];
+                      const recTpIds = finding.action?.type === 'ALIGN_EXISTING_MATERIAL' || finding.action?.type === 'RECOVER_ATP_LINEAGE' ? finding.action.linkedTpIds : [];
                       const recTps = recTpIds.map((tpId) => (tp.items || []).find((t) => t.id === tpId)).filter(Boolean);
 
                       return (

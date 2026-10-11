@@ -1,8 +1,12 @@
 import assert from 'node:assert';
 import {
   applyATPMappingActions,
+  computeAtpSubstantiveFingerprint,
   computeMappingFingerprint,
+  computeTpSubstantiveFingerprint,
 } from '../src/services/atpMappingActionApplyService';
+import { resolveATPUnitMappingReadiness } from '../src/services/atpMappingReadinessService';
+import { sanitizeMappingAnalysisResult } from '../server/mappingAnalysis';
 import type { ATPData, TPData, ATPUnitMappingData } from '../src/types';
 
 console.log('=== RUNNING P0-D PRODUCTION HELPER MAPPING REGRESSION TESTS ===\n');
@@ -220,11 +224,12 @@ const initialFingerprint = computeMappingFingerprint(initialUnits, mockAtp, mock
   console.log('PASS Scenario 7: Draft change stale rejection');
 }
 
-// Scenario 8: TP/ATP berubah -> stale reject
+// Scenario 8: Substansi TP/ATP berubah -> stale reject
 {
   const modifiedAtp = {
     ...mockAtp,
     updatedAt: '2026-01-02T00:00:00.000Z',
+    items: [{ ...mockAtp.items[0], linkedTpIds: ['tp-2'] }, mockAtp.items[1]],
   };
   const modifiedAtpFp = computeMappingFingerprint(initialUnits, modifiedAtp, mockTp);
 
@@ -243,8 +248,8 @@ const initialFingerprint = computeMappingFingerprint(initialUnits, mockAtp, mock
     expectedFingerprint: initialFingerprint,
     currentFingerprint: modifiedAtpFp,
   });
-  assert.strictEqual(result.success, false, 'ATP update must cause stale rejection');
-  console.log('PASS Scenario 8: ATP update stale rejection');
+  assert.strictEqual(result.success, false, 'ATP substantive update must cause stale rejection');
+  console.log('PASS Scenario 8: ATP substantive update stale rejection');
 }
 
 // Scenario 9: Fingerprint kosong -> reject
@@ -327,6 +332,178 @@ const initialFingerprint = computeMappingFingerprint(initialUnits, mockAtp, mock
   assert.strictEqual(typeof applyATPMappingActions, 'function');
   assert.strictEqual(typeof computeMappingFingerprint, 'function');
   console.log('PASS Scenario 12: Helper is pure function without side effects');
+}
+
+// Scenario 13: Excel 6 Bab/17 Materi lineage kosong dapat diisi tanpa kehilangan struktur
+{
+  const excelUnits = Array.from({ length: 6 }, (_, unitIdx) => ({
+    id: `excel-unit-${unitIdx + 1}`,
+    title: `Bab Excel ${unitIdx + 1}`,
+    order: unitIdx + 1,
+    linkedAtpItemIds: [],
+    linkedTpIds: [],
+    materials: Array.from({ length: unitIdx === 0 ? 2 : 3 }, (_, matIdx) => ({
+      id: `excel-mat-${unitIdx + 1}-${matIdx + 1}`,
+      title: `Materi Excel ${unitIdx + 1}.${matIdx + 1}`,
+      order: matIdx + 1,
+      linkedAtpItemIds: [],
+      linkedTpIds: [],
+    })),
+  }));
+  const fp = computeMappingFingerprint(excelUnits, mockAtp, mockTp);
+  const result = applyATPMappingActions({
+    units: excelUnits,
+    selectedActions: [{
+      id: 'excel-fill',
+      type: 'ADD_MATERIAL_TO_UNIT',
+      targetUnitId: 'excel-unit-1',
+      title: 'Materi relasi valid',
+      linkedAtpItemIds: ['atp-item-1'],
+      linkedTpIds: ['tp-1'],
+    }],
+    atp: mockAtp,
+    tp: mockTp,
+    expectedFingerprint: fp,
+    currentFingerprint: fp,
+  });
+  assert.strictEqual(result.success, true);
+  assert.strictEqual(result.nextUnits?.length, 6);
+  assert.strictEqual(result.nextUnits?.reduce((sum, u) => sum + u.materials.length, 0), 18);
+  console.log('PASS Scenario 13: Excel imported structure preserved while lineage is added');
+}
+
+// Scenario 14-16: Referensi ATP lama direkomendasikan recovery, direlink, dan ID lama dibersihkan
+{
+  const oldUnits = [{
+    id: 'unit-old',
+    title: 'Materi 1',
+    order: 1,
+    linkedAtpItemIds: ['atp-item-old'],
+    linkedTpIds: ['tp-1'],
+    materials: [{
+      id: 'mat-old',
+      title: 'Materi 1',
+      order: 1,
+      linkedAtpItemIds: ['atp-item-old'],
+      linkedTpIds: ['tp-1'],
+    }],
+  }];
+  const analysis = sanitizeMappingAnalysisResult({ atpFindings: [], materialFindings: [], summary: {} }, {
+    tpData: mockTp,
+    atpData: mockAtp,
+    currentMapping: {
+      id: 'mapping-old',
+      academicSettingId: 'acad-1',
+      atpId: mockAtp.id,
+      tpDataId: mockTp.id,
+      units: oldUnits,
+      updatedAt: '2026-01-01T00:00:00.000Z',
+    },
+  });
+  const recoveryActions = analysis.materialFindings.filter((f) => f.action).map((f) => ({ id: f.id, ...f.action! }));
+  assert.ok(recoveryActions.length >= 1, 'Recovery analysis must produce explicit action(s)');
+
+  const fp = computeMappingFingerprint(oldUnits, mockAtp, mockTp);
+  const applied = applyATPMappingActions({
+    units: oldUnits,
+    selectedActions: recoveryActions as any,
+    atp: mockAtp,
+    tp: mockTp,
+    expectedFingerprint: fp,
+    currentFingerprint: fp,
+  });
+  assert.strictEqual(applied.success, true, 'Recovery actions must apply');
+  assert.ok(!JSON.stringify(applied.nextUnits).includes('atp-item-old'), 'Old ATP references must be removed after valid recovery');
+  assert.ok(JSON.stringify(applied.nextUnits).includes('atp-item-1'), 'Current canonical ATP must be linked after recovery');
+  console.log('PASS Scenario 14-16: Old ATP references recover to current canonical lineage');
+}
+
+// Scenario 17: Relasi ambigu tidak diterapkan otomatis
+{
+  const ambiguousAtp: ATPData = {
+    ...mockAtp,
+    items: [
+      ...mockAtp.items,
+      { id: 'atp-item-1b', stepNumber: 3, linkedTpIds: ['tp-1'] },
+    ],
+  } as any;
+  const oldUnits = [{
+    id: 'unit-amb',
+    title: 'Materi 1',
+    order: 1,
+    linkedAtpItemIds: ['atp-item-old'],
+    linkedTpIds: ['tp-1'],
+    materials: [],
+  }];
+  const analysis = sanitizeMappingAnalysisResult({ atpFindings: [], materialFindings: [], summary: {} }, {
+    tpData: mockTp,
+    atpData: ambiguousAtp,
+    currentMapping: { id: 'mapping-amb', academicSettingId: 'acad-1', atpId: ambiguousAtp.id, tpDataId: mockTp.id, units: oldUnits, updatedAt: '2026-01-01' },
+  });
+  assert.ok(analysis.materialFindings.some((f) => f.status === 'MANUAL_REVIEW' && !f.action), 'Ambiguous recovery must require teacher review');
+  console.log('PASS Scenario 17: Ambiguous recovery is not auto-actionable');
+}
+
+// Scenario 18-19: Draft valid-incomplete bisa disimpan, complete bisa lanjut
+{
+  const incompleteMapping: ATPUnitMappingData = {
+    id: 'mapping-incomplete',
+    academicSettingId: 'acad-1',
+    atpId: mockAtp.id,
+    tpDataId: mockTp.id,
+    units: [{ id: 'unit-1', title: 'Bab 1', order: 1, linkedAtpItemIds: ['atp-item-1'], linkedTpIds: ['tp-1'], materials: [] }],
+    basedOnAtpFingerprint: computeAtpSubstantiveFingerprint(mockAtp),
+    basedOnTpFingerprint: computeTpSubstantiveFingerprint(mockTp),
+    updatedAt: '2026-01-01',
+  };
+  const readyAtp = { ...mockAtp, workflowStatus: 'SIAP' } as ATPData;
+  const readyTp = { ...mockTp, workflowStatus: 'SIAP' } as TPData;
+  const draftReadiness = resolveATPUnitMappingReadiness(incompleteMapping, readyAtp, readyTp, { id: 'acad-1' } as any);
+  assert.strictEqual(draftReadiness.canSaveDraft, true, 'Valid incomplete mapping must be saveable as draft');
+  assert.strictEqual(draftReadiness.canProceed, false, 'Incomplete mapping must not proceed');
+
+  const completeMapping: ATPUnitMappingData = {
+    ...incompleteMapping,
+    units: [{
+      id: 'unit-1',
+      title: 'Bab 1',
+      order: 1,
+      linkedAtpItemIds: ['atp-item-1', 'atp-item-2'],
+      linkedTpIds: ['tp-1', 'tp-2'],
+      materials: [
+        { id: 'mat-1', title: 'Materi 1', order: 1, linkedAtpItemIds: ['atp-item-1'], linkedTpIds: ['tp-1'] },
+        { id: 'mat-2', title: 'Materi 2', order: 2, linkedAtpItemIds: ['atp-item-2'], linkedTpIds: ['tp-2'] },
+      ],
+    }],
+  };
+  const completeReadiness = resolveATPUnitMappingReadiness(completeMapping, readyAtp, readyTp, { id: 'acad-1' } as any);
+  assert.strictEqual(completeReadiness.canProceed, true, 'Complete valid mapping must proceed to Step 08');
+  console.log('PASS Scenario 18-19: Save draft and proceed readiness verified');
+}
+
+// Scenario 20-21: Metadata-only tidak stale, substansi upstream tetap stale
+{
+  const mappingWithFingerprint: ATPUnitMappingData = {
+    id: 'mapping-fresh',
+    academicSettingId: 'acad-1',
+    atpId: mockAtp.id,
+    tpDataId: mockTp.id,
+    units: initialUnits,
+    basedOnAtpUpdatedAt: '2026-01-01T00:00:00.000Z',
+    basedOnTpUpdatedAt: '2026-01-01T00:00:00.000Z',
+    basedOnAtpFingerprint: computeAtpSubstantiveFingerprint(mockAtp),
+    basedOnTpFingerprint: computeTpSubstantiveFingerprint(mockTp),
+    updatedAt: '2026-01-01T00:00:00.000Z',
+  };
+  const metadataOnlyAtp = { ...mockAtp, workflowStatus: 'SIAP', updatedAt: '2026-01-02T00:00:00.000Z' } as ATPData;
+  const readyTp = { ...mockTp, workflowStatus: 'SIAP' } as TPData;
+  const metadataReadiness = resolveATPUnitMappingReadiness(mappingWithFingerprint, metadataOnlyAtp, readyTp, { id: 'acad-1' } as any);
+  assert.ok(!metadataReadiness.blockers.some((b) => b.includes('stale')), 'Metadata-only ATP update must not trigger stale when fingerprint matches');
+
+  const changedAtp = { ...metadataOnlyAtp, items: [{ ...metadataOnlyAtp.items[0], linkedTpIds: ['tp-2'] }, metadataOnlyAtp.items[1]] } as ATPData;
+  const changedReadiness = resolveATPUnitMappingReadiness(mappingWithFingerprint, changedAtp, readyTp, { id: 'acad-1' } as any);
+  assert.ok(changedReadiness.blockers.some((b) => b.includes('Substansi ATP berubah')), 'Substantive ATP change must remain stale');
+  console.log('PASS Scenario 20-21: Metadata-only and substantive stale checks verified');
 }
 
 console.log('\n=== ALL P0-D PRODUCTION HELPER MAPPING REGRESSION TESTS PASSED SUCCESSFULLY ===\n');

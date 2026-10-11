@@ -25,7 +25,7 @@ const mockUnits: ATPUnitMapping[] = [
 ];
 
 async function runTests() {
-  // Scenario 1: ATP changed during request -> response rejected
+  // Scenario 1: ATP substantive changed during request -> response rejected
   {
     let currentAtp = { ...mockAtp, updatedAt: '2026-01-01' };
     let currentTp = { ...mockTp };
@@ -42,7 +42,7 @@ async function runTests() {
       tpGetter: () => currentTp,
       expectedFingerprint: fp,
       fetchFn: async () => {
-        currentAtp = { ...mockAtp, updatedAt: '2026-01-02' };
+        currentAtp = { ...mockAtp, items: [{ id: 'atp-new', stepNumber: 1, linkedTpIds: ['tp-1'] }] as any };
         return { analysis: 'result' };
       },
     });
@@ -50,10 +50,10 @@ async function runTests() {
     const res = await promise;
     assert.strictEqual(res.success, false);
     assert.strictEqual(res.isStaleOrOutdated, true);
-    console.log('PASS Scenario 1: ATP changed during request -> rejected');
+    console.log('PASS Scenario 1: ATP substantive change during request -> rejected');
   }
 
-  // Scenario 2: TP changed during request -> response rejected
+  // Scenario 2: TP substantive changed during request -> response rejected
   {
     let currentAtp = { ...mockAtp };
     let currentTp = { ...mockTp, updatedAt: '2026-01-01' };
@@ -70,7 +70,7 @@ async function runTests() {
       tpGetter: () => currentTp,
       expectedFingerprint: fp,
       fetchFn: async () => {
-        currentTp = { ...mockTp, updatedAt: '2026-01-02' };
+        currentTp = { ...mockTp, items: [{ id: 'tp-new', statement: 'TP baru' }] as any };
         return { analysis: 'result' };
       },
     });
@@ -78,7 +78,7 @@ async function runTests() {
     const res = await promise;
     assert.strictEqual(res.success, false);
     assert.strictEqual(res.isStaleOrOutdated, true);
-    console.log('PASS Scenario 2: TP changed during request -> rejected');
+    console.log('PASS Scenario 2: TP substantive change during request -> rejected');
   }
 
   // Scenario 3: Draft Bab/Materi changed during request -> response rejected
@@ -210,6 +210,33 @@ async function runTests() {
     assert.strictEqual(res.success, true);
     assert.deepStrictEqual(res.result, { status: 'ok', findings: [] });
     console.log('PASS Scenario 7: Valid request without changes -> accepted');
+  }
+
+  // Scenario 8: Metadata-only upstream change -> result accepted
+  {
+    let currentAtp = { ...mockAtp, updatedAt: '2026-01-01' };
+    let currentTp = { ...mockTp, updatedAt: '2026-01-01' };
+    let currentUnits = [...mockUnits];
+    let requestId = 1;
+
+    const fp = computeMappingFingerprint(currentUnits, currentAtp, currentTp);
+
+    const res = await runGuardedAnalysis({
+      requestId,
+      getCurrentRequestId: () => requestId,
+      unitsGetter: () => currentUnits,
+      atpGetter: () => currentAtp,
+      tpGetter: () => currentTp,
+      expectedFingerprint: fp,
+      fetchFn: async () => {
+        currentAtp = { ...currentAtp, updatedAt: '2026-01-02' };
+        currentTp = { ...currentTp, updatedAt: '2026-01-02' };
+        return { status: 'ok', findings: [] };
+      },
+    });
+
+    assert.strictEqual(res.success, true);
+    console.log('PASS Scenario 8: Metadata-only upstream change -> accepted');
   }
 
   console.log('=== ALL P0-D ASYNC SAFETY REGRESSION TESTS PASSED SUCCESSFULLY ===');

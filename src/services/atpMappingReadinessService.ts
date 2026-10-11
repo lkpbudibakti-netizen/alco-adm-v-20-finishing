@@ -1,5 +1,6 @@
 import { ATPUnitMappingData, ATPData, TPData, AcademicSetting } from '../types';
 import { validateATPUnitMappingCanonical, ATPUnitMappingValidationResult } from './atpUnitMappingValidationService';
+import { computeAtpSubstantiveFingerprint, computeTpSubstantiveFingerprint } from './atpMappingActionApplyService';
 import { isUpstreamStale } from './workflowEngine';
 
 export interface MappingReadiness {
@@ -68,13 +69,24 @@ export function resolveATPUnitMappingReadiness(
 
   // 4. Upstream staleness check (only if source metadata exists and strictly newer)
   let isStale = false;
-  if (mapping && atp?.updatedAt && mapping.basedOnAtpUpdatedAt) {
+  const mappingAny = mapping as (ATPUnitMappingData & { basedOnAtpFingerprint?: string; basedOnTpFingerprint?: string }) | undefined;
+  if (mapping && atp && mappingAny?.basedOnAtpFingerprint) {
+    if (mappingAny.basedOnAtpFingerprint !== computeAtpSubstantiveFingerprint(atp)) {
+      isStale = true;
+      blockers.push('Substansi ATP berubah sejak pemetaan terakhir disimpan (stale).');
+    }
+  } else if (mapping && atp?.updatedAt && mapping.basedOnAtpUpdatedAt) {
     if (isUpstreamStale(atp.updatedAt, mapping.basedOnAtpUpdatedAt)) {
       isStale = true;
       blockers.push('Alur ATP telah diperbarui sejak pemetaan terakhir disimpan (stale).');
     }
   }
-  if (mapping && tp?.updatedAt && mapping.basedOnTpUpdatedAt) {
+  if (mapping && tp && mappingAny?.basedOnTpFingerprint) {
+    if (mappingAny.basedOnTpFingerprint !== computeTpSubstantiveFingerprint(tp)) {
+      isStale = true;
+      blockers.push('Substansi TP berubah sejak pemetaan terakhir disimpan (stale).');
+    }
+  } else if (mapping && tp?.updatedAt && mapping.basedOnTpUpdatedAt) {
     if (isUpstreamStale(tp.updatedAt, mapping.basedOnTpUpdatedAt)) {
       isStale = true;
       blockers.push('Tujuan Pembelajaran (TP) telah diperbarui sejak pemetaan terakhir disimpan (stale).');

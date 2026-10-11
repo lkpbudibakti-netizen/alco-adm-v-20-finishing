@@ -524,6 +524,8 @@ export interface ATPUnitMappingData {
   units: ATPUnitMapping[];
   basedOnTpUpdatedAt?: string;
   basedOnAtpUpdatedAt?: string;
+  basedOnTpFingerprint?: string;
+  basedOnAtpFingerprint?: string;
   updatedAt: string;
 }
 

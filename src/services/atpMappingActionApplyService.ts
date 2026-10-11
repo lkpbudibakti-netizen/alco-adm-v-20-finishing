@@ -3,13 +3,14 @@ import { validateATPUnitMappingCanonical } from './atpUnitMappingValidationServi
 
 export interface MappingActionItem {
   id: string;
-  type: 'ASSIGN_ATP_TO_UNIT' | 'ADD_MATERIAL_TO_UNIT' | 'ALIGN_EXISTING_MATERIAL';
+  type: 'ASSIGN_ATP_TO_UNIT' | 'ADD_MATERIAL_TO_UNIT' | 'ALIGN_EXISTING_MATERIAL' | 'RECOVER_ATP_LINEAGE';
   atpItemId?: string;
   targetUnitId?: string;
   targetMaterialId?: string;
   title?: string;
   linkedAtpItemIds?: string[];
   linkedTpIds?: string[];
+  removeAtpItemIds?: string[];
 }
 
 export interface ApplyATPMappingActionsInput {
@@ -72,11 +73,27 @@ export function computeMappingFingerprint(units: ATPUnitMapping[], atp: ATPData,
 
   return JSON.stringify({
     units: unitSummary,
-    atpVersion: atp.updatedAt || '',
     atpItems: atpSummary,
-    tpVersion: tp.updatedAt || '',
     tpItems: tpSummary,
   });
+}
+
+export function computeAtpSubstantiveFingerprint(atp: ATPData | undefined): string {
+  return JSON.stringify((atp?.items || []).map((a) => ({
+    id: a.id,
+    stepNumber: a.stepNumber,
+    focus: a.focus,
+    tps: [...getCanonicalTpsForAtpItem(a)].sort(),
+  })).sort((a, b) => a.id.localeCompare(b.id)));
+}
+
+export function computeTpSubstantiveFingerprint(tp: TPData | undefined): string {
+  return JSON.stringify((tp?.items || []).map((t) => ({
+    id: t.id,
+    statement: t.statement,
+    competence: t.competence,
+    contentScope: t.contentScope,
+  })).sort((a, b) => a.id.localeCompare(b.id)));
 }
 
 export function buildMappingDraftFromUnits(
@@ -86,7 +103,9 @@ export function buildMappingDraftFromUnits(
   atpId?: string,
   tpDataId?: string,
   basedOnTpUpdatedAt?: string,
-  basedOnAtpUpdatedAt?: string
+  basedOnAtpUpdatedAt?: string,
+  basedOnTpFingerprint?: string,
+  basedOnAtpFingerprint?: string
 ): ATPUnitMappingData {
   const finalUnits: ATPUnitMapping[] = (units || []).map((u, idx) => {
     const uId = u.id && u.id.trim() ? u.id.trim() : `unit-${Date.now()}-${idx + 1}`;
@@ -126,7 +145,9 @@ export function buildMappingDraftFromUnits(
     basedOnTpUpdatedAt,
     basedOnAtpUpdatedAt,
     updatedAt: new Date().toISOString(),
-  };
+    basedOnTpFingerprint,
+    basedOnAtpFingerprint,
+  } as ATPUnitMappingData;
 }
 
 export function applyATPMappingActions(input: ApplyATPMappingActionsInput): ApplyATPMappingActionsResult {
@@ -183,7 +204,8 @@ export function applyATPMappingActions(input: ApplyATPMappingActionsInput): Appl
     if (
       action.type !== 'ASSIGN_ATP_TO_UNIT' &&
       action.type !== 'ADD_MATERIAL_TO_UNIT' &&
-      action.type !== 'ALIGN_EXISTING_MATERIAL'
+      action.type !== 'ALIGN_EXISTING_MATERIAL' &&
+      action.type !== 'RECOVER_ATP_LINEAGE'
     ) {
       issues.push(`Tipe action tidak valid: ${action.type}`);
       continue;
@@ -225,22 +247,51 @@ export function applyATPMappingActions(input: ApplyATPMappingActionsInput): Appl
       for (const tId of linkedTps) {
         if (!validTpIds.has(tId)) issues.push(`ADD_MATERIAL merujuk TP fiktif: ${tId}`);
       }
-    } else if (action.type === 'ALIGN_EXISTING_MATERIAL') {
+      for (const tId of linkedTps) {
+        const supported = linkedAtps.some((aId) => getCanonicalTpsForAtpItem(atpMap.get(aId)).includes(tId));
+        if (!supported) issues.push(`TP '${tId}' tidak didukung oleh ATP canonical pada ADD_MATERIAL.`);
+      }
+      const unitInfo = unitMap.get(targetUnitId)?.unit;
+      const unitHasLineage = (unitInfo?.linkedAtpItemIds || []).length > 0 || (unitInfo?.linkedTpIds || []).length > 0;
+      if (unitHasLineage) {
+        for (const aId of linkedAtps) {
+          if (!(unitInfo?.linkedAtpItemIds || []).includes(aId)) issues.push(`ADD_MATERIAL merujuk ATP '${aId}' yang tidak didukung Bab induk.`);
+        }
+        for (const tId of linkedTps) {
+          if (!(unitInfo?.linkedTpIds || []).includes(tId)) issues.push(`ADD_MATERIAL merujuk TP '${tId}' yang tidak didukung Bab induk.`);
+        }
+      }
+    } else if (action.type === 'ALIGN_EXISTING_MATERIAL' || action.type === 'RECOVER_ATP_LINEAGE') {
       const matId = String(action.targetMaterialId || '').trim();
       const unitInfo = unitMap.get(targetUnitId);
-      if (!matId || !unitInfo || !unitInfo.materialIds.has(matId)) {
+      if (action.type === 'ALIGN_EXISTING_MATERIAL' && (!matId || !unitInfo || !unitInfo.materialIds.has(matId))) {
         issues.push(`ALIGN_EXISTING_MATERIAL merujuk Lingkup Materi fiktif atau tidak sesuai Bab: ${matId}`);
       }
       const linkedAtps = Array.isArray(action.linkedAtpItemIds) ? action.linkedAtpItemIds : [];
       const linkedTps = Array.isArray(action.linkedTpIds) ? action.linkedTpIds : [];
       if (linkedAtps.length === 0 || linkedTps.length === 0) {
-        issues.push(`ALIGN_EXISTING_MATERIAL wajib memiliki lineage ATP dan TP yang lengkap.`);
+        issues.push(`${action.type} wajib memiliki lineage ATP dan TP yang lengkap.`);
       }
       for (const aId of linkedAtps) {
-        if (!validAtpIds.has(aId)) issues.push(`ALIGN_EXISTING_MATERIAL merujuk ATP fiktif: ${aId}`);
+        if (!validAtpIds.has(aId)) issues.push(`${action.type} merujuk ATP fiktif: ${aId}`);
       }
       for (const tId of linkedTps) {
-        if (!validTpIds.has(tId)) issues.push(`ALIGN_EXISTING_MATERIAL merujuk TP fiktif: ${tId}`);
+        if (!validTpIds.has(tId)) issues.push(`${action.type} merujuk TP fiktif: ${tId}`);
+      }
+      for (const tId of linkedTps) {
+        const supported = linkedAtps.some((aId) => getCanonicalTpsForAtpItem(atpMap.get(aId)).includes(tId));
+        if (!supported) issues.push(`TP '${tId}' tidak didukung oleh ATP canonical pada ${action.type}.`);
+      }
+      if (action.type === 'RECOVER_ATP_LINEAGE') {
+        const staleAtps = Array.isArray(action.removeAtpItemIds) ? action.removeAtpItemIds : [];
+        if (staleAtps.length === 0) {
+          issues.push('RECOVER_ATP_LINEAGE wajib menyebut removeAtpItemIds.');
+        }
+        for (const staleId of staleAtps) {
+          if (validAtpIds.has(staleId)) {
+            issues.push(`RECOVER_ATP_LINEAGE tidak boleh menghapus ATP canonical yang masih valid: ${staleId}`);
+          }
+        }
       }
     }
   }
@@ -287,15 +338,28 @@ export function applyATPMappingActions(input: ApplyATPMappingActionsInput): Appl
 
       nextUnits = nextUnits.map((u) => {
         if (u.id !== targetUnitId) return u;
+        const nextUnitAtp = Array.from(new Set([...(u.linkedAtpItemIds || []), ...(action.linkedAtpItemIds || [])])).sort((a, b) => {
+          const indexA = (atp.items || []).findIndex((item) => item.id === a);
+          const indexB = (atp.items || []).findIndex((item) => item.id === b);
+          return indexA - indexB;
+        });
+        const nextUnitTp = Array.from(new Set([...(u.linkedTpIds || []), ...(action.linkedTpIds || [])])).sort((a, b) => {
+          const indexA = (tp.items || []).findIndex((item) => item.id === a);
+          const indexB = (tp.items || []).findIndex((item) => item.id === b);
+          return indexA - indexB;
+        });
         return {
           ...u,
+          linkedAtpItemIds: nextUnitAtp,
+          linkedTpIds: nextUnitTp,
           materials: [...(u.materials || []), newMat],
         };
       });
-    } else if (action.type === 'ALIGN_EXISTING_MATERIAL') {
+    } else if (action.type === 'ALIGN_EXISTING_MATERIAL' || action.type === 'RECOVER_ATP_LINEAGE') {
       const matId = action.targetMaterialId!;
       const proposedAtp = action.linkedAtpItemIds || [];
       const proposedTp = action.linkedTpIds || [];
+      const removeAtpIds = action.type === 'RECOVER_ATP_LINEAGE' ? (action.removeAtpItemIds || []) : [];
 
       const sortedAtpIds = [...proposedAtp].sort((a, b) => {
         const indexA = (atp.items || []).findIndex((item) => item.id === a);
@@ -311,6 +375,17 @@ export function applyATPMappingActions(input: ApplyATPMappingActionsInput): Appl
 
       nextUnits = nextUnits.map((u) => {
         if (u.id !== targetUnitId) return u;
+        const unitAtpWithoutStale = (u.linkedAtpItemIds || []).filter((id) => !removeAtpIds.includes(id));
+        const nextUnitAtp = Array.from(new Set([...unitAtpWithoutStale, ...sortedAtpIds])).sort((a, b) => {
+          const indexA = (atp.items || []).findIndex((item) => item.id === a);
+          const indexB = (atp.items || []).findIndex((item) => item.id === b);
+          return indexA - indexB;
+        });
+        const nextUnitTp = Array.from(new Set([...(u.linkedTpIds || []), ...sortedTpIds])).sort((a, b) => {
+          const indexA = (tp.items || []).findIndex((item) => item.id === a);
+          const indexB = (tp.items || []).findIndex((item) => item.id === b);
+          return indexA - indexB;
+        });
         const nextMaterials = (u.materials || []).map((mat) => {
           if (mat.id !== matId) return mat;
           return {
@@ -321,6 +396,8 @@ export function applyATPMappingActions(input: ApplyATPMappingActionsInput): Appl
         });
         return {
           ...u,
+          linkedAtpItemIds: nextUnitAtp,
+          linkedTpIds: nextUnitTp,
           materials: nextMaterials,
         };
       });
@@ -335,7 +412,9 @@ export function applyATPMappingActions(input: ApplyATPMappingActionsInput): Appl
     atp.id,
     tp.id,
     tp.updatedAt,
-    atp.updatedAt
+    atp.updatedAt,
+    computeTpSubstantiveFingerprint(tp),
+    computeAtpSubstantiveFingerprint(atp)
   );
 
   const validation = validateATPUnitMappingCanonical(candidateMapping, atp, tp);

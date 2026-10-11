@@ -1258,6 +1258,13 @@ export interface MappingAnalysisResult {
       targetMaterialId: string;
       linkedAtpItemIds: string[];
       linkedTpIds: string[];
+    } | {
+      type: 'RECOVER_ATP_LINEAGE';
+      targetUnitId: string;
+      targetMaterialId?: string;
+      removeAtpItemIds: string[];
+      linkedAtpItemIds: string[];
+      linkedTpIds: string[];
     };
   }>;
 }
