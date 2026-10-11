@@ -46,6 +46,7 @@ export interface GenerateTPParams {
   phase: string;
   curriculum: string;
   count?: number;
+  mode?: 'ALIGN_EXISTING' | 'REBUILD_FROM_UPSTREAM';
 }
 
 export interface GenerateTPResult {
@@ -563,7 +564,7 @@ export async function analyzeCPWithAI(params: {
 
 export async function generateTPWithAI(params: GenerateTPParams): Promise<GenerateTPResult> {
   try {
-    const { existingTps, ...payloadToSend } = params;
+    const { existingTps, mode = 'ALIGN_EXISTING', ...payloadToSend } = params;
     const res = await aiFetch('/api/ai/generate-tp', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -618,7 +619,8 @@ export async function generateTPWithAI(params: GenerateTPParams): Promise<Genera
       items: mergeGeneratedTPsWithExisting(
         data.items,
         params.existingTps || [],
-        params.cpAnalysisItems || []
+        params.cpAnalysisItems || [],
+        mode
       ),
       engine: resolvedEngine,
     };
@@ -629,18 +631,21 @@ export async function generateTPWithAI(params: GenerateTPParams): Promise<Genera
 
 /**
  * Deterministic safe merge for TP regeneration.
- * Matches generated TPs to existing TPs using cpAnalysisItemIds, elementName, contentScope, statement.
- * Strictly preserves existing TPItem.id and teacher work. Never carries over stale cpAnalysisItemIds.
+ * Matches generated TPs to existing TPs using strict canonical lineage + semantic identity match.
+ * Generated semantic content always wins on match. Supports ALIGN_EXISTING and REBUILD_FROM_UPSTREAM modes.
  */
 export function mergeGeneratedTPsWithExisting(
   generatedItems: Array<Partial<TPItem>>,
   existingItems: TPItem[] = [],
-  activeAnalysisItems: Array<{ id: string }> = []
+  activeAnalysisItems: Array<{ id: string }> = [],
+  mode: 'ALIGN_EXISTING' | 'REBUILD_FROM_UPSTREAM' = 'ALIGN_EXISTING'
 ): TPItem[] {
   const activeAnalysisItemIds = new Set<string>(
     activeAnalysisItems.map((a) => String(a.id)).filter(Boolean)
   );
   const hasCanonicalAnalysis = activeAnalysisItemIds.size > 0;
+
+  const normalizeText = (s?: string) => (s || '').trim().toLowerCase().replace(/\s+/g, ' ');
 
   if (!existingItems || existingItems.length === 0) {
     return generatedItems.map((g, idx) => {
@@ -648,6 +653,7 @@ export function mergeGeneratedTPsWithExisting(
       return {
         id: g.id || `tp-item-${Date.now()}-${idx + 1}-${Math.random().toString(36).substring(2, 6)}`,
         code: g.code || `TP ${idx + 1}`,
+        scopeCode: g.scopeCode || '',
         elementName: g.elementName || '',
         statement: stmt,
         description: stmt,
@@ -655,7 +661,7 @@ export function mergeGeneratedTPsWithExisting(
         contentScope: g.contentScope || '',
         p3Dimensions: Array.isArray(g.p3Dimensions) ? g.p3Dimensions : [],
         order: idx + 1,
-        cpAnalysisItemIds: Array.isArray(g.cpAnalysisItemIds) ? g.cpAnalysisItemIds : [],
+        cpAnalysisItemIds: Array.isArray(g.cpAnalysisItemIds) ? g.cpAnalysisItemIds.map(String) : [],
       };
     });
   }
@@ -663,105 +669,66 @@ export function mergeGeneratedTPsWithExisting(
   const matchedExistingIds = new Set<string>();
   const result: TPItem[] = [];
 
-  const calculateMatchScore = (gen: Partial<TPItem>, exist: TPItem): number => {
-    let score = 0;
-
-    // 1. cpAnalysisItemIds overlap (highest priority)
-    const genAnalysisIds = Array.isArray(gen.cpAnalysisItemIds) ? gen.cpAnalysisItemIds : [];
-    const existAnalysisIds = Array.isArray(exist.cpAnalysisItemIds) ? exist.cpAnalysisItemIds : [];
-    if (genAnalysisIds.length > 0 && existAnalysisIds.length > 0) {
-      const overlap = genAnalysisIds.filter((id) => existAnalysisIds.includes(id));
-      if (overlap.length > 0) {
-        score += 10 * overlap.length;
-      }
-    }
-
-    // 2. Exact or substring match on elementName
-    const genElem = (gen.elementName || '').trim().toLowerCase();
-    const existElem = (exist.elementName || '').trim().toLowerCase();
-    if (genElem && existElem && (genElem === existElem || genElem.includes(existElem) || existElem.includes(genElem))) {
-      score += 4;
-    }
-
-    // 3. Exact or keyword match on contentScope
-    const genScope = (gen.contentScope || '').trim().toLowerCase();
-    const existScope = (exist.contentScope || '').trim().toLowerCase();
-    if (genScope && existScope && (genScope === existScope || genScope.includes(existScope) || existScope.includes(genScope))) {
-      score += 5;
-    }
-
-    // 4. Code match
-    const genCode = (gen.code || '').trim().toLowerCase();
-    const existCode = (exist.code || '').trim().toLowerCase();
-    if (genCode && existCode && genCode === existCode) {
-      score += 3;
-    }
-
-    // 5. Statement similarity (supporting fallback)
-    const genStmt = (gen.statement || (gen as any).description || '').trim().toLowerCase();
-    const existStmt = (exist.statement || exist.description || '').trim().toLowerCase();
-    if (genStmt && existStmt) {
-      if (genStmt === existStmt) {
-        score += 6;
-      } else {
-        const wordsGen = genStmt.split(/\s+/).filter((w) => w.length > 3);
-        const wordsExist = existStmt.split(/\s+/).filter((w) => w.length > 3);
-        const wordOverlap = wordsGen.filter((w) => wordsExist.includes(w)).length;
-        if (wordOverlap >= 2) {
-          score += 2;
-        }
-      }
-    }
-
-    return score;
-  };
-
   for (let i = 0; i < generatedItems.length; i++) {
     const gen = generatedItems[i];
     let bestMatch: TPItem | null = null;
-    let highestScore = 3;
+
+    const genAnalysisIds = Array.isArray(gen.cpAnalysisItemIds)
+      ? gen.cpAnalysisItemIds.map(String).filter(Boolean)
+      : [];
 
     for (const exist of existingItems) {
       if (matchedExistingIds.has(exist.id)) continue;
-      const score = calculateMatchScore(gen, exist);
-      if (score > highestScore) {
-        highestScore = score;
+      const existAnalysisIds = Array.isArray(exist.cpAnalysisItemIds)
+        ? exist.cpAnalysisItemIds.map(String).filter(Boolean)
+        : [];
+
+      // 1. Lineage condition: overlap in cpAnalysisItemIds, valid in active analysis items
+      const hasLineageOverlap = genAnalysisIds.some(
+        (gId) => existAnalysisIds.includes(gId) && (!hasCanonicalAnalysis || activeAnalysisItemIds.has(gId))
+      );
+
+      if (!hasLineageOverlap) continue;
+
+      // 2. Semantic identity addition (at least one of: normalized statement exact match, normalized contentScope exact match, semantic code exact match)
+      const genCode = normalizeText(gen.code);
+      const existCode = normalizeText(exist.code);
+      const isCodeMatch = genCode && existCode && genCode === existCode;
+
+      const genScope = normalizeText(gen.contentScope);
+      const existScope = normalizeText(exist.contentScope);
+      const isScopeMatch = genScope && existScope && genScope === existScope;
+
+      const genStmt = normalizeText(gen.statement || (gen as any).description);
+      const existStmt = normalizeText(exist.statement || exist.description);
+      const isStmtMatch = genStmt && existStmt && genStmt === existStmt;
+
+      if (isCodeMatch || isScopeMatch || isStmtMatch) {
         bestMatch = exist;
+        break;
       }
     }
 
     if (bestMatch) {
       matchedExistingIds.add(bestMatch.id);
-      // Strictly PRESERVE existing TPItem.id!
-      const isSemantic = (c?: string) => typeof c === 'string' && /^E\d+-[A-Za-z0-9]+-\d{2}$/.test(c.trim());
-      const finalCode = bestMatch.code && isSemantic(bestMatch.code)
-        ? bestMatch.code.trim().toUpperCase()
-        : (gen.code || bestMatch.code || `E1-MAT-${String(result.length + 1).padStart(2, '0')}`);
-      const finalScopeCode = bestMatch.scopeCode || gen.scopeCode;
-      const finalStatement = bestMatch.statement?.trim() ? bestMatch.statement : (gen.statement || (gen as any).description || '');
-      const finalElementName = bestMatch.elementName?.trim() ? bestMatch.elementName : (gen.elementName || '');
-      const finalCompetence = bestMatch.competence?.trim() ? bestMatch.competence : (gen.competence || '');
-      const finalContentScope = bestMatch.contentScope?.trim() ? bestMatch.contentScope : (gen.contentScope || '');
-      const finalP3 = (bestMatch.p3Dimensions && bestMatch.p3Dimensions.length > 0)
-        ? bestMatch.p3Dimensions
-        : (Array.isArray(gen.p3Dimensions) ? gen.p3Dimensions : []);
 
-      // Canonical lineage resolution: do NOT union with stale existing lineage.
-      const genIds = Array.isArray(gen.cpAnalysisItemIds) ? gen.cpAnalysisItemIds : [];
-      const existIds = Array.isArray(bestMatch.cpAnalysisItemIds) ? bestMatch.cpAnalysisItemIds : [];
-
-      let finalAnalysisIds: string[];
-      if (genIds.length > 0) {
-        finalAnalysisIds = genIds;
-      } else if (hasCanonicalAnalysis) {
-        finalAnalysisIds = existIds.filter((id) => activeAnalysisItemIds.has(id));
-      } else {
-        finalAnalysisIds = existIds;
-      }
+      // Generated semantics always win
+      const finalCode = gen.code || bestMatch.code || `TP ${result.length + 1}`;
+      const finalScopeCode = gen.scopeCode || bestMatch.scopeCode || '';
+      const finalElementName = gen.elementName || bestMatch.elementName || '';
+      const finalStatement = gen.statement || (gen as any).description || bestMatch.statement || bestMatch.description || '';
+      const finalCompetence = gen.competence || bestMatch.competence || '';
+      const finalContentScope = gen.contentScope || bestMatch.contentScope || '';
+      const finalP3 = Array.isArray(gen.p3Dimensions) && gen.p3Dimensions.length > 0
+        ? gen.p3Dimensions
+        : (bestMatch.p3Dimensions || []);
+      const finalAnalysisIds = genAnalysisIds.length > 0
+        ? genAnalysisIds
+        : (bestMatch.cpAnalysisItemIds || []).filter((id) => !hasCanonicalAnalysis || activeAnalysisItemIds.has(id));
 
       result.push({
         ...bestMatch,
-        id: bestMatch.id, // Stable ID preserved!
+        id: bestMatch.id, // Stable ID preserved
         code: finalCode,
         scopeCode: finalScopeCode,
         elementName: finalElementName,
@@ -774,12 +741,11 @@ export function mergeGeneratedTPsWithExisting(
         order: result.length + 1,
       });
     } else {
-      // New genuinely supported TP
       const stmt = gen.statement || (gen as any).description || '';
       result.push({
-        id: `tp-item-${Date.now()}-${i + 1}-${Math.random().toString(36).substring(2, 6)}`,
-        code: gen.code || `E1-MAT-${String(result.length + 1).padStart(2, '0')}`,
-        scopeCode: gen.scopeCode || 'MAT',
+        id: gen.id || `tp-item-${Date.now()}-${i + 1}-${Math.random().toString(36).substring(2, 6)}`,
+        code: gen.code || `TP ${result.length + 1}`,
+        scopeCode: gen.scopeCode || '',
         elementName: gen.elementName || '',
         statement: stmt,
         description: stmt,
@@ -787,32 +753,35 @@ export function mergeGeneratedTPsWithExisting(
         contentScope: gen.contentScope || '',
         p3Dimensions: Array.isArray(gen.p3Dimensions) ? gen.p3Dimensions : [],
         order: result.length + 1,
-        cpAnalysisItemIds: Array.isArray(gen.cpAnalysisItemIds) ? gen.cpAnalysisItemIds : [],
+        cpAnalysisItemIds: genAnalysisIds,
       });
     }
   }
 
-  // Unmatched existing TPs processing
-  for (const exist of existingItems) {
-    if (!matchedExistingIds.has(exist.id)) {
-      if (!hasCanonicalAnalysis) {
-        result.push({
-          ...exist,
-          order: result.length + 1,
-        });
-      } else {
-        const existIds = Array.isArray(exist.cpAnalysisItemIds) ? exist.cpAnalysisItemIds : [];
-        const validLineageIds = existIds.filter((id) => activeAnalysisItemIds.has(id));
-        if (validLineageIds.length > 0) {
+  // Mode processing for unmatched existing items
+  if (mode === 'ALIGN_EXISTING') {
+    for (const exist of existingItems) {
+      if (!matchedExistingIds.has(exist.id)) {
+        if (!hasCanonicalAnalysis) {
           result.push({
             ...exist,
-            cpAnalysisItemIds: validLineageIds,
             order: result.length + 1,
           });
+        } else {
+          const existIds = Array.isArray(exist.cpAnalysisItemIds) ? exist.cpAnalysisItemIds.map(String) : [];
+          const validLineageIds = existIds.filter((id) => activeAnalysisItemIds.has(id));
+          if (validLineageIds.length > 0) {
+            result.push({
+              ...exist,
+              cpAnalysisItemIds: validLineageIds,
+              order: result.length + 1,
+            });
+          }
         }
       }
     }
   }
+  // If mode === 'REBUILD_FROM_UPSTREAM', unmatched existing TPs are dropped entirely.
 
   return result.map((item, idx) => ({ ...item, order: idx + 1 }));
 }

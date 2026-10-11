@@ -219,6 +219,7 @@ export const TPManager: React.FC<TPManagerProps> = ({
     });
 
     try {
+      const regenerationMode = (isCPOutdated || isAnalysisOutdated || tp.needsReview) ? 'REBUILD_FROM_UPSTREAM' : 'ALIGN_EXISTING';
       const generatedResult = await generateTPWithAI({
         cpGeneral: cp.generalDescription,
         cpElements: cp.elements || [],
@@ -228,6 +229,7 @@ export const TPManager: React.FC<TPManagerProps> = ({
         grade: context.grade,
         phase: context.phase,
         curriculum: context.curriculum,
+        mode: regenerationMode,
       });
       const generated = generatedResult.items;
 
@@ -287,11 +289,7 @@ export const TPManager: React.FC<TPManagerProps> = ({
         },
       });
       showSaveNotice(
-        items.length > 0
-          ? 'AI berhasil melengkapi & menyelaraskan TP tanpa mengubah ID TP yang sudah ada.'
-          : val.isSiap
-          ? 'AI membuat dan menyimpan TP. Status: SIAP.'
-          : 'AI membuat dan menyimpan TP, tetapi masih perlu diperbaiki.'
+        'AI berhasil merumuskan dan menyelaraskan TP berdasarkan CP dan Analisis CP terbaru.'
       );
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Gagal menghasilkan TP dengan AI';
