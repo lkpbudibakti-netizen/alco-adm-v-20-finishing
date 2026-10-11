@@ -40,6 +40,7 @@ import { validateUnitExecutionPlan } from './unitExecutionPlanService';
 import { resolveUnitSemesterPlacement } from './unitSemesterPlanningService';
 import { validateLearningMeetingScheduleData } from './learningMeetingScheduleService';
 import { resolveSemesterJPFromState } from './semesterJPResolver';
+import { validateATPUnitMappingCanonical } from './atpUnitMappingValidationService';
 
 export { STORAGE_KEY_V5 };
 
@@ -1327,6 +1328,26 @@ export function saveATPUnitMappingV5(
 ): ATPUnitMappingData {
   const state = loadStorageV5();
   assertYearPlanExists(state, yearPlanId);
+
+  // 1. Get Canonical ATP and TP
+  const atp = state.annualData.atp.find((e) => e.yearPlanId === yearPlanId)?.value;
+  const tp = state.annualData.tp.find((e) => e.yearPlanId === yearPlanId)?.value;
+
+  if (!atp || !tp) {
+    throw new Error('ATP atau TP canonical tidak ditemukan untuk tahun ajaran ini.');
+  }
+
+  // 2. Validate Mapping
+  const validation = validateATPUnitMappingCanonical(value, atp, tp);
+  if (!validation.isValid) {
+    throw new Error(`Validasi mapping gagal: ${validation.issues.join(' ')}`);
+  }
+
+  // 3. Validate Academic Setting
+  if (value.academicSettingId !== yearPlanId) {
+    throw new Error('Academic setting ID mapping tidak sesuai dengan yearPlanId.');
+  }
+
   if (!state.annualData.atpUnitMappings) {
     state.annualData.atpUnitMappings = [];
   }
