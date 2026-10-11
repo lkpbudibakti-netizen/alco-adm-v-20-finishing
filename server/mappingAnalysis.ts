@@ -325,11 +325,17 @@ ${JSON.stringify(atpContext, null, 2)}
 
 === INSTRUKSI ANALISIS ===
 1. ANALISIS ATP (atpFindings):
-   - Periksa setiap ATP terhadap semua Bab yang belum memiliki ATP tersebut.
-   - ATP yang sudah berada pada satu atau lebih Bab tetap boleh direkomendasikan ke Bab lain jika relevansi semantiknya kuat.
-   - Jangan memindahkan ATP dari Bab yang sudah memilikinya.
-   - Setiap ASSIGN_ATP_TO_UNIT wajib menyertakan linkedTpIds berupa subset TP canonical yang relevan terhadap target Bab.
-   - Jika subset TP tidak dapat ditentukan dengan yakin, gunakan REVIEW tanpa action.
+   - Status ALIGNED hanya menjelaskan bahwa pemetaan ATP yang SUDAH ADA valid. Status ALIGNED TIDAK berarti action harus kosong.
+   - Untuk SETIAP ATP, setelah menilai pemetaan yang sudah ada, WAJIB evaluasi semua Bab yang belum memiliki ATP tersebut.
+   - Prioritaskan Bab dengan linkedAtpItemIds dan linkedTpIds kosong.
+   - Jika ATP memiliki relevansi semantik kuat terhadap Bab tersebut, berikan ASSIGN_ATP_TO_UNIT walaupun ATP berstatus ALIGNED di Bab lain.
+   - Reuse satu ATP pada beberapa Bab adalah valid jika masing-masing Bab memakai subset TP canonical yang relevan.
+   - Jangan memindahkan atau menghapus lineage Bab lama.
+   - Satu finding ATP maksimal memiliki satu targetUnitId baru per response.
+   - Jangan membuat duplicate finding untuk ATP yang sama.
+   - linkedTpIds wajib berupa subset TP canonical ATP tersebut yang relevan dengan Bab target.
+   - Jika tidak ada kandidat Bab dengan evidence kuat, biarkan action kosong.
+   - Jangan menganggap pekerjaan selesai hanya karena seluruh ATP sudah mapped secara global atau Z=0.
 
 2. ANALISIS LINGKUP MATERI (materialFindings):
    - Periksa semua Lingkup Materi manual yang ada pada Bab.

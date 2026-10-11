@@ -430,4 +430,67 @@ console.log('Testing Case N: Reject TP belonging to another ATP...');
   console.log('✅ Case N passed');
 }
 
+// ==========================================
+// CASE O: ALIGNED ATP with Valid Multi-Bab Action to Empty Unit Preserved
+// ==========================================
+console.log('Testing Case O: ALIGNED + valid multi-Bab action to empty unit preserved...');
+{
+  const rawResult = {
+    atpFindings: [
+      {
+        id: 'f-aligned-multibab',
+        atpItemId: 'atp-1',
+        status: 'ALIGNED',
+        action: {
+          type: 'ASSIGN_ATP_TO_UNIT',
+          atpItemId: 'atp-1',
+          targetUnitId: 'unit-2',
+          linkedTpIds: ['TP3'],
+        },
+      },
+    ],
+    materialFindings: [],
+  };
+
+  const mapping: ATPUnitMappingData = {
+    id: 'map-o',
+    academicSettingId: 'acad-001',
+    atpId: 'atp-001',
+    tpDataId: 'tp-data-001',
+    units: [
+      {
+        id: 'unit-1',
+        title: 'Bab 1',
+        order: 1,
+        linkedAtpItemIds: ['atp-1'],
+        linkedTpIds: ['TP1', 'TP2'],
+        materials: [],
+      },
+      {
+        id: 'unit-2',
+        title: 'Bab 2',
+        order: 2,
+        linkedAtpItemIds: [],
+        linkedTpIds: [],
+        materials: [],
+      },
+    ],
+    updatedAt: '2026-01-01T00:00:00Z',
+  };
+
+  const sanitized = sanitizeMappingAnalysisResult(rawResult, {
+    tpData: mockTPData,
+    atpData: mockATPData,
+    currentMapping: mapping,
+  });
+
+  const findings = sanitized.atpFindings;
+  assert.strictEqual(findings.length, 1);
+  assert.strictEqual(findings[0].status, 'ALIGNED');
+  assert.strictEqual(findings[0].action?.targetUnitId, 'unit-2');
+  assert.deepStrictEqual(findings[0].action?.linkedTpIds, ['TP3']);
+  console.log('✅ Case O passed');
+}
+
 console.log('=== ALL MULTI-BAB ANALYSIS REGRESSION TESTS PASSED SUCCESSFULLY ===');
+
