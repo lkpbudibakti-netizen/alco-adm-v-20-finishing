@@ -44,20 +44,31 @@ export function computeMappingFingerprint(units: ATPUnitMapping[], atp: ATPData,
   const unitSummary = (units || []).map((u) => ({
     id: u.id,
     title: u.title,
+    order: u.order,
     atp: [...(u.linkedAtpItemIds || [])].sort(),
     tp: [...(u.linkedTpIds || [])].sort(),
     mats: (u.materials || []).map((m) => ({
       id: m.id,
       title: m.title,
+      order: m.order,
       atp: [...(m.linkedAtpItemIds || [])].sort(),
       tp: [...(m.linkedTpIds || [])].sort(),
     })).sort((a, b) => a.id.localeCompare(b.id)),
-  }));
+  })).sort((a, b) => a.id.localeCompare(b.id));
+
   const atpSummary = (atp.items || []).map((a) => ({
     id: a.id,
+    stepNumber: a.stepNumber,
+    focus: a.focus,
     tps: [...getCanonicalTpsForAtpItem(a)].sort(),
   })).sort((a, b) => a.id.localeCompare(b.id));
-  const tpSummary = (tp.items || []).map((t) => t.id).sort();
+
+  const tpSummary = (tp.items || []).map((t) => ({
+    id: t.id,
+    statement: t.statement,
+    competence: t.competence,
+    contentScope: t.contentScope,
+  })).sort((a, b) => a.id.localeCompare(b.id));
 
   return JSON.stringify({
     units: unitSummary,
@@ -133,12 +144,14 @@ export function applyATPMappingActions(input: ApplyATPMappingActionsInput): Appl
   const issues: string[] = [];
 
   // 1. Stale Analysis Guard
-  if (expectedFingerprint && currentFingerprint && expectedFingerprint !== currentFingerprint) {
+  if (
+    !expectedFingerprint ||
+    !currentFingerprint ||
+    expectedFingerprint !== currentFingerprint
+  ) {
     return {
       success: false,
-      issues: [
-        'Hasil analisis sudah kedaluwarsa karena draf, ATP, atau TP telah mengalami perubahan. Harap lakukan analisis ulang.',
-      ],
+      issues: ['Analisis tidak tersedia atau sudah kedaluwarsa. Jalankan analisis ulang.'],
     };
   }
 

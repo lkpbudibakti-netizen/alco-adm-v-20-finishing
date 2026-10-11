@@ -38,6 +38,11 @@ import {
 } from '../services/aiService';
 import { validateATPUnitMappingCanonical } from '../services/atpUnitMappingValidationService';
 import {
+  applyATPMappingActions,
+  computeMappingFingerprint,
+  type MappingActionItem,
+} from '../services/atpMappingActionApplyService';
+import {
   parseBabMateriXlsx,
   downloadBabMateriTemplateXlsx,
   ATPUnitMappingImportResult,
@@ -840,6 +845,12 @@ export const ATPUnitMappingManager: React.FC<ATPUnitMappingManagerProps> = ({
   const [analysisError, setAnalysisError] = useState<string | null>(null);
   const [selectedAnalysisActionIds, setSelectedAnalysisActionIds] = useState<Set<string>>(new Set());
   const [appliedNotice, setAppliedNotice] = useState<string | null>(null);
+  const [analysisFingerprint, setAnalysisFingerprint] = useState<string | null>(null);
+
+  const unitsRef = useRef(units);
+  useEffect(() => {
+    unitsRef.current = units;
+  }, [units]);
 
   // Import Bab & Materi State (Section 4, 5, 6)
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -920,6 +931,7 @@ export const ATPUnitMappingManager: React.FC<ATPUnitMappingManagerProps> = ({
     setAppliedNotice(null);
     setSaveSuccessNotice(false);
     setSaveErrorNotice(null);
+    setAnalysisFingerprint(null);
 
     const stats = importPreviewResult.stats;
     setImportSuccessNotice(
@@ -939,8 +951,20 @@ export const ATPUnitMappingManager: React.FC<ATPUnitMappingManagerProps> = ({
     setAnalysisError(null);
     setAppliedNotice(null);
 
+    const snapshotUnits = JSON.parse(JSON.stringify(unitsRef.current));
+    const expectedFp = computeMappingFingerprint(snapshotUnits, atp, tp);
+
     try {
-      const currentDraft = buildCurrentMappingDraft();
+      const currentDraft = buildCurrentMappingDraftFromUnits(
+        snapshotUnits,
+        mapping?.id,
+        academicSetting?.id || atp.academicSettingId,
+        atp.id,
+        tp.id || atp.tpDataId,
+        tp.updatedAt || atp.basedOnTpUpdatedAt,
+        atp.updatedAt
+      );
+
       const result = await analyzeATPUnitMappingWithAI({
         subject: academicSetting?.subject,
         grade: academicSetting?.grade,
@@ -950,12 +974,21 @@ export const ATPUnitMappingManager: React.FC<ATPUnitMappingManagerProps> = ({
         currentMapping: currentDraft,
       });
 
+      const freshFp = computeMappingFingerprint(unitsRef.current, atp, tp);
+      if (expectedFp !== freshFp) {
+        setAnalysisError('Analisis diabaikan karena draf, ATP, atau TP telah berubah selama proses analisis.');
+        setIsAnalyzing(false);
+        return;
+      }
+
       setAnalysisResult(result);
       setLastAnalysisSnapshot(result);
+      setAnalysisFingerprint(freshFp);
       setSelectedAnalysisActionIds(new Set());
     } catch (err: any) {
       setAnalysisError(err?.message || 'Gagal menganalisis pemetaan Bab & Lingkup Materi.');
       setAnalysisResult(null);
+      setAnalysisFingerprint(null);
     } finally {
       setIsAnalyzing(false);
     }
@@ -992,135 +1025,46 @@ export const ATPUnitMappingManager: React.FC<ATPUnitMappingManagerProps> = ({
   const handleApplySelectedActions = () => {
     if (!analysisResult || selectedAnalysisActionIds.size === 0) return;
 
-    let nextUnits = [...units];
+    const selectedActions: MappingActionItem[] = [
+      ...analysisResult.atpFindings
+        .filter(f => f.action && selectedAnalysisActionIds.has(f.id))
+        .map(f => ({
+          id: f.id,
+          ...f.action!,
+        })),
+      ...analysisResult.materialFindings
+        .filter(m => m.action && selectedAnalysisActionIds.has(m.id))
+        .map(m => ({
+          id: m.id,
+          ...m.action!,
+        })),
+    ];
 
-    const selectedAtpFindings = analysisResult.atpFindings.filter(
-      (f) => f.action && selectedAnalysisActionIds.has(f.id)
-    );
-    const selectedMaterialFindings = analysisResult.materialFindings.filter(
-      (m) => m.action && selectedAnalysisActionIds.has(m.id)
-    );
-
-    // 1. Apply ASSIGN_ATP_TO_UNIT actions
-    for (const f of selectedAtpFindings) {
-      const action = f.action!;
-      const atpItemId = action.atpItemId;
-      const targetUnitId = action.targetUnitId;
-      const actionLinkedTpIds = Array.isArray(action.linkedTpIds) ? action.linkedTpIds : [];
-      
-      if (actionLinkedTpIds.length === 0) continue; // Skip if no valid TP subset provided
-
-      nextUnits = nextUnits.map((u) => {
-        if (u.id !== targetUnitId) return u;
-        const nextLinkedAtp = [...(u.linkedAtpItemIds || [])];
-        if (!nextLinkedAtp.includes(atpItemId)) {
-          nextLinkedAtp.push(atpItemId);
-        }
-        const nextTpIds = Array.from(new Set([...(u.linkedTpIds || []), ...actionLinkedTpIds]));
-
-        return {
-          ...u,
-          linkedAtpItemIds: nextLinkedAtp,
-          linkedTpIds: nextTpIds,
-          materials: u.materials,
-        };
-      });
-    }
-
-    // 2. Apply ADD_MATERIAL_TO_UNIT actions
-    selectedMaterialFindings.forEach((m) => {
-      const action = m.action!;
-      if (action.type !== 'ADD_MATERIAL_TO_UNIT') return;
-      const targetUnitId = action.targetUnitId;
-
-      nextUnits = nextUnits.map((u) => {
-        if (u.id !== targetUnitId) return u;
-        const currentMats = u.materials || [];
-        const newMat: ATPUnitMaterial = {
-          id: `mat-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
-          title: action.title,
-          order: currentMats.length + 1,
-          linkedTpIds: action.linkedTpIds || [],
-          linkedAtpItemIds: action.linkedAtpItemIds || [],
-        };
-        return {
-          ...u,
-          materials: [...currentMats, newMat],
-        };
-      });
+    const result = applyATPMappingActions({
+      units,
+      selectedActions,
+      atp,
+      tp,
+      mappingId: mapping?.id,
+      academicSettingId: academicSetting?.id,
+      expectedFingerprint: analysisFingerprint,
+      currentFingerprint: computeMappingFingerprint(units, atp, tp),
     });
 
-    // 3. Apply ALIGN_EXISTING_MATERIAL actions (FIX D1: Safe Lineage Alignment - replace directly without auto-union with old material lineage, no silent unit expansion)
-    selectedMaterialFindings.forEach((m) => {
-      const action = m.action!;
-      if (action.type !== 'ALIGN_EXISTING_MATERIAL') return;
-      const targetUnitId = action.targetUnitId;
-      const targetMaterialId = action.targetMaterialId;
-
-      const uProposedAtp = action.linkedAtpItemIds || [];
-      const uProposedTp = action.linkedTpIds || [];
-
-      const sortedAtpIds = [...uProposedAtp].sort((a, b) => {
-        const indexA = (atp.items || []).findIndex((item) => item.id === a);
-        const indexB = (atp.items || []).findIndex((item) => item.id === b);
-        return indexA - indexB;
-      });
-
-      const sortedTpIds = [...uProposedTp].sort((a, b) => {
-        const indexA = (tp.items || []).findIndex((item) => item.id === a);
-        const indexB = (tp.items || []).findIndex((item) => item.id === b);
-        return indexA - indexB;
-      });
-
-      nextUnits = nextUnits.map((u) => {
-        if (u.id !== targetUnitId) return u;
-
-        const nextMaterials = (u.materials || []).map((mat) => {
-          if (mat.id !== targetMaterialId) return mat;
-
-          return {
-            ...mat,
-            linkedAtpItemIds: sortedAtpIds,
-            linkedTpIds: sortedTpIds,
-          };
-        });
-
-        return {
-          ...u,
-          materials: nextMaterials,
-        };
-      });
-    });
-
-    // FIX D2 — Transactional Apply & Validation Gate
-    const candidateMapping = buildCurrentMappingDraftFromUnits(
-      nextUnits,
-      mapping?.id,
-      academicSetting?.id || atp.academicSettingId,
-      atp.id,
-      tp.id || atp.tpDataId,
-      tp.updatedAt || atp.basedOnTpUpdatedAt,
-      atp.updatedAt
-    );
-
-    const validation = validateATPUnitMappingCanonical(candidateMapping, atp, tp);
-
-    if (!validation.isValid) {
-      alert(
-        `Penerapan saran ditolak karena melanggar integritas referensi canonical atau struktur Bab induk:\n\n• ${validation.issues.join('\n• ')}`
-      );
+    if (!result.success || !result.nextUnits) {
+      setAppliedNotice(null);
+      setAnalysisError(result.issues.join('\n') || 'Penerapan gagal.');
       return;
     }
 
-    setUnits(nextUnits);
+    setUnits(result.nextUnits);
     setHasChanges(true);
-    setLastAppliedActionIds(Array.from(selectedAnalysisActionIds));
+    setLastAppliedActionIds([...selectedAnalysisActionIds]);
     setSelectedAnalysisActionIds(new Set());
     setAnalysisResult(null);
     setSaveSuccessNotice(false);
-    setAppliedNotice(
-      'Saran penyelarasan diterapkan ke draf. Tinjau lalu analisis kembali bila diperlukan.'
-    );
+    setAnalysisFingerprint(null);
+    setAppliedNotice('Saran diterapkan ke draf. Klik Simpan Pemetaan untuk menyimpan.');
   };
 
   const handleCopyDiagnostic = async () => {
