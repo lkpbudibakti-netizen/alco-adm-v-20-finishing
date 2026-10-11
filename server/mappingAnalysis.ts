@@ -600,17 +600,18 @@ export function sanitizeMappingAnalysisResult(
       semanticEvidence = unitHasSemanticEvidence(actualUnit, atpObj, supportingTpIds);
 
       const isClaimMatchesActual = !currentUnitId || currentUnitId === actualUnit.id;
-      if (isClaimMatchesActual && semanticEvidence?.supported) {
-        status = 'ALIGNED';
-      } else {
-        status = 'REVIEW';
-        if (!isClaimMatchesActual) {
-          resolvedUnitId = currentUnitId && validUnitIds.has(currentUnitId) ? currentUnitId : actualUnit.id;
-          semanticEvidence = {
-            ...(semanticEvidence || {}),
-            reason: `Klaim Bab AI (${currentUnitId}) bertentangan dengan penempatan Bab ATP aktual (${actualUnit.id}).`,
-          };
-        }
+      const mayBeAligned =
+        proposedStatus === 'ALIGNED' &&
+        isClaimMatchesActual &&
+        semanticEvidence?.supported === true;
+
+      status = mayBeAligned ? 'ALIGNED' : 'REVIEW';
+      if (!isClaimMatchesActual) {
+        resolvedUnitId = currentUnitId && validUnitIds.has(currentUnitId) ? currentUnitId : actualUnit.id;
+        semanticEvidence = {
+          ...(semanticEvidence || {}),
+          reason: `Klaim Bab AI (${currentUnitId}) bertentangan dengan penempatan Bab ATP aktual (${actualUnit.id}).`,
+        };
       }
     } else {
       status = 'REVIEW';

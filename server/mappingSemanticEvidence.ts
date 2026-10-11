@@ -79,9 +79,9 @@ function detectDomainConflict(labelTokens: string[], evidenceTokens: string[]): 
   const evidenceDomains = getSpecificDomains(evidenceTokens);
 
   if (labelDomains.length > 0 && evidenceDomains.length > 0) {
-    const hasOverlap = labelDomains.some((ld) => evidenceDomains.includes(ld));
-    if (!hasOverlap) {
-      return `Domain label (${labelDomains.join(', ')}) tidak cocok dengan domain bukti (${evidenceDomains.join(', ')}).`;
+    const allCovered = labelDomains.every((ld) => evidenceDomains.includes(ld));
+    if (!allCovered) {
+      return `Domain majemuk label (${labelDomains.join(', ')}) tidak sepenuhnya dicakup oleh domain bukti (${evidenceDomains.join(', ')}).`;
     }
   }
 
@@ -161,6 +161,6 @@ export function checkMappingSemanticEvidence(params: {
     supported: false,
     ambiguous: false,
     matchedSignals: [],
-    reason: 'Tidak ditemukan bukti substansi antara judul dan TP/ATP tertaut.',
+    reason: 'Tidak ditemukan bukti substansi antara judul dan ATP tertaut.',
   };
 }
