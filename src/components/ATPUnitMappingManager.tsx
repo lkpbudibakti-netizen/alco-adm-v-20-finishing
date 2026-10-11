@@ -37,6 +37,7 @@ import {
   MappingAnalysisResult,
 } from '../services/aiService';
 import { validateATPUnitMappingCanonical } from '../services/atpUnitMappingValidationService';
+import { resolveATPUnitMappingReadiness } from '../services/atpMappingReadinessService';
 import {
   applyATPMappingActions,
   computeMappingFingerprint,
@@ -414,8 +415,8 @@ export const ATPUnitMappingManager: React.FC<ATPUnitMappingManagerProps> = ({
     return sortedAtpItems.length - unassignedItems.length;
   }, [sortedAtpItems, unassignedItems]);
 
-  // Local structural validator (strict blocking check for canonical multi-unit contract)
-  const localValidation = useMemo(() => {
+  // Shared production readiness resolver for Step 07 and Step 08
+  const mappingReadiness = useMemo(() => {
     const tempMappingData: ATPUnitMappingData = {
       id: mapping?.id || 'temp',
       academicSettingId: academicSetting?.id || 'temp',
@@ -423,33 +424,44 @@ export const ATPUnitMappingManager: React.FC<ATPUnitMappingManagerProps> = ({
       units,
       updatedAt: new Date().toISOString()
     };
-    const validation = validateATPUnitMappingCanonical(tempMappingData, atp, tp);
+    return resolveATPUnitMappingReadiness(tempMappingData, atp, tp, academicSetting);
+  }, [units, atp, tp, academicSetting, mapping?.id]);
 
-    // C6: Readiness Summary
+  const localValidation = useMemo(() => {
+    const validation = mappingReadiness.validationResult || validateATPUnitMappingCanonical({
+      id: mapping?.id || 'temp',
+      academicSettingId: academicSetting?.id || 'temp',
+      atpId: atp.id,
+      units,
+      updatedAt: new Date().toISOString()
+    }, atp, tp);
+
     const zCount = validation.unmappedAtpIds.length + validation.uncoveredTpIds.length;
 
-    let summaryMessage = '';
-    if (validation.isComplete) {
-      summaryMessage = 'Pemetaan siap digunakan untuk Perencanaan Tahunan.';
-    } else if (!validation.isValid) {
-      summaryMessage = 'Pemetaan belum siap. Perbaiki silsilah/lineage yang tidak valid.';
-    } else if (zCount > 0) {
-      summaryMessage = 'Pemetaan belum siap. Hubungkan ATP/TP canonical yang tersisa.';
-    } else {
-      const missingUnits = validation.unitsWithoutLineage.map(unitId => units.find(unit => unit.id === unitId)?.title || unitId).join(', ');
-      summaryMessage = `Pemetaan belum siap. Lengkapi Bab (${missingUnits}) atau Materi yang belum diselaraskan.`;
+    let summaryMessage = mappingReadiness.blockers[0] || '';
+    if (!summaryMessage) {
+      if (mappingReadiness.canProceed) {
+        summaryMessage = 'Pemetaan siap digunakan untuk Perencanaan Tahunan.';
+      } else if (!validation.isValid) {
+        summaryMessage = 'Pemetaan belum siap. Perbaiki silsilah/lineage yang tidak valid.';
+      } else if (zCount > 0) {
+        summaryMessage = 'Pemetaan belum siap. Hubungkan ATP/TP canonical yang tersisa.';
+      } else {
+        const missingUnits = validation.unitsWithoutLineage.map(unitId => units.find(unit => unit.id === unitId)?.title || unitId).join(', ');
+        summaryMessage = missingUnits ? `Pemetaan belum siap. Lengkapi Bab (${missingUnits}) atau Materi yang belum diselaraskan.` : 'Pemetaan belum siap.';
+      }
     }
 
     return {
-      isComplete: validation.isComplete,
+      isComplete: mappingReadiness.canProceed,
       isValid: validation.isValid,
       unitsWithoutLineageCount: validation.unitsWithoutLineage.length,
       materialsWithoutLineageCount: validation.materialsWithoutLineage.length,
       unmappedAtpAndUncoveredTpCount: zCount,
       summaryMessage,
-      issues: validation.issues,
+      issues: mappingReadiness.blockers.length > 0 ? mappingReadiness.blockers : validation.issues,
     };
-  }, [units, atp, tp, academicSetting, mapping?.id]);
+  }, [mappingReadiness, units, atp, tp, academicSetting, mapping?.id]);
 
   // Handlers for Bab (Unit)
   const handleRenameBab = (unitId: string, newTitle: string) => {

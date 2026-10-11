@@ -46,6 +46,7 @@ import {
 } from '../services/subjectScheduleService';
 import { isLearningMeetingScheduleReady } from '../services/learningMeetingScheduleService';
 import { validateATPUnitMappingCanonical } from '../services/atpUnitMappingValidationService';
+import { resolveATPUnitMappingReadiness } from '../services/atpMappingReadinessService';
 
 export interface AnnualPlanningManagerProps {
   school: SchoolData;
@@ -99,10 +100,10 @@ export const AnnualPlanningManager: React.FC<AnnualPlanningManagerProps> = ({
 
   const isKurikulumMerdeka = academicSetting.curriculumType === 'KURIKULUM_MERDEKA';
 
-  const mappingValidation = useMemo(() => {
+  const mappingReadiness = useMemo(() => {
     if (!isKurikulumMerdeka) return null;
-    return validateATPUnitMappingCanonical(mapping, atp, tp);
-  }, [isKurikulumMerdeka, mapping, atp, tp]);
+    return resolveATPUnitMappingReadiness(mapping, atp, tp, academicSetting);
+  }, [isKurikulumMerdeka, mapping, atp, tp, academicSetting]);
 
   // Selected semester tab in the annual planning workspace (defaults to Semester 1)
   const [activeTabSemester, setActiveTabSemester] = useState<1 | 2>(1);
@@ -547,10 +548,8 @@ export const AnnualPlanningManager: React.FC<AnnualPlanningManagerProps> = ({
     return 'Semester 2 siap. Lanjut ke Pembagian Bab.';
   }, [s2CalendarReady, s2JpReady, s2ScheduleSaved, s2PlannedCapacity.isReady]);
 
-  if (isKurikulumMerdeka && (!mapping || !atp || !tp || !mappingValidation?.isComplete)) {
-    const xCount = mappingValidation ? mappingValidation.unitsWithoutLineage.length : 0;
-    const yCount = mappingValidation ? mappingValidation.materialsWithoutLineage.length : 0;
-    const zCount = mappingValidation ? (mappingValidation.unmappedAtpIds.length + mappingValidation.uncoveredTpIds.length) : 0;
+  if (isKurikulumMerdeka && (!mappingReadiness || !mappingReadiness.canProceed)) {
+    const blockers = mappingReadiness?.blockers || ['Pemetaan Bab & Lingkup Materi belum selesai diselaraskan.'];
 
     return (
       <div className="max-w-4xl mx-auto my-12 p-8 bg-white border border-rose-100 rounded-3xl shadow-xs space-y-6 text-center animate-fadeIn">
@@ -560,7 +559,7 @@ export const AnnualPlanningManager: React.FC<AnnualPlanningManagerProps> = ({
 
         <div className="space-y-2">
           <h2 className="text-xl font-bold text-slate-900">
-            Pemetaan Bab & Lingkup Materi belum selesai diselaraskan.
+            Pemetaan Bab & Lingkup Materi belum selesai diselaraskan atau belum siap.
           </h2>
           <p className="text-sm text-slate-600 max-w-xl mx-auto leading-relaxed">
             Lengkapi pemetaan ATP/TP terlebih dahulu agar
@@ -569,16 +568,16 @@ export const AnnualPlanningManager: React.FC<AnnualPlanningManagerProps> = ({
           </p>
         </div>
 
-        {mappingValidation && (
+        {blockers.length > 0 && (
           <div className="bg-amber-50/60 p-4 rounded-2xl border border-amber-200 text-left max-w-md mx-auto space-y-2 text-xs text-amber-900">
             <div className="font-bold flex items-center gap-1.5 text-sm">
               <Info className="w-4 h-4 text-amber-600 shrink-0" />
-              <span>Ringkasan Ketidaksiapan:</span>
+              <span>Alasan / Blocker:</span>
             </div>
             <ul className="list-disc pl-5 space-y-1">
-              <li>{xCount} Bab belum memiliki lineage.</li>
-              <li>{yCount} Lingkup Materi belum diselaraskan.</li>
-              <li>{zCount} ATP/TP canonical belum tercakup.</li>
+              {blockers.map((b, i) => (
+                <li key={i}>{b}</li>
+              ))}
             </ul>
           </div>
         )}
