@@ -811,6 +811,74 @@ async function runAll() {
     ];
     const check3 = checkTPSemanticFidelity(missingAggregateTPs, analysisItems);
     assert.strictEqual(check3.isValid, false, 'Missing aggregate chunk (manipulatif) must fail aggregate coverage');
+
+    // Fix 1 Regression: KKO not stopword (competence mismatch must fail)
+    const fix1Analysis = [
+      {
+        id: 'ana-f1',
+        cpCompetence: 'Mempraktikkan',
+        materialScope: 'gerak lokomotor',
+      }
+    ];
+    const fix1InvalidTP = [
+      {
+        id: 'tp-f1-bad',
+        code: 'E1-LOK-01',
+        competence: 'Menjelaskan',
+        contentScope: 'gerak lokomotor',
+        statement: 'Peserta didik menjelaskan gerak lokomotor.',
+        cpAnalysisItemIds: ['ana-f1'],
+      }
+    ];
+    const checkFix1Fail = checkTPSemanticFidelity(fix1InvalidTP, fix1Analysis);
+    assert.strictEqual(checkFix1Fail.isValid, false, 'Competence mismatch with KKO not stopword must fail');
+
+    const fix1ValidTP = [
+      {
+        id: 'tp-f1-good',
+        code: 'E1-LOK-01',
+        competence: 'Mempraktikkan',
+        contentScope: 'gerak lokomotor',
+        statement: 'Peserta didik mempraktikkan gerak lokomotor.',
+        cpAnalysisItemIds: ['ana-f1'],
+      }
+    ];
+    const checkFix1Pass = checkTPSemanticFidelity(fix1ValidTP, fix1Analysis);
+    assert.strictEqual(checkFix1Pass.isValid, true, 'Matching competence and materialScope must pass');
+
+    // Fix 2 Regression: Lineage resolution via cpAnalysisId fallback without cpAnalysisItemIds
+    const fix2Analysis = [
+      {
+        id: 'ana-1',
+        cpCompetence: 'Mengenali',
+        materialScope: 'strategi mencari bantuan kepada orang dewasa terpercaya',
+      }
+    ];
+    const fix2InvalidTP = [
+      {
+        id: 'tp-f2-bad',
+        code: 'E1-SB-01',
+        competence: 'Mempraktikkan',
+        contentScope: 'gerak lokomotor',
+        statement: 'Peserta didik mempraktikkan gerak lokomotor.',
+        cpAnalysisId: 'ana-1', // legacy fallback property instead of cpAnalysisItemIds
+      }
+    ];
+    const checkFix2Fail = checkTPSemanticFidelity(fix2InvalidTP, fix2Analysis);
+    assert.strictEqual(checkFix2Fail.isValid, false, 'Semantic mismatch using cpAnalysisId fallback must fail');
+
+    const fix2ValidTP = [
+      {
+        id: 'tp-f2-good',
+        code: 'E1-SB-01',
+        competence: 'Mengenali',
+        contentScope: 'strategi mencari bantuan kepada orang dewasa terpercaya',
+        statement: 'Peserta didik mengenali strategi mencari bantuan.',
+        cpAnalysisId: 'ana-1',
+      }
+    ];
+    const checkFix2Pass = checkTPSemanticFidelity(fix2ValidTP, fix2Analysis);
+    assert.strictEqual(checkFix2Pass.isValid, true, 'Semantic match using cpAnalysisId fallback must pass');
   });
 
   console.log(`\n=== All Regression Tests Passed: ${passedTests} / ${totalTests} ===\n`);

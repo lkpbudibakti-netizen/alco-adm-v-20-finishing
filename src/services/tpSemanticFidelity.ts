@@ -4,7 +4,7 @@ export const tpStopWords = new Set([
   'untuk', 'dengan', 'sebagai', 'oleh', 'tentang', 'bagi', 'secara',
   'baik', 'seperti', 'melalui', 'agar', 'supaya', 'harus', 'dapat',
   'akan', 'telah', 'adalah', 'merupakan', 'yaitu', 'yakni', 'dsb', 'dll',
-  'pesertadidik', 'memahami', 'mempraktikkan', 'menerapkan', 'mengidentifikasi'
+  'pesertadidik'
 ]);
 
 export function getSubstantiveTokens(text: string): string[] {
@@ -85,7 +85,9 @@ export function checkTPSemanticFidelity(tpItems: any[], analysisItems: any[]): {
 
   for (let i = 0; i < tpItems.length; i++) {
     const tpItem = tpItems[i];
-    const analysisIds = Array.isArray(tpItem.cpAnalysisItemIds) ? tpItem.cpAnalysisItemIds : [];
+    const analysisIds = (Array.isArray(tpItem.cpAnalysisItemIds) && tpItem.cpAnalysisItemIds.length > 0)
+      ? tpItem.cpAnalysisItemIds
+      : (tpItem.cpAnalysisId ? [tpItem.cpAnalysisId] : []);
     
     if (analysisIds.length === 1) {
       const anaId = String(analysisIds[0]);
