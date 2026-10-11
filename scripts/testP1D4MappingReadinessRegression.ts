@@ -1,4 +1,8 @@
 import { resolveATPUnitMappingReadiness } from '../src/services/atpMappingReadinessService';
+import {
+  computeAtpSubstantiveFingerprint,
+  computeTpSubstantiveFingerprint,
+} from '../src/services/atpMappingActionApplyService';
 import { ATPUnitMappingData, ATPData, TPData, AcademicSetting } from '../src/types';
 
 function assert(condition: boolean, message: string, details?: any) {
@@ -142,18 +146,36 @@ const validMapping: ATPUnitMappingData = {
   assert(res.canSaveDraft === false, 'Fictional reference blocks save draft');
 }
 
-// 11. Perubahan metadata upstream (updatedAt) -> verifikasi behavior
+// 11. Mapping baru dengan fingerprint: metadata-only upstream tidak stale
 {
   const atp: ATPData = { ...mockATP, updatedAt: '2025-01-02T00:00:00Z' };
-  const res = resolveATPUnitMappingReadiness(validMapping, atp, mockTP, mockSetting);
+  const mapping: ATPUnitMappingData = {
+    ...validMapping,
+    basedOnAtpFingerprint: computeAtpSubstantiveFingerprint(mockATP),
+    basedOnTpFingerprint: computeTpSubstantiveFingerprint(mockTP),
+  };
+  const res = resolveATPUnitMappingReadiness(mapping, atp, mockTP, mockSetting);
   assert(res.canProceed === true, 'Metadata change alone should not trigger stale');
 }
 
-// 12. Perubahan upstream yang terdeteksi stale -> blokir
+// 12. Mapping baru dengan fingerprint: perubahan substansi upstream -> blokir
 {
   const atp: ATPData = { ...mockATP, updatedAt: '2025-01-03T00:00:00Z', items: [{...mockATP.items[0], focus: 'Updated Focus'}] };
-  const res = resolveATPUnitMappingReadiness(validMapping, atp, mockTP, mockSetting);
+  const mapping: ATPUnitMappingData = {
+    ...validMapping,
+    basedOnAtpFingerprint: computeAtpSubstantiveFingerprint(mockATP),
+    basedOnTpFingerprint: computeTpSubstantiveFingerprint(mockTP),
+  };
+  const res = resolveATPUnitMappingReadiness(mapping, atp, mockTP, mockSetting);
   assert(res.canProceed === false, 'Stale upstream blocks proceed');
+}
+
+// 12b. Mapping lama tanpa fingerprint tetap konservatif bila timestamp upstream lebih baru
+{
+  const atp: ATPData = { ...mockATP, updatedAt: '2025-01-02T00:00:00Z' };
+  const res = resolveATPUnitMappingReadiness(validMapping, atp, mockTP, mockSetting);
+  assert(res.canProceed === false, 'Legacy mapping without substantive fingerprint must not bypass stale guard');
+  assert(res.blockers.some(b => b.includes('stale')), 'Legacy stale blocker must be explicit');
 }
 
 // 13. Keputusan resolver berdasarkan konteks data realistis
@@ -188,4 +210,4 @@ const validMapping: ATPUnitMappingData = {
   assert(res.blockers.length > 0 && res.blockers.some(b => b.includes('ATP')), 'Blocker summary consistent for ATP DRAFT');
 }
 
-console.log('All 15 P1-D4 Mapping Readiness Gate Regression Tests passed successfully!');
+console.log('All 16 P1-D4 Mapping Readiness Gate Regression Tests passed successfully!');

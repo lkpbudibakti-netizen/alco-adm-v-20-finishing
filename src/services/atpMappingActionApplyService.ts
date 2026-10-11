@@ -264,8 +264,11 @@ export function applyATPMappingActions(input: ApplyATPMappingActionsInput): Appl
     } else if (action.type === 'ALIGN_EXISTING_MATERIAL' || action.type === 'RECOVER_ATP_LINEAGE') {
       const matId = String(action.targetMaterialId || '').trim();
       const unitInfo = unitMap.get(targetUnitId);
-      if (action.type === 'ALIGN_EXISTING_MATERIAL' && (!matId || !unitInfo || !unitInfo.materialIds.has(matId))) {
-        issues.push(`ALIGN_EXISTING_MATERIAL merujuk Lingkup Materi fiktif atau tidak sesuai Bab: ${matId}`);
+      if (matId && (!unitInfo || !unitInfo.materialIds.has(matId))) {
+        issues.push(`${action.type} merujuk Lingkup Materi fiktif atau tidak sesuai Bab: ${matId}`);
+      }
+      if (action.type === 'ALIGN_EXISTING_MATERIAL' && !matId) {
+        issues.push(`ALIGN_EXISTING_MATERIAL wajib menargetkan Lingkup Materi existing.`);
       }
       const linkedAtps = Array.isArray(action.linkedAtpItemIds) ? action.linkedAtpItemIds : [];
       const linkedTps = Array.isArray(action.linkedTpIds) ? action.linkedTpIds : [];
@@ -282,14 +285,29 @@ export function applyATPMappingActions(input: ApplyATPMappingActionsInput): Appl
         const supported = linkedAtps.some((aId) => getCanonicalTpsForAtpItem(atpMap.get(aId)).includes(tId));
         if (!supported) issues.push(`TP '${tId}' tidak didukung oleh ATP canonical pada ${action.type}.`);
       }
+      const unit = unitInfo?.unit;
+      const unitHasLineage = (unit?.linkedAtpItemIds || []).length > 0 || (unit?.linkedTpIds || []).length > 0;
+      if (action.type === 'ALIGN_EXISTING_MATERIAL' && unitHasLineage) {
+        for (const aId of linkedAtps) {
+          if (!(unit?.linkedAtpItemIds || []).includes(aId)) issues.push(`ALIGN_EXISTING_MATERIAL merujuk ATP '${aId}' yang tidak didukung Bab induk.`);
+        }
+        for (const tId of linkedTps) {
+          if (!(unit?.linkedTpIds || []).includes(tId)) issues.push(`ALIGN_EXISTING_MATERIAL merujuk TP '${tId}' yang tidak didukung Bab induk.`);
+        }
+      }
       if (action.type === 'RECOVER_ATP_LINEAGE') {
         const staleAtps = Array.isArray(action.removeAtpItemIds) ? action.removeAtpItemIds : [];
         if (staleAtps.length === 0) {
           issues.push('RECOVER_ATP_LINEAGE wajib menyebut removeAtpItemIds.');
         }
+        const targetMaterial = matId ? (unit?.materials || []).find((m) => m.id === matId) : undefined;
+        const sourceAtpIds = matId ? (targetMaterial?.linkedAtpItemIds || []) : (unit?.linkedAtpItemIds || []);
         for (const staleId of staleAtps) {
           if (validAtpIds.has(staleId)) {
             issues.push(`RECOVER_ATP_LINEAGE tidak boleh menghapus ATP canonical yang masih valid: ${staleId}`);
+          }
+          if (!sourceAtpIds.includes(staleId)) {
+            issues.push(`RECOVER_ATP_LINEAGE mencoba menghapus ATP lama '${staleId}' yang tidak ada pada target.`);
           }
         }
       }

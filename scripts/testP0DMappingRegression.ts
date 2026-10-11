@@ -5,6 +5,7 @@ import {
   computeMappingFingerprint,
   computeTpSubstantiveFingerprint,
 } from '../src/services/atpMappingActionApplyService';
+import { validateATPUnitMappingCanonical } from '../src/services/atpUnitMappingValidationService';
 import { resolveATPUnitMappingReadiness } from '../src/services/atpMappingReadinessService';
 import { sanitizeMappingAnalysisResult } from '../server/mappingAnalysis';
 import type { ATPData, TPData, ATPUnitMappingData } from '../src/types';
@@ -118,6 +119,7 @@ const initialFingerprint = computeMappingFingerprint(initialUnits, mockAtp, mock
 
 // Scenario 4: Multi-action satu invalid -> seluruh transaksi reject
 {
+  const before = JSON.stringify(initialUnits);
   const result = applyATPMappingActions({
     units: initialUnits,
     selectedActions: [
@@ -144,6 +146,7 @@ const initialFingerprint = computeMappingFingerprint(initialUnits, mockAtp, mock
     currentFingerprint: initialFingerprint,
   });
   assert.strictEqual(result.success, false, 'Multi-action with one invalid action must reject entire transaction atomically');
+  assert.strictEqual(JSON.stringify(initialUnits), before, 'Failed apply must not mutate draft input');
   console.log('PASS Scenario 4: Multi-action atomic rejection');
 }
 
@@ -334,8 +337,34 @@ const initialFingerprint = computeMappingFingerprint(initialUnits, mockAtp, mock
   console.log('PASS Scenario 12: Helper is pure function without side effects');
 }
 
-// Scenario 13: Excel 6 Bab/17 Materi lineage kosong dapat diisi tanpa kehilangan struktur
+// Scenario 13: Excel 6 Bab/17 Materi lineage kosong diisi tanpa mengubah struktur
 {
+  const excelTp: TPData = {
+    id: 'tp-excel',
+    academicSettingId: 'acad-1',
+    workflowStatus: 'SIAP',
+    items: Array.from({ length: 10 }, (_, idx) => ({
+      id: `tp-excel-${idx + 1}`,
+      code: `TP-${idx + 1}`,
+      statement: `Memahami materi Excel ${idx + 1}`,
+      competence: 'Memahami',
+      contentScope: `Materi Excel ${idx + 1}`,
+    })),
+    updatedAt: '2026-01-01T00:00:00.000Z',
+  } as any;
+  const excelAtp: ATPData = {
+    id: 'atp-excel',
+    academicSettingId: 'acad-1',
+    tpDataId: 'tp-excel',
+    workflowStatus: 'SIAP',
+    items: Array.from({ length: 5 }, (_, idx) => ({
+      id: `atp-excel-${idx + 1}`,
+      stepNumber: idx + 1,
+      focus: `Fokus ATP Excel ${idx + 1}`,
+      linkedTpIds: [`tp-excel-${idx * 2 + 1}`, `tp-excel-${idx * 2 + 2}`],
+    })),
+    updatedAt: '2026-01-01T00:00:00.000Z',
+  } as any;
   const excelUnits = Array.from({ length: 6 }, (_, unitIdx) => ({
     id: `excel-unit-${unitIdx + 1}`,
     title: `Bab Excel ${unitIdx + 1}`,
@@ -350,43 +379,93 @@ const initialFingerprint = computeMappingFingerprint(initialUnits, mockAtp, mock
       linkedTpIds: [],
     })),
   }));
-  const fp = computeMappingFingerprint(excelUnits, mockAtp, mockTp);
+  const structureBefore = (excelUnits || []).map((u) => ({
+    id: u.id,
+    title: u.title,
+    order: u.order,
+    materials: u.materials.map((m) => ({ id: m.id, title: m.title, order: m.order })),
+  }));
+  const materialIds = excelUnits.flatMap((u) => u.materials.map((m) => ({ unitId: u.id, materialId: m.id, order: m.order })));
+  const actions = materialIds.map((entry, idx) => {
+    const tpIndex = idx % 10;
+    const atpIndex = Math.floor(tpIndex / 2);
+    return {
+      id: `excel-align-${idx + 1}`,
+      type: 'ALIGN_EXISTING_MATERIAL' as const,
+      targetUnitId: entry.unitId,
+      targetMaterialId: entry.materialId,
+      linkedAtpItemIds: [`atp-excel-${atpIndex + 1}`],
+      linkedTpIds: [`tp-excel-${tpIndex + 1}`],
+    };
+  });
+  const fp = computeMappingFingerprint(excelUnits, excelAtp, excelTp);
   const result = applyATPMappingActions({
     units: excelUnits,
-    selectedActions: [{
-      id: 'excel-fill',
-      type: 'ADD_MATERIAL_TO_UNIT',
-      targetUnitId: 'excel-unit-1',
-      title: 'Materi relasi valid',
-      linkedAtpItemIds: ['atp-item-1'],
-      linkedTpIds: ['tp-1'],
-    }],
-    atp: mockAtp,
-    tp: mockTp,
+    selectedActions: actions,
+    atp: excelAtp,
+    tp: excelTp,
     expectedFingerprint: fp,
     currentFingerprint: fp,
   });
   assert.strictEqual(result.success, true);
   assert.strictEqual(result.nextUnits?.length, 6);
-  assert.strictEqual(result.nextUnits?.reduce((sum, u) => sum + u.materials.length, 0), 18);
-  console.log('PASS Scenario 13: Excel imported structure preserved while lineage is added');
+  assert.strictEqual(result.nextUnits?.reduce((sum, u) => sum + u.materials.length, 0), 17);
+  const structureAfter = (result.nextUnits || []).map((u) => ({
+    id: u.id,
+    title: u.title,
+    order: u.order,
+    materials: u.materials.map((m) => ({ id: m.id, title: m.title, order: m.order })),
+  }));
+  assert.deepStrictEqual(structureAfter, structureBefore, 'Excel Bab/Materi IDs, titles, and order must not change');
+  const mapping: ATPUnitMappingData = {
+    id: 'mapping-excel',
+    academicSettingId: 'acad-1',
+    atpId: excelAtp.id,
+    tpDataId: excelTp.id,
+    units: result.nextUnits!,
+    basedOnAtpFingerprint: computeAtpSubstantiveFingerprint(excelAtp),
+    basedOnTpFingerprint: computeTpSubstantiveFingerprint(excelTp),
+    updatedAt: '2026-01-01T00:00:00.000Z',
+  };
+  const validation = validateATPUnitMappingCanonical(mapping, excelAtp, excelTp);
+  assert.strictEqual(validation.isValid, true, `Excel mapping must be canonical valid: ${validation.issues.join('; ')}`);
+  assert.strictEqual(validation.isComplete, true, `Excel mapping must be complete: ${validation.issues.join('; ')}`);
+  assert.strictEqual(validation.invalidReferenceCount, 0, 'Excel mapping must have Z=0 invalid references');
+  assert.deepStrictEqual(validation.unmappedAtpIds, [], 'No canonical ATP may remain unmapped');
+  assert.deepStrictEqual(validation.uncoveredTpIds, [], 'No canonical TP may remain uncovered');
+  const readiness = resolveATPUnitMappingReadiness(mapping, excelAtp, excelTp, { id: 'acad-1' } as any);
+  assert.strictEqual(readiness.canProceed, true, `Complete Excel mapping must proceed: ${readiness.blockers.join('; ')}`);
+  const reloadedMapping = JSON.parse(JSON.stringify(mapping)) as ATPUnitMappingData;
+  const reloadedValidation = validateATPUnitMappingCanonical(reloadedMapping, excelAtp, excelTp);
+  assert.strictEqual(reloadedValidation.isValid, true, 'Reloaded mapping must retain valid lineage');
+  assert.strictEqual(reloadedValidation.isComplete, true, 'Reloaded mapping must retain complete lineage');
+  console.log('PASS Scenario 13: Excel imported 6 Bab/17 Materi preserved and ready');
 }
 
-// Scenario 14-16: Referensi ATP lama direkomendasikan recovery, direlink, dan ID lama dibersihkan
+// Scenario 14-16: Referensi ATP lama multi-materi direkomendasikan recovery, direlink, dan ID lama dibersihkan
 {
   const oldUnits = [{
     id: 'unit-old',
-    title: 'Materi 1',
+    title: 'Bab 1',
     order: 1,
-    linkedAtpItemIds: ['atp-item-old'],
-    linkedTpIds: ['tp-1'],
-    materials: [{
-      id: 'mat-old',
-      title: 'Materi 1',
-      order: 1,
-      linkedAtpItemIds: ['atp-item-old'],
-      linkedTpIds: ['tp-1'],
-    }],
+    linkedAtpItemIds: ['atp-item-old-1', 'atp-item-old-2'],
+    linkedTpIds: ['tp-1', 'tp-2'],
+    materials: [
+      {
+        id: 'mat-old-1',
+        title: 'Materi 1',
+        order: 1,
+        linkedAtpItemIds: ['atp-item-old-1'],
+        linkedTpIds: ['tp-1'],
+      },
+      {
+        id: 'mat-old-2',
+        title: 'Materi 2',
+        order: 2,
+        linkedAtpItemIds: ['atp-item-old-2'],
+        linkedTpIds: ['tp-2'],
+      },
+    ],
   }];
   const analysis = sanitizeMappingAnalysisResult({ atpFindings: [], materialFindings: [], summary: {} }, {
     tpData: mockTp,
@@ -415,7 +494,8 @@ const initialFingerprint = computeMappingFingerprint(initialUnits, mockAtp, mock
   assert.strictEqual(applied.success, true, 'Recovery actions must apply');
   assert.ok(!JSON.stringify(applied.nextUnits).includes('atp-item-old'), 'Old ATP references must be removed after valid recovery');
   assert.ok(JSON.stringify(applied.nextUnits).includes('atp-item-1'), 'Current canonical ATP must be linked after recovery');
-  console.log('PASS Scenario 14-16: Old ATP references recover to current canonical lineage');
+  assert.ok(JSON.stringify(applied.nextUnits).includes('atp-item-2'), 'Multiple material recovery actions must preserve each canonical ATP');
+  console.log('PASS Scenario 14-16: Old ATP references recover atomically across multiple materials');
 }
 
 // Scenario 17: Relasi ambigu tidak diterapkan otomatis
