@@ -19,7 +19,7 @@ export const SD_CP_ENTRIES: MasterCPEntry[] = [
     evidence: [
       {
         regulationId: 'DEC-BSKAP-046-2025',
-        sourceUrl: 'https://kurikulum.kemendikdasmen.go.id/unduhan/keputusan-kepala-bskap-nomor-046-h-kr-2025',
+        sourceUrl: 'https://kurikulum.kemendikdasmen.go.id/file/1753929861_manage_file.pdf',
         locator: {
           attachment: 'Lampiran Capaian Pembelajaran PJOK',
           section: 'Fase A (Kelas I dan II SD/MI)',

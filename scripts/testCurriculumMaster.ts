@@ -918,10 +918,16 @@ async function runCurriculumMasterTests() {
     'Preset PJOK Fase A mempunyai tepat 4 nama elemen: Terampil Bergerak, Belajar Melalui Gerak, Bergaya Hidup Aktif, Memilih Hidup yang Menyehatkan'
   );
 
+  const masterPjok = SD_CP_ENTRIES.find((entry) => entry.id === 'cp25-sd-fase-a-pjok');
+  assert(
+    JSON.stringify(pjokPreset?.elements) === JSON.stringify(masterPjok?.elements),
+    'CP_PRESETS PJOK Fase A harus identik dengan canonical master elements'
+  );
+
   const combinedContent = (pjokPreset?.elements || []).map((e) => e.content).join(' ').toLowerCase();
   assert(
-    combinedContent.includes('manfaat aktivitas jasmani'),
-    'Konten preset memuat semantic marker: manfaat aktivitas jasmani'
+    combinedContent.includes('mengidentifikasi manfaatnya'),
+    'Konten preset memuat semantic marker: mengidentifikasi manfaatnya'
   );
   assert(
     combinedContent.includes('makanan bergizi'),
@@ -934,6 +940,10 @@ async function runCurriculumMasterTests() {
   assert(
     combinedContent.includes('mencari bantuan'),
     'Konten preset memuat semantic marker: mencari bantuan'
+  );
+  assert(
+    combinedContent.includes('menyimpulkan efektivitasnya'),
+    'Konten preset memuat semantic marker: menyimpulkan efektivitasnya'
   );
 
   const cp2024 = resolveCPContext({
