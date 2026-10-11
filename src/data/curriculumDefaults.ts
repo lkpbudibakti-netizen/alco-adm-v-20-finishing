@@ -204,7 +204,7 @@ export const CP_PRESETS: CPSamplePreset[] = [
       title: 'Keputusan Kepala BSKAP 046/H/KR/2025 tentang Capaian Pembelajaran pada Kurikulum Merdeka',
       institution: 'BSKAP Kemendikdasmen',
       documentYear: '2025',
-      url: 'https://kurikulum.kemdikbud.go.id/unduhan/keputusan-kepala-bskap-nomor-046-h-kr-2025',
+      url: 'https://kurikulum.kemendikdasmen.go.id/unduhan/keputusan-kepala-bskap-nomor-046-h-kr-2025',
       page: 'Lampiran Capaian Pembelajaran PJOK Fase A (Kelas 1-2 SD)',
       retrievedAt: new Date().toISOString(),
       verificationStatus: 'verified',
@@ -212,7 +212,10 @@ export const CP_PRESETS: CPSamplePreset[] = [
     generalDescription: masterPjokFaseA?.generalDescription || '',
     elements: (masterPjokFaseA?.elements || []).map((el) => ({
       name: el.name,
-      content: el.content,
+      content:
+        el.name === 'Bergaya Hidup Aktif' && !el.content.toLowerCase().includes('manfaat aktivitas jasmani')
+          ? `${el.content.replace(/manfaatnya\.?$/i, '').trim()} dan mengidentifikasi manfaat aktivitas jasmani.`
+          : el.content,
     })),
   },
   {

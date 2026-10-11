@@ -19,7 +19,7 @@ export const SD_CP_ENTRIES: MasterCPEntry[] = [
     evidence: [
       {
         regulationId: 'DEC-BSKAP-046-2025',
-        sourceUrl: 'https://kurikulum.kemdikbud.go.id/unduhan/keputusan-kepala-bskap-nomor-046-h-kr-2025',
+        sourceUrl: 'https://kurikulum.kemendikdasmen.go.id/unduhan/keputusan-kepala-bskap-nomor-046-h-kr-2025',
         locator: {
           attachment: 'Lampiran Capaian Pembelajaran PJOK',
           section: 'Fase A (Kelas I dan II SD/MI)',
@@ -28,27 +28,27 @@ export const SD_CP_ENTRIES: MasterCPEntry[] = [
       },
     ],
     generalDescription:
-      'Pada akhir Fase A, peserta didik mempraktikkan keterampilan gerak fundamental dan menerapkannya dalam berbagai situasi gerak, mengeksplorasi strategi gerak, serta konsep gerak dan efektivitasnya. Peserta didik menaati peraturan untuk fair play dan menerapkan strategi kolaborasi dalam aktivitas jasmani. Peserta didik berpartisipasi dalam berbagai aktivitas jasmani dan mengidentifikasi manfaat aktivitas jasmani. Peserta didik mengenali gaya hidup aktif dan sehat, manfaat komponen makanan bergizi seimbang, situasi dan potensi yang berisiko terhadap kesehatan dan keselamatan, serta strategi mencari bantuan kepada orang dewasa terpercaya.',
+      'Pada akhir Fase A, peserta didik mempraktikkan keterampilan gerak fundamental dan menerapkannya dalam berbagai situasi gerak yang berbeda, mengeksplorasi strategi gerak, serta konsep gerak dan menyimpulkan efektivitasnya. Peserta didik menaati peraturan untuk menumbuhkan fair play di dalam berbagai aktivitas jasmani dan menerapkan strategi kolaborasi ketika berpartisipasi dalam aktivitas jasmani. Peserta didik berpartisipasi di dalam berbagai aktivitas jasmani dan mengidentifikasi manfaatnya. Peserta didik mengenali gaya hidup aktif dan sehat, manfaat komponen makanan bergizi seimbang, situasi dan potensi yang berisiko terhadap kesehatan dan keselamatan, serta strategi mencari bantuan kepada orang dewasa terpercaya.',
     elements: [
       {
         name: 'Terampil Bergerak',
         content:
-          'Peserta didik mempraktikkan keterampilan gerak fundamental dan menerapkannya dalam berbagai situasi gerak. Peserta didik mengeksplorasi strategi gerak serta konsep gerak dan efektivitasnya.',
+          'Mempraktikkan keterampilan gerak fundamental dan menerapkannya dalam berbagai situasi gerak yang berbeda; mengeksplorasi berbagai strategi gerak; dan mengeksplorasi berbagai konsep gerak serta menyimpulkan efektivitasnya.',
       },
       {
         name: 'Belajar Melalui Gerak',
         content:
-          'Peserta didik menaati peraturan untuk fair play dan menerapkan strategi kolaborasi dalam aktivitas jasmani.',
+          'Menaati peraturan untuk menumbuhkan fair play di dalam berbagai aktivitas jasmani; menerapkan strategi kolaborasi ketika berpartisipasi dalam aktivitas jasmani.',
       },
       {
         name: 'Bergaya Hidup Aktif',
         content:
-          'Peserta didik berpartisipasi dalam berbagai aktivitas jasmani dan mengidentifikasi manfaat aktivitas jasmani.',
+          'Berpartisipasi di dalam berbagai aktivitas jasmani dan mengidentifikasi manfaatnya.',
       },
       {
         name: 'Memilih Hidup yang Menyehatkan',
         content:
-          'Peserta didik mengenali gaya hidup aktif dan sehat, manfaat komponen makanan bergizi seimbang, situasi dan potensi yang berisiko terhadap kesehatan dan keselamatan, serta strategi mencari bantuan kepada orang dewasa terpercaya.',
+          'Mengenali gaya hidup aktif dan sehat; mengenali manfaat komponen makanan bergizi seimbang; serta mengenali situasi dan potensi yang berisiko terhadap kesehatan dan keselamatan serta strategi mencari bantuan kepada orang dewasa terpercaya.',
       },
     ],
   },
