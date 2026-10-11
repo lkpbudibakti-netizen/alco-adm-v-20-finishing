@@ -1047,7 +1047,7 @@ PRINSIP & INSTRUKSI PENYUSUNAN ATP MULTI-TP (CANONICAL):
          a. Substansi/materi TP yang ditautkan.
          b. Kompetensi atau tindakan pembelajaran yang dapat dikenali untuk setiap TP tertaut.
          c. Kesetaraan makna kompetensi; tidak harus menyalin seluruh kalimat TP, namun tindakan spesifik harus terlihat jelas (misalnya: "Mempraktikkan" harus tampak sebagai praktik/demonstrasi).
-         d. Kata kerja spesifik seperti "Menjaga", "Mengenali", "Menerapkan", dan "Mengeksplorasi" tidak boleh direduksi menjadi frasa umum (misal: "memahami kesehatan" dilarang).
+         d. Kata kerja spesifik seperti "Menjaga", "Mengenali", "Menerapkan", "Mengeksplorasi", dan "Berpartisipasi" tidak boleh direduksi menjadi frasa umum (misal: "memahami kesehatan" dilarang). JANGAN mengulang kata kerja dalam satu rumusan TP (misalnya: "menerapkan menerapkan").
        - Jika satu langkah menggabungkan beberapa TP:
          a. Semua TP tertaut harus terwakili secara substantif dalam fokus.
          b. Kompetensi berbeda harus tetap terlihat, termasuk tindakan majemuk.

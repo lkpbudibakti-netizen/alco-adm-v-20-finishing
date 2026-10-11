@@ -332,6 +332,17 @@ const praktikTp: TPItem[] = [{ id: 'tp-praktik', code: 'E1-PRAK-01', statement: 
 assertCase(checkATPSemanticFidelity('Mempraktikkan penanganan cedera ringan', praktikTp).isValid, 'Praktik: Kompetensi relevan PASS');
 assertCase(!checkATPSemanticFidelity('Mengenali cedera ringan', praktikTp).isValid, 'Praktik: Kompetensi lain FAIL');
 
+
+// 8. Berpartisipasi (Regression)
+const partTp: TPItem[] = [{ id: 'tp-part', code: 'E1-PART-01', statement: 'Peserta didik berpartisipasi dalam permainan.', competence: 'Berpartisipasi', contentScope: 'Permainan', order: 1 }];
+assertCase(checkATPSemanticFidelity('Berpartisipasi dalam permainan', partTp).isValid, 'Partisipasi: Kompetensi relevan PASS');
+assertCase(!checkATPSemanticFidelity('Mengamati permainan', partTp).isValid, 'Partisipasi: Kompetensi lain FAIL');
+
+// 9. Kompetensi Majemuk (Regression)
+const majemukTp: TPItem[] = [{ id: 'tp-majemuk', code: 'E1-MAJ-01', statement: 'Peserta didik menerapkan dan berpartisipasi dalam gerak.', competence: 'Menerapkan dan berpartisipasi', contentScope: 'Gerak', order: 1 }];
+assertCase(checkATPSemanticFidelity('Menerapkan dan berpartisipasi dalam gerak', majemukTp).isValid, 'Majemuk: Kompetensi lengkap PASS');
+assertCase(!checkATPSemanticFidelity('Menerapkan gerak', majemukTp).isValid, 'Majemuk: Kompetensi hilang FAIL');
+
 if (failed > 0) {
   console.error(`P0-C ATP semantic fidelity regression failed: ${failed} scenario(s).`);
   process.exit(1);

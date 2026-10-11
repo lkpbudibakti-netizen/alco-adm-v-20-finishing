@@ -30,6 +30,7 @@ const COMPETENCE_GROUPS: Record<string, string[]> = {
   create: ['membuat', 'buat', 'menyusun', 'susun', 'merancang', 'rancang', 'menghasilkan', 'hasil'],
   evaluate: ['mengevaluasi', 'evaluasi', 'menilai', 'nilai', 'merefleksi', 'refleksi', 'menyimpulkan', 'simpul'],
   explore: ['mengeksplorasi', 'eksplorasi', 'menjelajahi', 'jelajah'],
+  participate: ['berpartisipasi', 'partisipasi', 'ikut', 'aktif', 'terlibat'],
 };
 
 const COMPETENCE_EQUIVALENCE: Record<string, string[]> = {
@@ -40,6 +41,7 @@ const COMPETENCE_EQUIVALENCE: Record<string, string[]> = {
   create: ['create'],
   evaluate: ['evaluate'],
   explore: ['explore', 'analyze'],
+  participate: ['participate'],
 };
 
 function normalizeText(value?: string): string {
@@ -90,6 +92,9 @@ function normalizeToken(token: string): string {
     menjaga: 'jaga',
     eksplorasi: 'eksplorasi',
     mengeksplorasi: 'eksplorasi',
+    partisipasi: 'partisipasi',
+    berpartisipasi: 'partisipasi',
+    aktif: 'partisipasi',
     senilai: 'ekuivalen',
     ekuivalen: 'ekuivalen',
   };
