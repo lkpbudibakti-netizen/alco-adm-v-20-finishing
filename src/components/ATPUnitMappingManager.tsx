@@ -18,6 +18,7 @@ import {
   FileSpreadsheet,
   X,
   Download,
+  Copy,
 } from 'lucide-react';
 import {
   ATPData,
@@ -42,6 +43,7 @@ import {
   ATPUnitMappingImportResult,
 } from '../services/atpUnitMappingImportService';
 import { validateATPDataWorkflow } from '../services/cpWorkflowService';
+import { buildATPUnitMappingDiagnosticReport } from '../services/diagnosticService';
 
 export interface ATPUnitMappingManagerProps {
   atp: ATPData;
@@ -830,6 +832,9 @@ export const ATPUnitMappingManager: React.FC<ATPUnitMappingManagerProps> = ({
   // AI Analysis State
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisResult, setAnalysisResult] = useState<MappingAnalysisResult | null>(null);
+  const [lastAnalysisSnapshot, setLastAnalysisSnapshot] = useState<MappingAnalysisResult | null>(null);
+  const [lastAppliedActionIds, setLastAppliedActionIds] = useState<string[]>([]);
+  const [copyDiagnosticNotice, setCopyDiagnosticNotice] = useState<string | null>(null);
   const [analysisError, setAnalysisError] = useState<string | null>(null);
   const [selectedAnalysisActionIds, setSelectedAnalysisActionIds] = useState<Set<string>>(new Set());
   const [appliedNotice, setAppliedNotice] = useState<string | null>(null);
@@ -942,6 +947,7 @@ export const ATPUnitMappingManager: React.FC<ATPUnitMappingManagerProps> = ({
       });
 
       setAnalysisResult(result);
+      setLastAnalysisSnapshot(result);
       setSelectedAnalysisActionIds(new Set());
     } catch (err: any) {
       setAnalysisError(err?.message || 'Gagal menganalisis pemetaan Bab & Lingkup Materi.');
@@ -1104,12 +1110,40 @@ export const ATPUnitMappingManager: React.FC<ATPUnitMappingManagerProps> = ({
 
     setUnits(nextUnits);
     setHasChanges(true);
+    setLastAppliedActionIds(Array.from(selectedAnalysisActionIds));
     setSelectedAnalysisActionIds(new Set());
     setAnalysisResult(null);
     setSaveSuccessNotice(false);
     setAppliedNotice(
       'Saran penyelarasan diterapkan ke draf. Tinjau lalu analisis kembali bila diperlukan.'
     );
+  };
+
+  const handleCopyDiagnostic = async () => {
+    try {
+      const currentDraft = buildCurrentMappingDraft();
+      const validation = validateATPUnitMappingCanonical(currentDraft, atp, tp);
+      const report = buildATPUnitMappingDiagnosticReport({
+        academicSetting,
+        mapping: currentDraft,
+        atp,
+        tp,
+        validation,
+        analysisResult: lastAnalysisSnapshot || analysisResult,
+        appliedActionIds: lastAppliedActionIds,
+      });
+
+      await navigator.clipboard.writeText(report);
+      setCopyDiagnosticNotice('Diagnosis berhasil disalin.');
+      setTimeout(() => {
+        setCopyDiagnosticNotice((prev) => (prev === 'Diagnosis berhasil disalin.' ? null : prev));
+      }, 3500);
+    } catch {
+      setCopyDiagnosticNotice('Gagal menyalin diagnosis ke clipboard.');
+      setTimeout(() => {
+        setCopyDiagnosticNotice((prev) => (prev === 'Gagal menyalin diagnosis ke clipboard.' ? null : prev));
+      }, 3500);
+    }
   };
 
   // Save Mapping Canonical
@@ -1327,15 +1361,37 @@ export const ATPUnitMappingManager: React.FC<ATPUnitMappingManagerProps> = ({
         {/* Structural Status Summary Banner (Readiness Summary C6) */}
         <div className="mt-3">
           {localValidation.isComplete ? (
-            <div className="p-2.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-900 text-xs font-semibold flex items-center gap-2">
-              <Check className="w-4 h-4 text-emerald-600 shrink-0" />
-              <span>{localValidation.summaryMessage}</span>
+            <div className="p-2.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-900 text-xs font-semibold flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <Check className="w-4 h-4 text-emerald-600 shrink-0" />
+                <span>{localValidation.summaryMessage}</span>
+              </div>
+              <button
+                type="button"
+                onClick={handleCopyDiagnostic}
+                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white border border-emerald-300 text-emerald-700 hover:bg-emerald-100 text-[11px] font-bold shadow-2xs transition cursor-pointer shrink-0"
+                title="Salin laporan diagnosis pemetaan ke clipboard"
+              >
+                <Copy className="w-3.5 h-3.5" />
+                <span>Salin Diagnosis</span>
+              </button>
             </div>
           ) : (
             <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 space-y-2">
-              <div className="flex items-center gap-2 text-xs font-bold">
-                <Info className="w-4 h-4 text-amber-600 shrink-0" />
-                <span>{localValidation.summaryMessage}</span>
+              <div className="flex items-center justify-between gap-2 text-xs font-bold">
+                <div className="flex items-center gap-2">
+                  <Info className="w-4 h-4 text-amber-600 shrink-0" />
+                  <span>{localValidation.summaryMessage}</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleCopyDiagnostic}
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white border border-amber-300 text-amber-800 hover:bg-amber-100 text-[11px] font-bold shadow-2xs transition cursor-pointer shrink-0"
+                  title="Salin laporan diagnosis pemetaan ke clipboard"
+                >
+                  <Copy className="w-3.5 h-3.5" />
+                  <span>Salin Diagnosis</span>
+                </button>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 px-6">
                 <div className="text-[10px] flex items-center gap-1.5">
@@ -1351,6 +1407,22 @@ export const ATPUnitMappingManager: React.FC<ATPUnitMappingManagerProps> = ({
                   <span>{localValidation.unmappedAtpAndUncoveredTpCount} ATP/TP canonical tersisa (Z)</span>
                 </div>
               </div>
+            </div>
+          )}
+
+          {copyDiagnosticNotice && (
+            <div className="mt-2 p-2 rounded-xl bg-slate-800 text-white text-xs font-medium flex items-center justify-between animate-fadeIn">
+              <div className="flex items-center gap-2">
+                <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                <span>{copyDiagnosticNotice}</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setCopyDiagnosticNotice(null)}
+                className="text-slate-400 hover:text-white cursor-pointer ml-2"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
             </div>
           )}
         </div>

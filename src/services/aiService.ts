@@ -1224,6 +1224,7 @@ export async function generateCanonicalATPUnitMappingWithAI(
 }
 
 export interface MappingAnalysisResult {
+  engine?: 'gemini_ai' | 'pedagogical_engine';
   summary: {
     totalAtp: number;
     mappedAtp: number;
@@ -1328,7 +1329,10 @@ export async function analyzeATPUnitMappingWithAI(
     ) {
       throw new Error('Hasil respon Analisis Pemetaan tidak memuat struktur data yang valid.');
     }
-    return data.data;
+    return {
+      ...data.data,
+      engine: data.engine,
+    };
   } catch (err) {
     throw new Error(formatAIErrorMessage(err, 'menganalisis pemetaan Bab & Lingkup Materi'));
   }

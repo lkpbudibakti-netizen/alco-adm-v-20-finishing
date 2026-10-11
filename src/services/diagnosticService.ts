@@ -24,11 +24,13 @@ import {
   UnitSemesterPlacementValidation,
 } from './unitSemesterPlanningService';
 
-import { AIMeetingDiagnostic } from './aiService';
+import { AIMeetingDiagnostic, MappingAnalysisResult } from './aiService';
+import { ATPUnitMappingValidationResult } from './atpUnitMappingValidationService';
 
 export type DiagnosticScope =
   | 'TP'
   | 'ATP'
+  | 'ATP_UNIT_MAPPING'
   | 'UNIT_EXECUTION_PLAN'
   | 'LEARNING_PLAN'
   | 'KKTP'
@@ -858,5 +860,214 @@ export function buildUnitSemesterPlanningDiagnosticReport(data: {
     'CAPACITY',
     `- s1AvailableJP: ${s1AvailableJP === null ? '-' : s1AvailableJP}`,
     `- s2AvailableJP: ${s2AvailableJP === null ? '-' : s2AvailableJP}`,
+  ].join('\n');
+}
+
+export interface BuildATPUnitMappingDiagnosticParams {
+  academicSetting?: AcademicSetting | null;
+  mapping?: ATPUnitMappingData | null;
+  atp?: ATPData | null;
+  tp?: TPData | null;
+  validation: ATPUnitMappingValidationResult;
+  analysisResult?: MappingAnalysisResult | null;
+  appliedActionIds?: string[];
+}
+
+export function buildATPUnitMappingDiagnosticReport(params: BuildATPUnitMappingDiagnosticParams): string {
+  const {
+    academicSetting,
+    mapping,
+    atp,
+    tp,
+    validation,
+    analysisResult,
+    appliedActionIds = [],
+  } = params;
+
+  const mappingUnits = mapping?.units || [];
+  const z = (validation.unmappedAtpIds?.length || 0) + (validation.uncoveredTpIds?.length || 0);
+
+  // Map of unitId -> title
+  const unitTitleMap = new Map<string, string>();
+  const materialTitleMap = new Map<string, { materialTitle: string; unitTitle: string; unitId: string }>();
+
+  mappingUnits.forEach((u) => {
+    unitTitleMap.set(u.id, u.title || `Bab ${u.order}`);
+    (u.materials || []).forEach((m) => {
+      materialTitleMap.set(m.id, {
+        materialTitle: m.title || `Materi ${m.order}`,
+        unitTitle: u.title || `Bab ${u.order}`,
+        unitId: u.id,
+      });
+    });
+  });
+
+  const unitsWithoutLineageFormatted = (validation.unitsWithoutLineage || []).map((uId) => {
+    const title = unitTitleMap.get(uId);
+    return title ? `${uId} ("${title}")` : uId;
+  });
+
+  const materialsWithoutLineageFormatted = (validation.materialsWithoutLineage || []).map((mRef) => {
+    const info = materialTitleMap.get(mRef.materialId);
+    if (info) {
+      return `${mRef.materialId} ("${info.materialTitle}") in Bab ${mRef.unitId} ("${info.unitTitle}")`;
+    }
+    return `${mRef.materialId} in Bab ${mRef.unitId}`;
+  });
+
+  const unitLines: string[] = [];
+  if (mappingUnits.length === 0) {
+    unitLines.push('- none', '');
+  } else {
+    mappingUnits.forEach((u) => {
+      const uAtpIds = u.linkedAtpItemIds || [];
+      const uTpIds = u.linkedTpIds || [];
+      const isUnitWithoutLineage = (validation.unitsWithoutLineage || []).includes(u.id);
+      const lineageComplete = uAtpIds.length > 0 && uTpIds.length > 0 && !isUnitWithoutLineage;
+
+      unitLines.push(
+        `- unitId: ${u.id}`,
+        `  order: ${u.order ?? '-'}`,
+        `  title: ${u.title || '-'}`,
+        `  linkedAtpItemIds: [${uAtpIds.join(', ')}]`,
+        `  linkedTpIds: [${uTpIds.join(', ')}]`,
+        `  lineageComplete: ${lineageComplete}`,
+        '',
+        '  MATERIALS:'
+      );
+
+      const mats = u.materials || [];
+      if (mats.length === 0) {
+        unitLines.push('  - none');
+      } else {
+        mats.forEach((m) => {
+          const mAtpIds = m.linkedAtpItemIds || [];
+          const mTpIds = m.linkedTpIds || [];
+          const isMatWithoutLineage = (validation.materialsWithoutLineage || []).some(
+            (ref) => ref.materialId === m.id && ref.unitId === u.id
+          );
+          const matLineageComplete = mAtpIds.length > 0 && mTpIds.length > 0 && !isMatWithoutLineage;
+
+          unitLines.push(
+            `  - materialId: ${m.id}`,
+            `    order: ${m.order ?? '-'}`,
+            `    title: ${m.title || '-'}`,
+            `    linkedAtpItemIds: [${mAtpIds.join(', ')}]`,
+            `    linkedTpIds: [${mTpIds.join(', ')}]`,
+            `    lineageComplete: ${matLineageComplete}`
+          );
+        });
+      }
+      unitLines.push('');
+    });
+  }
+
+  const atpFindingLines: string[] = [];
+  if (analysisResult && Array.isArray(analysisResult.atpFindings) && analysisResult.atpFindings.length > 0) {
+    analysisResult.atpFindings.forEach((f) => {
+      atpFindingLines.push(
+        `- atpItemId: ${f.atpItemId}`,
+        `  status: ${f.status}`,
+        `  strength: ${f.strength || '-'}`,
+        `  reason: ${f.reason || '-'}`,
+        `  suggestedUnitId: ${f.suggestedUnitId || '-'}`,
+        `  actionType: ${f.action?.type || '-'}`,
+        `  targetUnitId: ${f.action?.targetUnitId || '-'}`,
+        `  linkedTpIds: [${(f.action?.linkedTpIds || []).join(', ')}]`
+      );
+    });
+  } else {
+    atpFindingLines.push('- none');
+  }
+
+  const materialFindingLines: string[] = [];
+  if (analysisResult && Array.isArray(analysisResult.materialFindings) && analysisResult.materialFindings.length > 0) {
+    analysisResult.materialFindings.forEach((m) => {
+      materialFindingLines.push(
+        `- materialId: ${m.materialId || '-'}`,
+        `  unitId: ${m.unitId}`,
+        `  status: ${m.status}`,
+        `  strength: ${m.strength || '-'}`,
+        `  reason: ${m.reason || '-'}`,
+        `  actionType: ${m.action?.type || '-'}`,
+        `  linkedAtpItemIds: [${((m.action as any)?.linkedAtpItemIds || []).join(', ')}]`,
+        `  linkedTpIds: [${(m.action?.linkedTpIds || []).join(', ')}]`
+      );
+    });
+  } else {
+    materialFindingLines.push('- none');
+  }
+
+  const validationIssueLines = (validation.issues || []).length > 0
+    ? validation.issues.map((iss) => `- ${iss}`)
+    : ['- none'];
+
+  const lastAnalysisLines: string[] = [];
+  if (analysisResult) {
+    lastAnalysisLines.push(
+      `engine: ${analysisResult.engine || '-'}`,
+      `totalAtp: ${analysisResult.summary?.totalAtp ?? '-'}`,
+      `mappedAtp: ${analysisResult.summary?.mappedAtp ?? '-'}`,
+      `unmappedAtp: ${analysisResult.summary?.unmappedAtp ?? '-'}`,
+      `alignedAtp: ${analysisResult.summary?.alignedAtp ?? '-'}`,
+      `reviewAtp: ${analysisResult.summary?.reviewAtp ?? '-'}`,
+      `alignableMaterials: ${analysisResult.summary?.alignableMaterials ?? '-'}`,
+      `manualMaterialReview: ${analysisResult.summary?.manualMaterialReview ?? '-'}`
+    );
+  } else {
+    lastAnalysisLines.push(
+      'engine: -',
+      'totalAtp: -',
+      'mappedAtp: -',
+      'unmappedAtp: -',
+      'alignedAtp: -',
+      'reviewAtp: -',
+      'alignableMaterials: -',
+      'manualMaterialReview: -'
+    );
+  }
+
+  return [
+    'ADMINISTRASI GURU AI - ATP UNIT MAPPING DIAGNOSTIC',
+    '',
+    'Build:',
+    APP_BUILD_ID,
+    '',
+    'GeneratedAt:',
+    new Date().toISOString(),
+    '',
+    'Context:',
+    `academicSettingId: ${academicSetting?.id || '-'}`,
+    `subject: ${academicSetting?.subject || '-'}`,
+    `grade: ${academicSetting?.grade || '-'}`,
+    `phase: ${academicSetting?.phase || '-'}`,
+    '',
+    'MAPPING:',
+    `mappingId: ${mapping?.id || '-'}`,
+    `unitsCount: ${mappingUnits.length}`,
+    `isValid: ${validation.isValid}`,
+    `isComplete: ${validation.isComplete}`,
+    `unitsWithoutLineage: ${unitsWithoutLineageFormatted.length > 0 ? `[${unitsWithoutLineageFormatted.join(', ')}]` : '[]'}`,
+    `materialsWithoutLineage: ${materialsWithoutLineageFormatted.length > 0 ? `[${materialsWithoutLineageFormatted.join(', ')}]` : '[]'}`,
+    `unmappedAtpIds: [${(validation.unmappedAtpIds || []).join(', ')}]`,
+    `uncoveredTpIds: [${(validation.uncoveredTpIds || []).join(', ')}]`,
+    `Z: ${z}`,
+    '',
+    'UNITS:',
+    ...unitLines,
+    'VALIDATION ISSUES:',
+    ...validationIssueLines,
+    '',
+    'LAST ANALYSIS:',
+    ...lastAnalysisLines,
+    '',
+    'ATP FINDINGS:',
+    ...atpFindingLines,
+    '',
+    'MATERIAL FINDINGS:',
+    ...materialFindingLines,
+    '',
+    'APPLIED ACTION IDS:',
+    `[${appliedActionIds.join(', ')}]`,
   ].join('\n');
 }
