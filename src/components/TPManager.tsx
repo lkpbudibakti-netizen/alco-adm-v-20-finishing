@@ -191,8 +191,27 @@ export const TPManager: React.FC<TPManagerProps> = ({
 
   // Handle Confirm Alignment (FIX 1)
   const handleConfirmAlignment = () => {
+    if (!cpAnalysis || !cpAnalysis.items || cpAnalysis.items.length === 0) {
+      alert('Analisis CP belum tersedia atau kosong. Harap selesaikan Analisis CP sebelum mengonfirmasi alignment TP.');
+      return;
+    }
+
+    const cpAnalysisVal = validateCPAnalysisDataWorkflow(cpAnalysis, cp, academicSetting);
+    if (!cpAnalysisVal.isSiap) {
+      alert(`Analisis CP rujukan belum SIAP (${cpAnalysisVal.issues[0] || 'Validasi belum terpenuhi'}). Harap perbaiki Analisis CP terlebih dahulu.`);
+      return;
+    }
+
     const updatedItems = items.map((item, idx) => ({ ...item, order: idx + 1 }));
-    const candidateTP: TPData = {
+    const semanticCheck = checkTPSemanticFidelity(updatedItems, cpAnalysis.items);
+
+    if (!semanticCheck.isValid) {
+      const issuesList = semanticCheck.issues.join('\n');
+      alert(`Konfirmasi alignment gagal: TP memiliki deviasi semantis terhadap Analisis CP aktif.\n\n${issuesList}`);
+      return;
+    }
+
+    const confirmedCandidate: TPData = {
       ...tp,
       academicSettingId: academicSetting.id,
       cpId: cp.id,
@@ -204,26 +223,25 @@ export const TPManager: React.FC<TPManagerProps> = ({
       phase: context.phase,
       items: updatedItems,
       generatedBy: tp.generatedBy === 'AI' ? 'AI_EDITED_BY_TEACHER' : tp.generatedBy || 'TEACHER',
-      updatedAt: new Date().toISOString(),
-    };
-
-    const val = validateTPDataWorkflow(candidateTP, cp, cpAnalysis, academicSetting);
-    const semanticCheck = checkTPSemanticFidelity(updatedItems, cpAnalysis?.items || []);
-
-    if (!val.isSiap || !semanticCheck.isValid) {
-      const issuesList = [...val.issues, ...semanticCheck.issues].join('\n');
-      alert(`Konfirmasi alignment gagal: TP masih belum sesuai atau memiliki deviasi semantis terhadap Analisis CP aktif.\n\n${issuesList}`);
-      return;
-    }
-
-    const confirmedTP: TPData = {
-      ...candidateTP,
       needsReview: false,
       reviewReason: undefined,
       basedOnCpUpdatedAt: cp.updatedAt || new Date().toISOString(),
       basedOnAnalysisUpdatedAt: cpAnalysis?.updatedAt || new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    const val = validateTPDataWorkflow(confirmedCandidate, cp, cpAnalysis, academicSetting);
+    if (!val.isSiap) {
+      const issuesList = val.issues.join('\n');
+      alert(`Konfirmasi alignment gagal: TP belum memenuhi syarat workflow SIAP.\n\n${issuesList}`);
+      return;
+    }
+
+    const confirmedTP: TPData = {
+      ...confirmedCandidate,
       workflowStatus: val.status,
     };
+
     onSaveTP(confirmedTP);
     setIsDirty(false);
     showSaveNotice('Alignment TP berhasil dikonfirmasi dan diselaraskan.');
