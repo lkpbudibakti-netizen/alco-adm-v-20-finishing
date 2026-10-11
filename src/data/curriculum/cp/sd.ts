@@ -28,27 +28,27 @@ export const SD_CP_ENTRIES: MasterCPEntry[] = [
       },
     ],
     generalDescription:
-      'Pada akhir Fase A, peserta didik menguasai keterampilan gerak fundamental (lokomotor, non-lokomotor, dan manipulatif) melalui eksplorasi berbagai aktivitas jasmani dan permainan sederhana, menerapkan konsep gerak secara sadar dan aman, berpartisipasi aktif dalam kegiatan fisik, serta membiasakan pola hidup sehat.',
+      'Pada akhir Fase A, peserta didik mempraktikkan keterampilan gerak fundamental dan menerapkannya dalam berbagai situasi gerak, mengeksplorasi strategi gerak, serta konsep gerak dan efektivitasnya. Peserta didik menaati peraturan untuk fair play dan menerapkan strategi kolaborasi dalam aktivitas jasmani. Peserta didik berpartisipasi dalam berbagai aktivitas jasmani dan mengidentifikasi manfaat aktivitas jasmani. Peserta didik mengenali gaya hidup aktif dan sehat, manfaat komponen makanan bergizi seimbang, situasi dan potensi yang berisiko terhadap kesehatan dan keselamatan, serta strategi mencari bantuan kepada orang dewasa terpercaya.',
     elements: [
       {
         name: 'Terampil Bergerak',
         content:
-          'Peserta didik mempraktikkan keterampilan gerak fundamental (lokomotor, non-lokomotor, dan manipulatif) dalam berbagai situasi gerak dan permainan sederhana yang menyenangkan.',
+          'Peserta didik mempraktikkan keterampilan gerak fundamental dan menerapkannya dalam berbagai situasi gerak. Peserta didik mengeksplorasi strategi gerak serta konsep gerak dan efektivitasnya.',
       },
       {
-        name: 'Belajar melalui Gerak',
+        name: 'Belajar Melalui Gerak',
         content:
-          'Peserta didik menerapkan konsep dan strategi gerak serta menunjukkan perilaku fair play, kerja sama, dan menghormati aturan saat beraktivitas jasmani.',
+          'Peserta didik menaati peraturan untuk fair play dan menerapkan strategi kolaborasi dalam aktivitas jasmani.',
       },
       {
         name: 'Bergaya Hidup Aktif',
         content:
-          'Peserta didik berpartisipasi secara aktif dalam kegiatan jasmani harian dan mengenali pentingnya aktivitas fisik untuk kebugaran tubuh.',
+          'Peserta didik berpartisipasi dalam berbagai aktivitas jasmani dan mengidentifikasi manfaat aktivitas jasmani.',
       },
       {
         name: 'Memilih Hidup yang Menyehatkan',
         content:
-          'Peserta didik mengenali dan menerapkan kebiasaan hidup sehat, menjaga kebersihan diri, serta mengenali bagian tubuh pribadi yang harus dijaga.',
+          'Peserta didik mengenali gaya hidup aktif dan sehat, manfaat komponen makanan bergizi seimbang, situasi dan potensi yang berisiko terhadap kesehatan dan keselamatan, serta strategi mencari bantuan kepada orang dewasa terpercaya.',
       },
     ],
   },
