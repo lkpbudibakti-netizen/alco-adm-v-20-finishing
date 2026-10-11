@@ -121,15 +121,10 @@ export function validateCPAnalysisDataWorkflow(
     };
   }
 
-  // Canonical CP dependency: CP must be provided and SIAP
+  // Canonical CP dependency: CP must be provided
   if (!cp) {
     issues.push('Capaian Pembelajaran (CP) rujukan belum tersedia.');
   } else {
-    const cpValidation = validateCPDataWorkflow(cp);
-    if (!cpValidation.isSiap) {
-      issues.push('Capaian Pembelajaran (CP) rujukan belum memenuhi status SIAP.');
-    }
-
     // cpAnalysis.cpId wajib sama dengan cp.id
     if (!cpAnalysis.cpId || cpAnalysis.cpId !== cp.id) {
       issues.push(`ID CP rujukan pada analisis (${cpAnalysis.cpId || 'kosong'}) tidak sesuai dengan ID CP (${cp.id}).`);
@@ -181,6 +176,23 @@ export function validateCPAnalysisDataWorkflow(
           issues.push(`Baris analisis ke-${i + 1} merujuk ke ID elemen yang tidak ada pada CP rujukan: "${trimmedElemId}".`);
         } else {
           referencedElementIds.add(trimmedElemId);
+          const canonicalElement = cp.elements.find((el) => el.id && el.id.trim() === trimmedElemId);
+          if (canonicalElement) {
+            const itemElemName = (item.elementName || '').trim();
+            const canonElemName = (canonicalElement.name || '').trim();
+            if (itemElemName !== canonElemName) {
+              issues.push(
+                `Nama elemen pada baris ke-${i + 1} ("${itemElemName}") tidak sesuai dengan nama elemen CP canonical ("${canonElemName}").`
+              );
+            }
+            const itemCpText = (item.cpText || '').trim();
+            const canonCpText = (canonicalElement.content || '').trim();
+            if (itemCpText !== canonCpText) {
+              issues.push(
+                `Teks CP pada baris ke-${i + 1} tidak sesuai dengan isi elemen CP canonical "${canonElemName}".`
+              );
+            }
+          }
         }
       } else {
         referencedElementIds.add(trimmedElemId);
@@ -1018,14 +1030,16 @@ export function validateATPDataWorkflow(
   if (!tp || !tp.items || tp.items.length === 0) {
     issues.push('Daftar Tujuan Pembelajaran (TP) acuan belum tersedia.');
   } else {
-    // Deep runtime validation on TP (don't blindly trust tp.workflowStatus)
-    const tpValidation = validateTPDataWorkflow(tp, cp, cpAnalysis, academicSetting);
-    if (!tpValidation.isSiap) {
-      tpValidation.issues.forEach((iss) => {
-        if (!issues.includes(iss)) {
-          issues.push(iss);
-        }
-      });
+    // Deep runtime validation on TP if cpAnalysis is provided
+    if (cpAnalysis) {
+      const tpValidation = validateTPDataWorkflow(tp, cp, cpAnalysis, academicSetting);
+      if (!tpValidation.isSiap) {
+        tpValidation.issues.forEach((iss) => {
+          if (!issues.includes(iss)) {
+            issues.push(iss);
+          }
+        });
+      }
     }
     if (tp.workflowStatus !== 'SIAP') {
       issues.push(`Tujuan Pembelajaran (TP) acuan belum berstatus SIAP (status: ${tp.workflowStatus || 'BELUM_DIMULAI'}).`);

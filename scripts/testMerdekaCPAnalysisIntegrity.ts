@@ -375,6 +375,7 @@ runTest('14. E1 mempunyai 2 AnalysisItem dan E2 mempunyai 1 -> valid/SIAP jika f
         id: 'item-1a',
         elementId: 'elem-1',
         elementName: 'Terampil Bergerak',
+        cpText: 'Peserta didik mempraktikkan keterampilan gerak fundamental secara efektif.',
         cpCompetence: 'Mempraktikkan',
         materialScope: 'Gerak lokomotor',
         order: 1,
@@ -383,6 +384,7 @@ runTest('14. E1 mempunyai 2 AnalysisItem dan E2 mempunyai 1 -> valid/SIAP jika f
         id: 'item-1b',
         elementId: 'elem-1',
         elementName: 'Terampil Bergerak',
+        cpText: 'Peserta didik mempraktikkan keterampilan gerak fundamental secara efektif.',
         cpCompetence: 'Mengeksplorasi',
         materialScope: 'Gerak manipulatif',
         order: 2,
@@ -391,6 +393,7 @@ runTest('14. E1 mempunyai 2 AnalysisItem dan E2 mempunyai 1 -> valid/SIAP jika f
         id: 'item-2',
         elementId: 'elem-2',
         elementName: 'Belajar Melalui Gerak',
+        cpText: 'Peserta didik menerapkan perilaku hidup sehat dalam aktivitas jasmani.',
         cpCompetence: 'Menerapkan',
         materialScope: 'Pola hidup sehat',
         order: 3,
@@ -538,6 +541,148 @@ runTest('20. /api/ai/analyze-cp tidak menggunakan positional validElements[idx] 
   );
 });
 
+runTest('21. Mismatch elementName terhadap elemen CP canonical -> ditolak validator (PERLU_DILENGKAPI)', () => {
+  const validCP: CPData = {
+    ...sampleCP,
+    source: { title: 'Kep BSKAP', institution: 'BSKAP', documentYear: '2025', verificationStatus: 'verified' },
+  };
+  const cpa: CPAnalysisData = {
+    id: 'cpa-test',
+    academicSettingId: validCP.academicSettingId,
+    cpId: validCP.id,
+    basedOnCpUpdatedAt: validCP.updatedAt,
+    updatedAt: new Date().toISOString(),
+    items: [
+      {
+        id: 'item-1',
+        elementId: 'elem-1',
+        elementName: 'Elemen Palsu / Modifikasi',
+        cpText: 'Peserta didik mempraktikkan keterampilan gerak fundamental secara efektif.',
+        cpCompetence: 'Mempraktikkan',
+        materialScope: 'Gerak dasar',
+        order: 1,
+      },
+      {
+        id: 'item-2',
+        elementId: 'elem-2',
+        elementName: 'Belajar Melalui Gerak',
+        cpText: 'Peserta didik menerapkan perilaku hidup sehat dalam aktivitas jasmani.',
+        cpCompetence: 'Menerapkan',
+        materialScope: 'Pola hidup sehat',
+        order: 2,
+      },
+    ],
+  };
+  const val = validateCPAnalysisDataWorkflow(cpa, validCP);
+  assert.strictEqual(val.isSiap, false, 'Nama elemen berbeda dengan canonical harus ditolak');
+  assert.ok(val.issues.some((iss) => iss.includes('tidak sesuai dengan nama elemen CP canonical')));
+});
+
+runTest('22. Mismatch cpText terhadap elemen CP canonical -> ditolak validator (PERLU_DILENGKAPI)', () => {
+  const validCP: CPData = {
+    ...sampleCP,
+    source: { title: 'Kep BSKAP', institution: 'BSKAP', documentYear: '2025', verificationStatus: 'verified' },
+  };
+  const cpa: CPAnalysisData = {
+    id: 'cpa-test',
+    academicSettingId: validCP.academicSettingId,
+    cpId: validCP.id,
+    basedOnCpUpdatedAt: validCP.updatedAt,
+    updatedAt: new Date().toISOString(),
+    items: [
+      {
+        id: 'item-1',
+        elementId: 'elem-1',
+        elementName: 'Terampil Bergerak',
+        cpText: 'Teks yang diubah atau diparafrase sepihak tanpa izin kurikulum.',
+        cpCompetence: 'Mempraktikkan',
+        materialScope: 'Gerak dasar',
+        order: 1,
+      },
+      {
+        id: 'item-2',
+        elementId: 'elem-2',
+        elementName: 'Belajar Melalui Gerak',
+        cpText: 'Peserta didik menerapkan perilaku hidup sehat dalam aktivitas jasmani.',
+        cpCompetence: 'Menerapkan',
+        materialScope: 'Pola hidup sehat',
+        order: 2,
+      },
+    ],
+  };
+  const val = validateCPAnalysisDataWorkflow(cpa, validCP);
+  assert.strictEqual(val.isSiap, false, 'Teks CP yang tidak cocok dengan canonical content harus ditolak');
+  assert.ok(val.issues.some((iss) => iss.includes('tidak sesuai dengan isi elemen CP canonical')));
+});
+
+runTest('23. Ordinary save preserves previous basedOnCpUpdatedAt to prevent stale laundering', () => {
+  const compPath = path.resolve(process.cwd(), 'src/components/CPAnalysisManager.tsx');
+  const compSource = fs.readFileSync(compPath, 'utf-8');
+
+  // Verify handleSave implementation preserves existing basedOnCpUpdatedAt
+  const match = compSource.match(/const handleSave = \(\) => \{([\s\S]*?)\n  \};/);
+  assert.ok(match, 'handleSave must exist');
+  const body = match[1];
+
+  assert.ok(
+    body.includes('cpAnalysis?.basedOnCpUpdatedAt ||'),
+    'handleSave must preserve existing basedOnCpUpdatedAt before falling back'
+  );
+  assert.ok(
+    !body.includes('basedOnCpUpdatedAt: cp.updatedAt ||'),
+    'handleSave must not unconditionally overwrite basedOnCpUpdatedAt with cp.updatedAt'
+  );
+});
+
+runTest('24. Ordinary save preserves needsReview / isCPOutdated condition', () => {
+  const compPath = path.resolve(process.cwd(), 'src/components/CPAnalysisManager.tsx');
+  const compSource = fs.readFileSync(compPath, 'utf-8');
+
+  const match = compSource.match(/const handleSave = \(\) => \{([\s\S]*?)\n  \};/);
+  assert.ok(match, 'handleSave must exist');
+  const body = match[1];
+
+  assert.ok(
+    body.includes('shouldKeepReview') || body.includes('cpAnalysis?.needsReview || isCPOutdated'),
+    'handleSave must preserve needsReview if previously flagged or currently outdated'
+  );
+  assert.ok(
+    !body.includes('needsReview: false,'),
+    'handleSave must not hardcode needsReview: false'
+  );
+});
+
+runTest('25. handleSave evaluates candidate to determine final workflowStatus', () => {
+  const compPath = path.resolve(process.cwd(), 'src/components/CPAnalysisManager.tsx');
+  const compSource = fs.readFileSync(compPath, 'utf-8');
+
+  const match = compSource.match(/const handleSave = \(\) => \{([\s\S]*?)\n  \};/);
+  assert.ok(match, 'handleSave must exist');
+  const body = match[1];
+
+  assert.ok(
+    body.includes('validateCPAnalysisDataWorkflow(candidate, cp)'),
+    'handleSave must validate candidate directly before deciding final workflowStatus'
+  );
+});
+
+runTest('26. Rebase paths (executeAIAnalysis & handleGenerateFromCP) rebase to active cp.updatedAt and clear needsReview', () => {
+  const compPath = path.resolve(process.cwd(), 'src/components/CPAnalysisManager.tsx');
+  const compSource = fs.readFileSync(compPath, 'utf-8');
+
+  // Both rebase handlers must use active cp.updatedAt and clear needsReview
+  const aiMatch = compSource.match(/executeAIAnalysis = async \(\) => \{([\s\S]*?)\n  \};/);
+  assert.ok(aiMatch, 'executeAIAnalysis must exist');
+  assert.ok(aiMatch[1].includes('needsReview: false'), 'executeAIAnalysis must clear needsReview');
+  assert.ok(aiMatch[1].includes('basedOnCpUpdatedAt: cp.updatedAt'), 'executeAIAnalysis must rebase to cp.updatedAt');
+
+  const deriveMatch = compSource.match(/handleGenerateFromCP = \(\) => \{([\s\S]*?)\n  \};/);
+  assert.ok(deriveMatch, 'handleGenerateFromCP must exist');
+  assert.ok(deriveMatch[1].includes('needsReview: false'), 'handleGenerateFromCP must clear needsReview');
+  assert.ok(deriveMatch[1].includes('basedOnCpUpdatedAt: cp.updatedAt'), 'handleGenerateFromCP must rebase to cp.updatedAt');
+});
+
 console.log(`\n========================================`);
 console.log(`MERDEKA CP ANALYSIS INTEGRITY: ALL ${passedTests}/${totalTests} TESTS PASSED`);
 console.log(`========================================\n`);
+

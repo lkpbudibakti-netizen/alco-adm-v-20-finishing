@@ -182,7 +182,9 @@ export const CPAnalysisManager: React.FC<CPAnalysisManagerProps> = ({
     const nextGeneratedBy =
       cpAnalysis?.generatedBy === 'AI' ? 'AI_EDITED_BY_TEACHER' : cpAnalysis?.generatedBy || 'TEACHER';
 
-    const updated: CPAnalysisData = {
+    const shouldKeepReview = Boolean(cpAnalysis?.needsReview || isCPOutdated);
+
+    const candidate: CPAnalysisData = {
       id: cpAnalysis?.id || `cpanalysis-${academicSetting.id}`,
       academicSettingId: academicSetting.id,
       cpId: cp.id,
@@ -195,12 +197,24 @@ export const CPAnalysisManager: React.FC<CPAnalysisManagerProps> = ({
       generalSummary,
       items,
       generatedBy: nextGeneratedBy,
-      workflowStatus: validation.isSiap ? 'SIAP' : 'PERLU_DILENGKAPI',
-      needsReview: false,
-      reviewReason: undefined,
-      basedOnCpUpdatedAt: cp.updatedAt || new Date().toISOString(),
+      needsReview: shouldKeepReview,
+      reviewReason: shouldKeepReview
+        ? cpAnalysis?.reviewReason || (isCPOutdated ? 'Teks CP telah diperbarui sejak analisis ini dibuat. Mohon sesuaikan analisis.' : undefined)
+        : undefined,
+      basedOnCpUpdatedAt:
+        cpAnalysis?.basedOnCpUpdatedAt ||
+        cp.updatedAt ||
+        new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
+
+    const candidateValidation = validateCPAnalysisDataWorkflow(candidate, cp);
+
+    const updated: CPAnalysisData = {
+      ...candidate,
+      workflowStatus: candidateValidation.isSiap ? 'SIAP' : 'PERLU_DILENGKAPI',
+    };
+
     onSaveCPAnalysis(updated);
     setShowSavedToast(true);
     setTimeout(() => setShowSavedToast(false), 2500);
@@ -264,6 +278,8 @@ export const CPAnalysisManager: React.FC<CPAnalysisManagerProps> = ({
           engine: res.engine || (isGemini ? 'gemini' : 'pedagogical_engine'),
         },
         generatedAt: new Date().toISOString(),
+        needsReview: false,
+        reviewReason: undefined,
         basedOnCpUpdatedAt: cp.updatedAt || new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       };
