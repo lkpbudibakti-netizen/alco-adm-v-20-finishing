@@ -22,15 +22,43 @@ const MATERIAL_ONLY_STOPWORDS = new Set([
   'menggunakan', 'menunjukkan',
 ]);
 
+const GENERIC_MATERIAL_TOKENS = new Set([
+  'pola', 'gerak', 'dasar', 'aktivitas', 'materi', 'aturan', 'peran', 'kelompok', 'tahap', 'bagian'
+]);
+
 const COMPETENCE_GROUPS: Record<string, string[]> = {
-  understand: ['memahami', 'pemahaman', 'paham', 'menjelaskan', 'jelas', 'menguraikan', 'uraikan', 'mengenal', 'identifikasi', 'mengidentifikasi', 'menunjukkan', 'mengenali'],
-  apply: ['menerapkan', 'penerapan', 'terap', 'menggunakan', 'gunakan', 'menentukan', 'tentukan', 'menghitung', 'hitung'],
-  analyze: ['menganalisis', 'analisis', 'menelaah', 'telaah', 'membandingkan', 'banding', 'mengaitkan', 'kait', 'menghubungkan', 'hubung'],
-  practice: ['mempraktikkan', 'praktik', 'mendemonstrasikan', 'demonstrasi', 'melakukan', 'lakukan', 'jaga', 'menjaga'],
-  create: ['membuat', 'buat', 'menyusun', 'susun', 'merancang', 'rancang', 'menghasilkan', 'hasil'],
-  evaluate: ['mengevaluasi', 'evaluasi', 'menilai', 'nilai', 'merefleksi', 'refleksi', 'menyimpulkan', 'simpul'],
-  explore: ['mengeksplorasi', 'eksplorasi', 'menjelajahi', 'jelajah'],
-  participate: ['berpartisipasi', 'partisipasi', 'ikut', 'aktif', 'terlibat'],
+  understand: [
+    'memahami', 'pemahaman', 'paham', 'menjelaskan', 'jelas', 'menguraikan', 'uraikan',
+    'mengenal', 'mengenali', 'identifikasi', 'mengidentifikasi', 'menunjukkan', 'ketahui', 'mengetahui'
+  ],
+  apply: [
+    'menerapkan', 'penerapan', 'terap', 'menggunakan', 'gunakan', 'menentukan', 'tentukan',
+    'menghitung', 'hitung'
+  ],
+  analyze: [
+    'menganalisis', 'analisis', 'menelaah', 'telaah', 'membandingkan', 'banding',
+    'mengaitkan', 'kait', 'menghubungkan', 'hubung', 'menyelidiki', 'selidik'
+  ],
+  practice: [
+    'mempraktikkan', 'praktik', 'mendemonstrasikan', 'demonstrasi', 'melakukan', 'lakukan',
+    'jaga', 'menjaga', 'peragakan', 'memperagakan', 'mainkan', 'memainkan', 'tunjukkan',
+    'mempertunjukkan'
+  ],
+  create: [
+    'membuat', 'buat', 'menyusun', 'susun', 'merancang', 'rancang', 'menghasilkan', 'hasil'
+  ],
+  evaluate: [
+    'mengevaluasi', 'evaluasi', 'menilai', 'nilai', 'merefleksi', 'refleksi', 'menyimpulkan', 'simpul'
+  ],
+  explore: [
+    'mengeksplorasi', 'eksplorasi', 'menjelajahi', 'jelajah'
+  ],
+  participate: [
+    'berpartisipasi', 'partisipasi', 'ikut', 'mengikuti', 'terlibat', 'keterlibatan', 'turut'
+  ],
+  observe: [
+    'mengamati', 'amati', 'pengamatan', 'observasi'
+  ],
 };
 
 const COMPETENCE_EQUIVALENCE: Record<string, string[]> = {
@@ -40,8 +68,9 @@ const COMPETENCE_EQUIVALENCE: Record<string, string[]> = {
   practice: ['practice', 'apply'],
   create: ['create'],
   evaluate: ['evaluate'],
-  explore: ['explore', 'analyze'],
+  explore: ['explore'],
   participate: ['participate'],
+  observe: ['observe'],
 };
 
 function normalizeText(value?: string): string {
@@ -95,6 +124,16 @@ function normalizeToken(token: string): string {
     partisipasi: 'partisipasi',
     berpartisipasi: 'partisipasi',
     aktif: 'partisipasi',
+    susun: 'susun',
+    menyusun: 'susun',
+    rancang: 'rancang',
+    merancang: 'rancang',
+    mempertunjukkan: 'praktik',
+    tunjukkan: 'praktik',
+    amati: 'amati',
+    mengamati: 'amati',
+    selidik: 'selidik',
+    menyelidiki: 'selidik',
     senilai: 'ekuivalen',
     ekuivalen: 'ekuivalen',
   };
@@ -138,7 +177,7 @@ function buildTpSubstance(tp: TPItem) {
   };
 }
 
-function detectCompetenceGroups(value?: string): string[] {
+export function detectCompetenceGroups(value?: string): string[] {
   const tokens = new Set(uniqueTokens(value));
   const detectedGroups = new Set<string>();
 
@@ -151,13 +190,49 @@ function detectCompetenceGroups(value?: string): string[] {
   return Array.from(detectedGroups);
 }
 
-function hasCompatibleCompetence(focusGroups: Set<string>, tpGroups: string[]): boolean {
+/**
+ * Extracts the substantiated competence demands of a canonical TP.
+ * Distinguishes primary/compound competencies from verbs embedded in material descriptions.
+ * Prevents bloated inherited competence lists (e.g. 4 verbs) from imposing unformulated demands.
+ */
+export function extractTPCompetenceGroups(tp: TPItem): string[] {
+  if (tp.competence && tp.competence.trim().length > 0) {
+    const rawGroups = detectCompetenceGroups(tp.competence);
+    if (rawGroups.length <= 1) {
+      return rawGroups;
+    }
+    // For compound competence: only enforce verbs that are actually substantiated by the TP statement.
+    const statementTokens = new Set(uniqueTokens(tp.statement));
+    const substantiated = rawGroups.filter((group) => {
+      const words = COMPETENCE_GROUPS[group] || [];
+      return words.map(normalizeToken).some((w) => statementTokens.has(w));
+    });
+    return substantiated.length > 0 ? substantiated : rawGroups;
+  }
+
+  // Fallback: extract from action clause at the beginning of the statement, not from the material body
+  if (tp.statement && tp.statement.trim().length > 0) {
+    const cleanStmt = tp.statement
+      .replace(/^(peserta didik|murid|siswa)\s+(dapat|mampu)\s+/i, '')
+      .trim();
+    const headWords = cleanStmt.split(/\s+/).slice(0, 5).join(' ');
+    const headGroups = detectCompetenceGroups(headWords);
+    if (headGroups.length > 0) {
+      return headGroups;
+    }
+    return detectCompetenceGroups(cleanStmt);
+  }
+
+  return [];
+}
+
+export function hasCompatibleCompetence(focusGroups: Set<string>, tpGroups: string[]): boolean {
   if (tpGroups.length === 0) return true;
-  
-  // Every group required by TP must have at least one focus competence that covers it
+
+  // Strict: every substantiated competence demanded by the TP must have an equivalent match in focus
   return tpGroups.every((tpGroup) => {
-    const equivalence = COMPETENCE_EQUIVALENCE[tpGroup] || [tpGroup];
-    return equivalence.some((eq) => focusGroups.has(eq));
+    const candidates = COMPETENCE_EQUIVALENCE[tpGroup] || [tpGroup];
+    return candidates.some((candidate) => focusGroups.has(candidate));
   });
 }
 
@@ -196,10 +271,18 @@ export function checkATPSemanticFidelity(
     const materialMatches = intersect(substance.materialTokens, focusTokens);
     const statementMatches = intersect(substance.statementTokens, focusTokens);
     const phraseMatch = hasPhraseMatch(focusMaterialTokens, tp.contentScope) || hasPhraseMatch(focusMaterialTokens, tp.statement);
-    const tpCompetenceGroups = detectCompetenceGroups(`${tp.competence || ''} ${tp.statement || ''}`);
-    const hasCompetenceSignal = tpCompetenceGroups.length > 0 && hasCompatibleCompetence(new Set(focusCompetenceGroups), tpCompetenceGroups);
 
-    const hasMaterialSignal = materialMatches.length > 0 || phraseMatch;
+    // Prevent false positive material match from a single generic token (e.g. 'pola', 'gerak', 'dasar')
+    const specificMaterialMatches = materialMatches.filter((t) => !GENERIC_MATERIAL_TOKENS.has(t));
+    const hasMaterialSignal =
+      phraseMatch ||
+      materialMatches.length >= 2 ||
+      (materialMatches.length === 1 && specificMaterialMatches.length === 1 && specificMaterialMatches[0].length >= 5);
+
+    const tpCompetenceGroups = extractTPCompetenceGroups(tp);
+    const hasCompetenceSignal =
+      tpCompetenceGroups.length === 0 ||
+      hasCompatibleCompetence(new Set(focusCompetenceGroups), tpCompetenceGroups);
 
     if (hasMaterialSignal) {
       coveredTpCount += 1;
@@ -211,7 +294,7 @@ export function checkATPSemanticFidelity(
     }
 
     if (hasMaterialSignal && !hasCompetenceSignal) {
-      const tpCompetenceLabel = tp.competence || 'kompetensi TP';
+      const tpCompetenceLabel = tpCompetenceGroups.join(' & ') || tp.competence || 'kompetensi TP';
       missingSignals.push(`${substance.label}: fokus belum cukup menunjukkan kompetensi "${tpCompetenceLabel}" secara dapat diverifikasi.`);
     }
   }

@@ -30,7 +30,7 @@ import {
 import { validateGraduateProfileDimensions } from './src/constants/graduateProfileDimensions';
 import { checkSemanticCoverage } from './server/cpAnalysisSemanticCoverage';
 import { checkTPSemanticFidelity } from './src/services/tpSemanticFidelity';
-import { validateATPGeneratedItemsSemanticFidelity } from './src/services/atpSemanticFidelity';
+import { checkATPSemanticFidelity, validateATPGeneratedItemsSemanticFidelity } from './src/services/atpSemanticFidelity';
 import {
   getCognitiveAdaptationProfile,
   CognitiveAdaptationProfile,
@@ -894,8 +894,14 @@ Kembalikan respon dalam format JSON sesuai schema:`;
 
             const generatedCode = `${elemCode}-${scopeCode}-${String(seq).padStart(2, '0')}`;
 
+            const cleanStmt = (item.statement || item.description || '')
+              .replace(/\b([a-zA-Z]+)\s+\1\b/gi, '$1')
+              .replace(/\s+/g, ' ')
+              .trim();
+
             return {
               ...item,
+              statement: cleanStmt || item.statement,
               code: generatedCode,
               scopeCode,
               cpAnalysisItemIds: singleId ? [singleId] : [],
@@ -1164,9 +1170,34 @@ Kembalikan output JSON sesuai schema:`;
 
     const semanticCheck = validateATPGeneratedItemsSemanticFidelity(resolvedItems, tps);
     if (!semanticCheck.isValid) {
-      return res.status(500).json({
-        error: `Respons AI tidak sah secara semantic fidelity ATP: ${semanticCheck.reason || 'Fokus ATP tidak sesuai dengan TP canonical tertaut.'}`
+      // FIX C: Single targeted recovery for steps with semantic mismatch
+      const recoveredItems = resolvedItems.map((item) => {
+        const stepTps = item.linkedTpIds.map((id) => tpMapById.get(id)).filter(Boolean);
+        const check = checkATPSemanticFidelity(item.focus, stepTps);
+        if (check.isValid) return item;
+
+        // Reconstruct coherent focus from the linked canonical TPs
+        const tpScopes = stepTps.map((t) => t.contentScope || t.statement).filter(Boolean);
+        const tpCompetences = stepTps.map((t) => t.competence).filter(Boolean);
+        const primaryComp = tpCompetences[0] || 'Penguasaan';
+        const primaryScope = tpScopes.join(' dan ');
+        const repairedFocus = `${primaryComp} ${primaryScope}`.replace(/\s+/g, ' ').trim();
+
+        return {
+          ...item,
+          focus: repairedFocus,
+        };
       });
+
+      // Strict re-validation of ALL items with production validator
+      const recheck = validateATPGeneratedItemsSemanticFidelity(recoveredItems, tps);
+      if (recheck.isValid) {
+        resolvedItems.splice(0, resolvedItems.length, ...recoveredItems);
+      } else {
+        return res.status(500).json({
+          error: `Respons AI tidak sah secara semantic fidelity ATP: ${semanticCheck.reason || recheck.reason || 'Fokus ATP tidak sesuai dengan TP canonical tertaut.'}`
+        });
+      }
     }
 
     parsed.items = resolvedItems;
