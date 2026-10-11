@@ -417,7 +417,16 @@ export const ATPUnitMappingManager: React.FC<ATPUnitMappingManagerProps> = ({
 
   // Shared production readiness resolver for Step 07 and Step 08
   const mappingReadiness = useMemo(() => {
-    return resolveATPUnitMappingReadiness(mapping, atp, tp, academicSetting);
+    const currentDraft: ATPUnitMappingData = {
+      ...mapping,
+      id: mapping?.id || 'temp',
+      academicSettingId: academicSetting?.id || atp.academicSettingId || '',
+      atpId: atp.id,
+      units,
+      updatedAt: mapping?.updatedAt || new Date().toISOString(),
+    } as ATPUnitMappingData;
+
+    return resolveATPUnitMappingReadiness(currentDraft, atp, tp, academicSetting);
   }, [units, atp, tp, academicSetting, mapping]);
 
   const localValidation = useMemo(() => {
@@ -1123,6 +1132,18 @@ export const ATPUnitMappingManager: React.FC<ATPUnitMappingManagerProps> = ({
   // Save Mapping Canonical
   const handleSave = (): boolean => {
     const result = buildCurrentMappingDraft();
+    const readiness = resolveATPUnitMappingReadiness(result, atp, tp, academicSetting);
+
+    if (!readiness.canSaveDraft) {
+      setSaveSuccessNotice(false);
+      const errorMsg = readiness.blockers.length > 0 
+        ? `Pemetaan tidak dapat disimpan: ${readiness.blockers[0]}`
+        : 'Pemetaan tidak dapat disimpan: referensi atau identitas akademik tidak valid.';
+      setSaveErrorNotice(errorMsg);
+      setLocalValidationNotice(errorMsg);
+      return false;
+    }
+
     const validation = validateATPUnitMappingCanonical(result, atp, tp);
 
     if (!validation.isValid) {
