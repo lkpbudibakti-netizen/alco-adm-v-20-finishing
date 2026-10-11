@@ -25,7 +25,6 @@ const EQUIVALENTS: Record<string, string> = {
   tempat: 'lokomotor',
   manipulasi: 'manipulatif',
   objek: 'manipulatif',
-  bola: 'manipulatif',
   aman: 'keselamatan',
   selamat: 'keselamatan',
   cedera: 'keselamatan',

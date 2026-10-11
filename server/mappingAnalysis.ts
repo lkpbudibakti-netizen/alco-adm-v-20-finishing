@@ -455,6 +455,27 @@ export function sanitizeMappingAnalysisResult(
     tpMap.set(t.id, t);
   });
 
+  const getAtpTps = (atpItem: any, subsetIds?: string[]) => {
+    const canonicalIds = getCanonicalTpsForAtpItem(atpItem).filter((id) => validTpIds.has(id));
+    const effectiveIds = Array.isArray(subsetIds) && subsetIds.length > 0
+      ? subsetIds.filter((id) => canonicalIds.includes(id))
+      : canonicalIds;
+    return effectiveIds.map((id) => tpMap.get(id)).filter(Boolean);
+  };
+
+  const unitHasSemanticEvidence = (unit: any, atpItem: any, subsetIds?: string[]) => {
+    const tpItemsForUnit = getAtpTps(atpItem, subsetIds);
+    const unitLabel = [
+      unit?.title || '',
+      ...(unit?.materials || []).map((m: any) => m.title || ''),
+    ].join(' ');
+    return checkMappingSemanticEvidence({
+      label: unitLabel,
+      atpItems: [atpItem],
+      tpItems: tpItemsForUnit,
+    });
+  };
+
   const rawAtpFindings: any[] = Array.isArray(rawResult?.atpFindings) ? rawResult.atpFindings : [];
   const rawMaterialFindings: any[] = Array.isArray(rawResult?.materialFindings) ? rawResult.materialFindings : [];
 
