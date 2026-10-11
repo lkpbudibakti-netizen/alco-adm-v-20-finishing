@@ -321,7 +321,16 @@ const pjokNeg = validateATPGeneratedItemsSemanticFidelity(
   [{ stepNumber: 1, linkedTpIds: ['tp-pjok-1', 'tp-pjok-2'], focus: 'Mempraktikkan gerak lokomotor' }], 
   pjokTp
 );
-assertCase(!pjokNeg.isValid, 'PJOK: Multi-TP sebagian tertaut FAIL');
+
+// 6. Mengeksplorasi (Regression)
+const eksplorasiTp: TPItem[] = [{ id: 'tp-eksplorasi', code: 'E1-EXPL-01', statement: 'Peserta didik mengeksplorasi pola makan sehat.', competence: 'Mengeksplorasi', contentScope: 'Pola makan sehat', order: 1 }];
+assertCase(checkATPSemanticFidelity('Mengeksplorasi pola makan sehat', eksplorasiTp).isValid, 'Eksplorasi: Kompetensi relevan PASS');
+assertCase(!checkATPSemanticFidelity('Menjelaskan pola makan sehat', eksplorasiTp).isValid, 'Eksplorasi: Kompetensi lain FAIL');
+
+// 7. Mempraktikkan (Regression)
+const praktikTp: TPItem[] = [{ id: 'tp-praktik', code: 'E1-PRAK-01', statement: 'Peserta didik mempraktikkan penanganan cedera ringan.', competence: 'Mempraktikkan', contentScope: 'Penanganan cedera ringan', order: 1 }];
+assertCase(checkATPSemanticFidelity('Mempraktikkan penanganan cedera ringan', praktikTp).isValid, 'Praktik: Kompetensi relevan PASS');
+assertCase(!checkATPSemanticFidelity('Mengenali cedera ringan', praktikTp).isValid, 'Praktik: Kompetensi lain FAIL');
 
 if (failed > 0) {
   console.error(`P0-C ATP semantic fidelity regression failed: ${failed} scenario(s).`);

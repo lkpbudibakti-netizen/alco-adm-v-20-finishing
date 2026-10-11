@@ -29,6 +29,7 @@ const COMPETENCE_GROUPS: Record<string, string[]> = {
   practice: ['mempraktikkan', 'praktik', 'mendemonstrasikan', 'demonstrasi', 'melakukan', 'lakukan', 'jaga', 'menjaga'],
   create: ['membuat', 'buat', 'menyusun', 'susun', 'merancang', 'rancang', 'menghasilkan', 'hasil'],
   evaluate: ['mengevaluasi', 'evaluasi', 'menilai', 'nilai', 'merefleksi', 'refleksi', 'menyimpulkan', 'simpul'],
+  explore: ['mengeksplorasi', 'eksplorasi', 'menjelajahi', 'jelajah'],
 };
 
 const COMPETENCE_EQUIVALENCE: Record<string, string[]> = {
@@ -38,6 +39,7 @@ const COMPETENCE_EQUIVALENCE: Record<string, string[]> = {
   practice: ['practice', 'apply'],
   create: ['create'],
   evaluate: ['evaluate'],
+  explore: ['explore', 'analyze'],
 };
 
 function normalizeText(value?: string): string {
@@ -86,6 +88,8 @@ function normalizeToken(token: string): string {
     mengenali: 'mengenal',
     jaga: 'jaga',
     menjaga: 'jaga',
+    eksplorasi: 'eksplorasi',
+    mengeksplorasi: 'eksplorasi',
     senilai: 'ekuivalen',
     ekuivalen: 'ekuivalen',
   };
