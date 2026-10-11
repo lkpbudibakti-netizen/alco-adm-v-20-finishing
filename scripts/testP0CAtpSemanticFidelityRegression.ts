@@ -272,6 +272,49 @@ const aiSemanticReject = validateATPGeneratedItemsSemanticFidelity(
 );
 assertCase(!aiSemanticReject.isValid, 'Output Gemini salah secara semantik REJECT', aiSemanticReject);
 
+// ... (existing code up to end)
+
+// ---------------------------------------------------------
+// UNIVERSAL SEMANTIC FIDELITY REGRESSION (5 Subjects)
+// ---------------------------------------------------------
+
+// 1. BAHASA INDONESIA (Fase B)
+const biTP: TPItem[] = [{ id: 'tp-bi', code: 'E1-BIN-01', statement: 'Peserta didik mengidentifikasi ide pokok dan menyimpulkan informasi.', competence: 'Mengidentifikasi dan menyimpulkan', contentScope: 'Ide pokok dan informasi teks', order: 1 }];
+assertCase(checkATPSemanticFidelity('Mengidentifikasi ide pokok dan menyimpulkan informasi dari teks', biTP).isValid, 'BI: Kompetensi majemuk PASS');
+assertCase(!checkATPSemanticFidelity('Membaca buku', biTP).isValid, 'BI: Materi tidak terkait FAIL');
+
+// 2. IPAS (Fase B)
+const ipasTP: TPItem[] = [{ id: 'tp-ipas', code: 'E1-IPA-01', statement: 'Peserta didik mengamati, menyelidiki, dan menjelaskan daur hidup tumbuhan.', competence: 'Mengamati, menyelidiki, dan menjelaskan', contentScope: 'Daur hidup tumbuhan', order: 1 }];
+assertCase(checkATPSemanticFidelity('Mengamati, menyelidiki, dan menjelaskan daur hidup tumbuhan', ipasTP).isValid, 'IPAS: Kompetensi majemuk PASS');
+assertCase(!checkATPSemanticFidelity('Menjelaskan daur hidup tumbuhan', ipasTP).isValid, 'IPAS: Kompetensi majemuk sebagian FAIL');
+
+// 3. PENDIDIKAN PANCASILA (Fase B)
+const pancasilaTP: TPItem[] = [{ id: 'tp-pkn', code: 'E1-PKN-01', statement: 'Peserta didik menunjukkan perilaku gotong royong dan menghargai aturan.', competence: 'Menunjukkan perilaku dan menghargai', contentScope: 'Gotong royong dan aturan', order: 1 }];
+assertCase(checkATPSemanticFidelity('Menunjukkan gotong royong dan menghargai aturan rumah', pancasilaTP).isValid, 'Pancasila: Multi-tindakan PASS');
+assertCase(!checkATPSemanticFidelity('Gotong royong saja', pancasilaTP).isValid, 'Pancasila: Kompetensi hilang FAIL');
+
+// 4. MATEMATIKA (Fase B - Valid Multi-TP)
+const mathTp: TPItem[] = [
+  { id: 'tp-mat-1', code: 'E1-MAT-01', statement: 'Menjelaskan bilangan cacah sampai 10.000', competence: 'Menjelaskan', contentScope: 'Bilangan cacah', order: 1 },
+  { id: 'tp-mat-2', code: 'E1-MAT-02', statement: 'Menerapkan operasi hitung bilangan', competence: 'Menerapkan', contentScope: 'Operasi hitung', order: 2 }
+];
+const mathResult = validateATPGeneratedItemsSemanticFidelity(
+  [{ stepNumber: 1, linkedTpIds: ['tp-mat-1', 'tp-mat-2'], focus: 'Menjelaskan bilangan cacah dan menerapkan operasi hitung' }],
+  mathTp
+);
+assertCase(mathResult.isValid, 'Math: Multi-TP koheren PASS');
+
+// 5. PJOK (Fase A - Multi-TP Negatif)
+const pjokTp: TPItem[] = [
+  { id: 'tp-pjok-1', code: 'E1-PJK-01', statement: 'Mempraktikkan gerak lokomotor', competence: 'Mempraktikkan', contentScope: 'Gerak lokomotor', order: 1 },
+  { id: 'tp-pjok-2', code: 'E1-PJK-02', statement: 'Mengenali gerak non-lokomotor', competence: 'Mengenali', contentScope: 'Gerak non-lokomotor', order: 2 }
+];
+const pjokResult = validateATPGeneratedItemsSemanticFidelity(
+  [{ stepNumber: 1, linkedTpIds: ['tp-pjok-1'], focus: 'Mempraktikkan gerak lokomotor' }], // Missing TP-2
+  pjokTp
+);
+assertCase(!pjokResult.isValid, 'PJOK: Multi-TP sebagian tertaut FAIL');
+
 if (failed > 0) {
   console.error(`P0-C ATP semantic fidelity regression failed: ${failed} scenario(s).`);
   process.exit(1);
