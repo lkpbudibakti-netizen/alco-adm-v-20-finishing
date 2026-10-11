@@ -1050,67 +1050,67 @@ export const ATPUnitMappingManager: React.FC<ATPUnitMappingManagerProps> = ({
       });
     });
 
-    // 3. Apply ALIGN_EXISTING_MATERIAL actions
+    // 3. Apply ALIGN_EXISTING_MATERIAL actions (FIX D1: Safe Lineage Alignment - replace directly without auto-union with old material lineage, no silent unit expansion)
     selectedMaterialFindings.forEach((m) => {
       const action = m.action!;
       if (action.type !== 'ALIGN_EXISTING_MATERIAL') return;
       const targetUnitId = action.targetUnitId;
       const targetMaterialId = action.targetMaterialId;
 
+      const uProposedAtp = action.linkedAtpItemIds || [];
+      const uProposedTp = action.linkedTpIds || [];
+
+      const sortedAtpIds = [...uProposedAtp].sort((a, b) => {
+        const indexA = (atp.items || []).findIndex((item) => item.id === a);
+        const indexB = (atp.items || []).findIndex((item) => item.id === b);
+        return indexA - indexB;
+      });
+
+      const sortedTpIds = [...uProposedTp].sort((a, b) => {
+        const indexA = (tp.items || []).findIndex((item) => item.id === a);
+        const indexB = (tp.items || []).findIndex((item) => item.id === b);
+        return indexA - indexB;
+      });
+
       nextUnits = nextUnits.map((u) => {
         if (u.id !== targetUnitId) return u;
-
-        const uProposedAtp = action.linkedAtpItemIds || [];
-        const uProposedTp = action.linkedTpIds || [];
-
-        const uUnionAtp = Array.from(new Set([...(u.linkedAtpItemIds || []), ...uProposedAtp]));
-        const uUnionTp = Array.from(new Set([...(u.linkedTpIds || []), ...uProposedTp]));
-
-        const sortedAtpIds = uUnionAtp.sort((a, b) => {
-          const indexA = (atp.items || []).findIndex((item) => item.id === a);
-          const indexB = (atp.items || []).findIndex((item) => item.id === b);
-          return indexA - indexB;
-        });
-
-        const sortedTpIds = uUnionTp.sort((a, b) => {
-          const indexA = (tp.items || []).findIndex((item) => item.id === a);
-          const indexB = (tp.items || []).findIndex((item) => item.id === b);
-          return indexA - indexB;
-        });
 
         const nextMaterials = (u.materials || []).map((mat) => {
           if (mat.id !== targetMaterialId) return mat;
 
-          const matUnionAtp = Array.from(new Set([...(mat.linkedAtpItemIds || []), ...uProposedAtp]));
-          const matUnionTp = Array.from(new Set([...(mat.linkedTpIds || []), ...uProposedTp]));
-
-          const sortedMatAtpIds = matUnionAtp.sort((a, b) => {
-            const indexA = (atp.items || []).findIndex((item) => item.id === a);
-            const indexB = (atp.items || []).findIndex((item) => item.id === b);
-            return indexA - indexB;
-          });
-
-          const sortedMatTpIds = matUnionTp.sort((a, b) => {
-            const indexA = (tp.items || []).findIndex((item) => item.id === a);
-            const indexB = (tp.items || []).findIndex((item) => item.id === b);
-            return indexA - indexB;
-          });
-
           return {
             ...mat,
-            linkedAtpItemIds: sortedMatAtpIds,
-            linkedTpIds: sortedMatTpIds,
+            linkedAtpItemIds: sortedAtpIds,
+            linkedTpIds: sortedTpIds,
           };
         });
 
         return {
           ...u,
-          linkedAtpItemIds: sortedAtpIds,
-          linkedTpIds: sortedTpIds,
           materials: nextMaterials,
         };
       });
     });
+
+    // FIX D2 — Transactional Apply & Validation Gate
+    const candidateMapping = buildCurrentMappingDraftFromUnits(
+      nextUnits,
+      mapping?.id,
+      academicSetting?.id || atp.academicSettingId,
+      atp.id,
+      tp.id || atp.tpDataId,
+      tp.updatedAt || atp.basedOnTpUpdatedAt,
+      atp.updatedAt
+    );
+
+    const validation = validateATPUnitMappingCanonical(candidateMapping, atp, tp);
+
+    if (!validation.isValid) {
+      alert(
+        `Penerapan saran ditolak karena melanggar integritas referensi canonical atau struktur Bab induk:\n\n• ${validation.issues.join('\n• ')}`
+      );
+      return;
+    }
 
     setUnits(nextUnits);
     setHasChanges(true);
