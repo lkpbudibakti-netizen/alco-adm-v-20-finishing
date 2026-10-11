@@ -37,9 +37,11 @@ import { P3_DIMENSIONS } from '../data/curriculumDefaults';
 import { generateTPWithAI, refineTextWithAI } from '../services/aiService';
 import {
   validateTPDataWorkflow,
+  validateCPAnalysisDataWorkflow,
   deriveScopeCode,
   generateSemanticTPCode,
 } from '../services/cpWorkflowService';
+import { checkTPSemanticFidelity } from '../services/tpSemanticFidelity';
 import {
   buildTPDiagnosticReport,
   recordDiagnosticEvent,
@@ -143,7 +145,7 @@ export const TPManager: React.FC<TPManagerProps> = ({
     setSaveNotice(null);
   };
 
-  const persistTP = (source: 'AI_AUTO' | 'MANUAL' | 'STATUS_SYNC' | 'CONFIRM_ALIGNMENT') => {
+  const persistTP = (source: 'AI_AUTO' | 'MANUAL' | 'STATUS_SYNC') => {
     const updatedItems = items.map((item, idx) => ({ ...item, order: idx + 1 }));
     const nextGeneratedBy =
       source === 'AI_AUTO'
@@ -151,7 +153,6 @@ export const TPManager: React.FC<TPManagerProps> = ({
         : tp.generatedBy === 'AI'
         ? 'AI_EDITED_BY_TEACHER'
         : tp.generatedBy || 'TEACHER';
-    const isAlignmentIntent = source === 'AI_AUTO' || source === 'CONFIRM_ALIGNMENT';
     const candidateTP: TPData = {
       ...tp,
       academicSettingId: academicSetting.id,
@@ -164,10 +165,6 @@ export const TPManager: React.FC<TPManagerProps> = ({
       phase: context.phase,
       items: updatedItems,
       generatedBy: nextGeneratedBy,
-      needsReview: isAlignmentIntent ? false : tp.needsReview,
-      reviewReason: isAlignmentIntent ? undefined : tp.reviewReason,
-      basedOnCpUpdatedAt: isAlignmentIntent ? (cp.updatedAt || new Date().toISOString()) : tp.basedOnCpUpdatedAt,
-      basedOnAnalysisUpdatedAt: isAlignmentIntent ? (cpAnalysis?.updatedAt || new Date().toISOString()) : tp.basedOnAnalysisUpdatedAt,
       updatedAt: new Date().toISOString(),
     };
     const val = validateTPDataWorkflow(candidateTP, cp, cpAnalysis, academicSetting);
@@ -192,12 +189,53 @@ export const TPManager: React.FC<TPManagerProps> = ({
     return { updatedTP, validation: val };
   };
 
-  // Handle Confirm Alignment
+  // Handle Confirm Alignment (FIX 1)
   const handleConfirmAlignment = () => {
-    persistTP('CONFIRM_ALIGNMENT');
+    const updatedItems = items.map((item, idx) => ({ ...item, order: idx + 1 }));
+    const candidateTP: TPData = {
+      ...tp,
+      academicSettingId: academicSetting.id,
+      cpId: cp.id,
+      cpVersion: cp.cpVersion ?? cp.source?.versionCode,
+      cpRegulationIds: cp.source?.regulationIds || cp.regulationIds || [],
+      cpAnalysisId: cpAnalysis?.id,
+      academicYear: context.academicYear,
+      subjectCode: context.subject,
+      phase: context.phase,
+      items: updatedItems,
+      generatedBy: tp.generatedBy === 'AI' ? 'AI_EDITED_BY_TEACHER' : tp.generatedBy || 'TEACHER',
+      updatedAt: new Date().toISOString(),
+    };
+
+    const val = validateTPDataWorkflow(candidateTP, cp, cpAnalysis, academicSetting);
+    const semanticCheck = checkTPSemanticFidelity(updatedItems, cpAnalysis?.items || []);
+
+    if (!val.isSiap || !semanticCheck.isValid) {
+      const issuesList = [...val.issues, ...semanticCheck.issues].join('\n');
+      alert(`Konfirmasi alignment gagal: TP masih belum sesuai atau memiliki deviasi semantis terhadap Analisis CP aktif.\n\n${issuesList}`);
+      return;
+    }
+
+    const confirmedTP: TPData = {
+      ...candidateTP,
+      needsReview: false,
+      reviewReason: undefined,
+      basedOnCpUpdatedAt: cp.updatedAt || new Date().toISOString(),
+      basedOnAnalysisUpdatedAt: cpAnalysis?.updatedAt || new Date().toISOString(),
+      workflowStatus: val.status,
+    };
+    onSaveTP(confirmedTP);
+    setIsDirty(false);
+    showSaveNotice('Alignment TP berhasil dikonfirmasi dan diselaraskan.');
+    recordDiagnosticEvent({
+      scope: 'TP',
+      action: 'TP_CONFIRM_ALIGNMENT_SUCCESS',
+      status: val.status,
+      metadata: { itemsCount: updatedItems.length, validationStatus: val.status },
+    });
   };
 
-  // Handle AI Generate TP from CP & CP Analysis
+  // Handle AI Generate TP from CP & CP Analysis (FIX 2)
   const handleGenerateAI = async () => {
     if (!hasCP) {
       alert('Data CP belum tersedia. Harap isi CP pada tahap 03 terlebih dahulu.');
@@ -206,6 +244,22 @@ export const TPManager: React.FC<TPManagerProps> = ({
 
     if (isCpUnusable) {
       alert(`Capaian Pembelajaran (CP) rujukan berstatus ${cpVerStatus}. Mohon sesuaikan data CP pada Tahap 03 sebelum merumuskan TP.`);
+      return;
+    }
+
+    if (!cpAnalysis || !cpAnalysis.items || cpAnalysis.items.length === 0) {
+      alert('Analisis CP belum tersedia atau kosong. Harap selesaikan Analisis CP sebelum merumuskan TP dengan AI.');
+      return;
+    }
+
+    const cpAnalysisVal = validateCPAnalysisDataWorkflow(cpAnalysis, cp, academicSetting);
+    if (!cpAnalysisVal.isSiap) {
+      alert(`Analisis CP belum SIAP (${cpAnalysisVal.issues[0] || 'Validasi belum terpenuhi'}). Harap perbaiki Analisis CP sebelum merumuskan TP dengan AI.`);
+      return;
+    }
+
+    if (cpAnalysis.needsReview) {
+      alert('Analisis CP sedang ditandai butuh peninjauan (needsReview). Harap perbarui atau konfirmasi Analisis CP terlebih dahulu.');
       return;
     }
 
@@ -480,20 +534,44 @@ export const TPManager: React.FC<TPManagerProps> = ({
     }
   };
 
+  // Handle Refine Statement with AI (FIX 3)
   const handleRefineStatementWithAI = async () => {
     if (!currentItem || !currentItem.statement.trim()) {
       alert('Tulis draf rumusan TP terlebih dahulu.');
       return;
     }
+
+    const effectiveAnalysisIds = Array.isArray(currentItem.cpAnalysisItemIds) && currentItem.cpAnalysisItemIds.length > 0
+      ? currentItem.cpAnalysisItemIds
+      : currentItem.cpAnalysisId
+      ? [currentItem.cpAnalysisId]
+      : [];
+
+    if (effectiveAnalysisIds.length !== 1 || !cpAnalysis || !cpAnalysis.items) {
+      alert('Lineage Analisis CP tidak sah: setiap TP wajib merujuk tepat 1 butir Analisis CP canonical sebelum dapat dipoles dengan AI.');
+      return;
+    }
+
+    const anaId = effectiveAnalysisIds[0];
+    const targetAnalysisItem = cpAnalysis.items.find(a => String(a.id) === String(anaId));
+    if (!targetAnalysisItem) {
+      alert('Butir Analisis CP rujukan tidak ditemukan.');
+      return;
+    }
+
     setIsRefining(true);
     try {
       const refined = await refineTextWithAI({
         text: currentItem.statement,
         instruction:
-          'Sempurnakan kalimat Tujuan Pembelajaran (TP) ini menggunakan formula: Peserta didik mampu [Kompetensi/KKO] [Lingkup Materi] melalui [Konteks/Metode] dengan [Kriteria/Tepat].',
-        context: `${context.subject} ${context.grade} (${context.phase})`,
+          'Sempurnakan kalimat Tujuan Pembelajaran (TP) ini menggunakan formula baku, tanpa mengubah kompetensi (KKO) atau lingkup materi canonical berikut:\n' +
+          `- Kompetensi (CP Competence): "${targetAnalysisItem.cpCompetence}"\n` +
+          `- Lingkup Materi (Material Scope): "${targetAnalysisItem.materialScope}"\n` +
+          `- Elemen: "${targetAnalysisItem.elementName}"\n` +
+          'Penting: Pertahankan secara mutlak Kompetensi dan Lingkup Materi di atas, jangan mengubah makna atau substansi canonical.',
+        context: `${context.subject} ${context.grade} (${context.phase}) - Elemen: ${targetAnalysisItem.elementName}, Kompetensi: ${targetAnalysisItem.cpCompetence}, Materi: ${targetAnalysisItem.materialScope}`,
       });
-      setCurrentItem({ ...currentItem, statement: refined });
+      setCurrentItem({ ...currentItem, statement: refined, description: refined });
     } catch (err: unknown) {
       alert('Gagal menyempurnakan teks dengan AI.');
     } finally {
