@@ -134,14 +134,43 @@ function atp(items: ATPItem[], overrides: Partial<ATPData> = {}): ATPData {
 const validSingle = checkATPSemanticFidelity('Memahami pecahan senilai dan menerapkan penjumlahan pecahan', [tpItems[0]]);
 assertCase(validSingle.isValid, 'Focus sesuai TP canonical');
 
+const competencyAligned = checkATPSemanticFidelity('Menerapkan penjumlahan pecahan senilai', [tpItems[0]]);
+assertCase(competencyAligned.isValid, 'Materi sama + kompetensi sesuai PASS', competencyAligned);
+
+const practiceTp: TPItem = {
+  ...tpItems[0],
+  id: 'tp-praktik-pecahan',
+  code: 'E1-PEC-02',
+  statement: 'Peserta didik mempraktikkan penggunaan pecahan senilai dengan alat peraga.',
+  competence: 'Mempraktikkan',
+  contentScope: 'Pecahan senilai',
+};
+const conflictingCompetence = checkATPSemanticFidelity('Menganalisis pecahan senilai', [practiceTp]);
+assertCase(!conflictingCompetence.isValid, 'Materi sama + kompetensi bertentangan FAIL', conflictingCompetence);
+
+const unclearCompetence = checkATPSemanticFidelity('Pembelajaran pecahan senilai dan penjumlahan pecahan', [tpItems[0]]);
+assertCase(!unclearCompetence.isValid, 'Materi sama + kompetensi tidak jelas AMBIGU/FAIL', unclearCompetence);
+
+const equivalentCompetence = checkATPSemanticFidelity('Menggunakan penjumlahan pecahan senilai untuk menyelesaikan soal', [tpItems[0]]);
+assertCase(equivalentCompetence.isValid, 'Kompetensi setara, redaksi berbeda PASS jika dapat dibuktikan', equivalentCompetence);
+
+const paraphrasedMaterial = checkATPSemanticFidelity('Menerapkan kegiatan menjumlahkan pecahan ekuivalen', [tpItems[0]]);
+assertCase(paraphrasedMaterial.isValid, 'Parafrasa materi dengan makna setara PASS jika dapat dibuktikan', paraphrasedMaterial);
+
 const wrongDomain = checkATPSemanticFidelity('Membaca puisi rakyat dan menulis pantun', [tpItems[0]]);
 assertCase(!wrongDomain.isValid, 'Exact TP ID benar, focus beda domain FAIL', wrongDomain);
 
 const validMulti = checkATPSemanticFidelity(
-  'Menghubungkan pecahan dengan pengukuran keliling dan luas persegi panjang dalam pemecahan masalah',
+  'Menerapkan pecahan serta menganalisis pengukuran keliling dan luas persegi panjang',
   tpItems
 );
 assertCase(validMulti.isValid, 'Multi-TP ringkasan gabungan koheren PASS', validMulti);
+
+const missingOneDomain = checkATPSemanticFidelity('Menerapkan penjumlahan pecahan senilai', tpItems);
+assertCase(!missingOneDomain.isValid, 'Multi-TP dengan salah satu domain hilang FAIL', missingOneDomain);
+
+const genericOnly = checkATPSemanticFidelity('Mengembangkan kompetensi melalui kegiatan pembelajaran yang baik', [tpItems[0]]);
+assertCase(!genericOnly.isValid, 'Fokus menggunakan kata-kata umum saja FAIL', genericOnly);
 
 const invalidMulti = checkATPSemanticFidelity('Menelaah struktur teks laporan hasil observasi', tpItems);
 assertCase(!invalidMulti.isValid, 'Multi-TP focus menyesatkan FAIL', invalidMulti);
