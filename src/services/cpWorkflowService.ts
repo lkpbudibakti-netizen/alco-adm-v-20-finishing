@@ -125,6 +125,11 @@ export function validateCPAnalysisDataWorkflow(
   if (!cp) {
     issues.push('Capaian Pembelajaran (CP) rujukan belum tersedia.');
   } else {
+    const cpValidation = validateCPDataWorkflow(cp);
+    if (!cpValidation.isSiap) {
+      issues.push('Capaian Pembelajaran (CP) rujukan belum memenuhi status SIAP.');
+    }
+
     // cpAnalysis.cpId wajib sama dengan cp.id
     if (!cpAnalysis.cpId || cpAnalysis.cpId !== cp.id) {
       issues.push(`ID CP rujukan pada analisis (${cpAnalysis.cpId || 'kosong'}) tidak sesuai dengan ID CP (${cp.id}).`);
@@ -1030,16 +1035,14 @@ export function validateATPDataWorkflow(
   if (!tp || !tp.items || tp.items.length === 0) {
     issues.push('Daftar Tujuan Pembelajaran (TP) acuan belum tersedia.');
   } else {
-    // Deep runtime validation on TP if cpAnalysis is provided
-    if (cpAnalysis) {
-      const tpValidation = validateTPDataWorkflow(tp, cp, cpAnalysis, academicSetting);
-      if (!tpValidation.isSiap) {
-        tpValidation.issues.forEach((iss) => {
-          if (!issues.includes(iss)) {
-            issues.push(iss);
-          }
-        });
-      }
+    // Deep runtime validation on TP
+    const tpValidation = validateTPDataWorkflow(tp, cp, cpAnalysis, academicSetting);
+    if (!tpValidation.isSiap) {
+      tpValidation.issues.forEach((iss) => {
+        if (!issues.includes(iss)) {
+          issues.push(iss);
+        }
+      });
     }
     if (tp.workflowStatus !== 'SIAP') {
       issues.push(`Tujuan Pembelajaran (TP) acuan belum berstatus SIAP (status: ${tp.workflowStatus || 'BELUM_DIMULAI'}).`);

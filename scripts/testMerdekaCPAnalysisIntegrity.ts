@@ -190,7 +190,7 @@ runTest('6. Local/manual save uses generatedBy: "TEACHER" or preserves valid pre
   const compSource = fs.readFileSync(compPath, 'utf-8');
 
   // Verify handleSave provenance handling
-  const match = compSource.match(/const handleSave = \(\) => \{([\s\S]*?)\n  \};/);
+  const match = compSource.match(/const handleSave = (?:\(\): boolean =>|\(\) =>) \{([\s\S]*?)\n  \};/);
   assert.ok(match, 'handleSave must be present in CPAnalysisManager');
   const body = match[1];
 
@@ -620,7 +620,7 @@ runTest('23. Ordinary save preserves previous basedOnCpUpdatedAt to prevent stal
   const compSource = fs.readFileSync(compPath, 'utf-8');
 
   // Verify handleSave implementation preserves existing basedOnCpUpdatedAt
-  const match = compSource.match(/const handleSave = \(\) => \{([\s\S]*?)\n  \};/);
+  const match = compSource.match(/const handleSave = \(\): boolean => \{([\s\S]*?)\n  \};/);
   assert.ok(match, 'handleSave must exist');
   const body = match[1];
 
@@ -638,7 +638,7 @@ runTest('24. Ordinary save preserves needsReview / isCPOutdated condition', () =
   const compPath = path.resolve(process.cwd(), 'src/components/CPAnalysisManager.tsx');
   const compSource = fs.readFileSync(compPath, 'utf-8');
 
-  const match = compSource.match(/const handleSave = \(\) => \{([\s\S]*?)\n  \};/);
+  const match = compSource.match(/const handleSave = \(\): boolean => \{([\s\S]*?)\n  \};/);
   assert.ok(match, 'handleSave must exist');
   const body = match[1];
 
@@ -656,7 +656,7 @@ runTest('25. handleSave evaluates candidate to determine final workflowStatus', 
   const compPath = path.resolve(process.cwd(), 'src/components/CPAnalysisManager.tsx');
   const compSource = fs.readFileSync(compPath, 'utf-8');
 
-  const match = compSource.match(/const handleSave = \(\) => \{([\s\S]*?)\n  \};/);
+  const match = compSource.match(/const handleSave = \(\): boolean => \{([\s\S]*?)\n  \};/);
   assert.ok(match, 'handleSave must exist');
   const body = match[1];
 
@@ -680,6 +680,97 @@ runTest('26. Rebase paths (executeAIAnalysis & handleGenerateFromCP) rebase to a
   assert.ok(deriveMatch, 'handleGenerateFromCP must exist');
   assert.ok(deriveMatch[1].includes('needsReview: false'), 'handleGenerateFromCP must clear needsReview');
   assert.ok(deriveMatch[1].includes('basedOnCpUpdatedAt: cp.updatedAt'), 'handleGenerateFromCP must rebase to cp.updatedAt');
+});
+
+runTest('27. CP invalid -> CPAnalysis tidak SIAP (CP prerequisite restored)', () => {
+  const invalidCP: CPData = {
+    ...sampleCP,
+    generalDescription: '', // empty generalDescription makes CP invalid
+    source: undefined,
+  };
+  const cpa: CPAnalysisData = {
+    id: 'cpa-test',
+    academicSettingId: invalidCP.academicSettingId,
+    cpId: invalidCP.id,
+    basedOnCpUpdatedAt: invalidCP.updatedAt,
+    updatedAt: new Date().toISOString(),
+    items: [
+      {
+        id: 'item-1',
+        elementId: 'elem-1',
+        elementName: 'Terampil Bergerak',
+        cpText: 'Peserta didik mempraktikkan keterampilan gerak fundamental secara efektif.',
+        cpCompetence: 'Mempraktikkan',
+        materialScope: 'Gerak dasar',
+        order: 1,
+      },
+      {
+        id: 'item-2',
+        elementId: 'elem-2',
+        elementName: 'Belajar Melalui Gerak',
+        cpText: 'Peserta didik menerapkan perilaku hidup sehat dalam aktivitas jasmani.',
+        cpCompetence: 'Menerapkan',
+        materialScope: 'Pola hidup sehat',
+        order: 2,
+      },
+    ],
+  };
+
+  const val = validateCPAnalysisDataWorkflow(cpa, invalidCP);
+  assert.strictEqual(val.isSiap, false, 'CPAnalysis harus tidak SIAP jika CP rujukan tidak valid');
+  assert.ok(
+    val.issues.some((iss) => iss.includes('Capaian Pembelajaran (CP) rujukan belum memenuhi status SIAP.')),
+    'Harus memuat issue CP belum memenuhi status SIAP'
+  );
+});
+
+runTest('28. handleSave mempunyai return type boolean', () => {
+  const compPath = path.resolve(process.cwd(), 'src/components/CPAnalysisManager.tsx');
+  const compSource = fs.readFileSync(compPath, 'utf-8');
+
+  assert.ok(
+    compSource.includes('const handleSave = (): boolean =>'),
+    'handleSave must have explicit return type boolean'
+  );
+  assert.ok(
+    compSource.includes('return false;'),
+    'handleSave must return false when candidate is not siap'
+  );
+  assert.ok(
+    compSource.includes('return true;'),
+    'handleSave must return true when candidate is siap'
+  );
+});
+
+runTest('29. Navigation memanggil onNextStep() hanya jika handleSave() mengembalikan true', () => {
+  const compPath = path.resolve(process.cwd(), 'src/components/CPAnalysisManager.tsx');
+  const compSource = fs.readFileSync(compPath, 'utf-8');
+
+  assert.ok(
+    compSource.includes('const ready = handleSave();\n            if (ready) {\n              onNextStep();\n            }') ||
+    compSource.includes('const ready = handleSave();\n            if (ready) {\n              onNextStep();'),
+    'Navigation button must gate onNextStep() on handleSave() returning true'
+  );
+  assert.strictEqual(
+    compSource.includes('handleSave();\n            onNextStep();'),
+    false,
+    'Navigation must not call onNextStep() unconditionally'
+  );
+});
+
+runTest('30. validateATPDataWorkflow() tetap melakukan deep validateTPDataWorkflow() tanpa conditional if (cpAnalysis)', () => {
+  const servicePath = path.resolve(process.cwd(), 'src/services/cpWorkflowService.ts');
+  const serviceSource = fs.readFileSync(servicePath, 'utf-8');
+
+  assert.strictEqual(
+    serviceSource.includes('if (cpAnalysis) {\n      const tpValidation = validateTPDataWorkflow'),
+    false,
+    'validateATPDataWorkflow must not wrap validateTPDataWorkflow in if (cpAnalysis)'
+  );
+  assert.ok(
+    serviceSource.includes('const tpValidation = validateTPDataWorkflow(tp, cp, cpAnalysis, academicSetting);'),
+    'validateATPDataWorkflow must run validateTPDataWorkflow directly'
+  );
 });
 
 console.log(`\n========================================`);

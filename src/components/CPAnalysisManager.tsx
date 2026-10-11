@@ -178,7 +178,7 @@ export const CPAnalysisManager: React.FC<CPAnalysisManagerProps> = ({
     cp
   );
 
-  const handleSave = () => {
+  const handleSave = (): boolean => {
     const nextGeneratedBy =
       cpAnalysis?.generatedBy === 'AI' ? 'AI_EDITED_BY_TEACHER' : cpAnalysis?.generatedBy || 'TEACHER';
 
@@ -218,6 +218,17 @@ export const CPAnalysisManager: React.FC<CPAnalysisManagerProps> = ({
     onSaveCPAnalysis(updated);
     setShowSavedToast(true);
     setTimeout(() => setShowSavedToast(false), 2500);
+
+    if (!candidateValidation.isSiap) {
+      setAnalysisError(
+        candidateValidation.issues[0] ||
+        'Analisis CP belum siap untuk dilanjutkan.'
+      );
+      return false;
+    }
+
+    setAnalysisError(null);
+    return true;
   };
 
   const executeAIAnalysis = async () => {
@@ -669,8 +680,10 @@ export const CPAnalysisManager: React.FC<CPAnalysisManagerProps> = ({
         <button
           type="button"
           onClick={() => {
-            handleSave();
-            onNextStep();
+            const ready = handleSave();
+            if (ready) {
+              onNextStep();
+            }
           }}
           className="px-5 py-2.5 rounded-xl text-xs font-semibold bg-blue-900 text-white hover:bg-blue-800 flex items-center gap-2 shadow-sm transition-colors cursor-pointer"
         >
