@@ -23,10 +23,10 @@ const MATERIAL_ONLY_STOPWORDS = new Set([
 ]);
 
 const COMPETENCE_GROUPS: Record<string, string[]> = {
-  understand: ['memahami', 'pemahaman', 'paham', 'menjelaskan', 'jelas', 'menguraikan', 'uraikan', 'mengenal', 'identifikasi', 'mengidentifikasi', 'menunjukkan'],
+  understand: ['memahami', 'pemahaman', 'paham', 'menjelaskan', 'jelas', 'menguraikan', 'uraikan', 'mengenal', 'identifikasi', 'mengidentifikasi', 'menunjukkan', 'mengenali'],
   apply: ['menerapkan', 'penerapan', 'terap', 'menggunakan', 'gunakan', 'menentukan', 'tentukan', 'menghitung', 'hitung'],
   analyze: ['menganalisis', 'analisis', 'menelaah', 'telaah', 'membandingkan', 'banding', 'mengaitkan', 'kait', 'menghubungkan', 'hubung'],
-  practice: ['mempraktikkan', 'praktik', 'mendemonstrasikan', 'demonstrasi', 'melakukan', 'lakukan'],
+  practice: ['mempraktikkan', 'praktik', 'mendemonstrasikan', 'demonstrasi', 'melakukan', 'lakukan', 'jaga', 'menjaga'],
   create: ['membuat', 'buat', 'menyusun', 'susun', 'merancang', 'rancang', 'menghasilkan', 'hasil'],
   evaluate: ['mengevaluasi', 'evaluasi', 'menilai', 'nilai', 'merefleksi', 'refleksi', 'menyimpulkan', 'simpul'],
 };
@@ -82,6 +82,10 @@ function normalizeToken(token: string): string {
     merefleksi: 'refleksi',
     simpul: 'simpul',
     menyimpulkan: 'simpul',
+    mengenal: 'mengenal',
+    mengenali: 'mengenal',
+    jaga: 'jaga',
+    menjaga: 'jaga',
     senilai: 'ekuivalen',
     ekuivalen: 'ekuivalen',
   };
@@ -138,9 +142,12 @@ function detectCompetenceGroups(value?: string): string[] {
   return groups;
 }
 
-function hasCompatibleCompetence(focusGroups: string[], tpGroups: string[]): boolean {
-  const focusSet = new Set(focusGroups);
-  return tpGroups.some((group) => (COMPETENCE_EQUIVALENCE[group] || [group]).some((candidate) => focusSet.has(candidate)));
+function hasCompatibleCompetence(focusGroups: Set<string>, tpGroups: string[]): boolean {
+  if (tpGroups.length === 0) return true;
+  return tpGroups.every((group) => {
+    const candidates = COMPETENCE_EQUIVALENCE[group] || [group];
+    return candidates.some((candidate) => focusGroups.has(candidate));
+  });
 }
 
 export function checkATPSemanticFidelity(
@@ -179,7 +186,7 @@ export function checkATPSemanticFidelity(
     const statementMatches = intersect(substance.statementTokens, focusTokens);
     const phraseMatch = hasPhraseMatch(focusMaterialTokens, tp.contentScope) || hasPhraseMatch(focusMaterialTokens, tp.statement);
     const tpCompetenceGroups = detectCompetenceGroups(`${tp.competence || ''} ${tp.statement || ''}`);
-    const hasCompetenceSignal = tpCompetenceGroups.length > 0 && hasCompatibleCompetence(focusCompetenceGroups, tpCompetenceGroups);
+    const hasCompetenceSignal = tpCompetenceGroups.length > 0 && hasCompatibleCompetence(new Set(focusCompetenceGroups), tpCompetenceGroups);
 
     const hasMaterialSignal = materialMatches.length > 0 || phraseMatch;
 
