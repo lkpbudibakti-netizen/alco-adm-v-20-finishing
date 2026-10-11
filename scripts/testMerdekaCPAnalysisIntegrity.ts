@@ -793,6 +793,24 @@ runTest('31. handleSaveCPAnalysis does not rebase basedOnCpUpdatedAt uncondition
   );
 });
 
+runTest('32. /api/ai/analyze-cp enforces semantic coverage and includes PJOK Fase A 046/2025 clauses', () => {
+  const serverPath = path.resolve(process.cwd(), 'server.ts');
+  const serverSource = fs.readFileSync(serverPath, 'utf-8');
+
+  assert.ok(
+    serverSource.includes('fallbackAnalyzeCP({ cpText, elements: validElements'),
+    '/api/ai/analyze-cp must build deterministic baseline using fallbackAnalyzeCP'
+  );
+  assert.ok(
+    serverSource.includes('getSubstantiveTokens') || serverSource.includes('tokenizeSubstantive') || serverSource.includes('baselineTokens'),
+    '/api/ai/analyze-cp must compare substantive tokens for semantic coverage guard'
+  );
+  assert.ok(
+    serverSource.toLowerCase().includes('setiap klausa/kompetensi berbeda pada uraian elemen'),
+    'Gemini prompt must include instruction about clauses/competencies separated by ;'
+  );
+});
+
 console.log(`\n========================================`);
 console.log(`MERDEKA CP ANALYSIS INTEGRITY: ALL ${passedTests}/${totalTests} TESTS PASSED`);
 console.log(`========================================\n`);

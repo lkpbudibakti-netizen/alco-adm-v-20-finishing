@@ -513,6 +513,22 @@ app.post('/api/calendar/resolve', async (req, res) => {
   }
 });
 
+const cpStopWords = new Set([
+  'peserta', 'didik', 'mampu', 'fase', 'elemen', 'cp', 'tp',
+  'dan', 'atau', 'serta', 'yang', 'di', 'ke', 'dari', 'pada', 'dalam',
+  'untuk', 'dengan', 'sebagai', 'oleh', 'tentang', 'bagi', 'secara',
+  'baik', 'seperti', 'melalui', 'agar', 'supaya', 'harus', 'dapat',
+  'akan', 'telah', 'adalah', 'merupakan', 'yaitu', 'yakni', 'dsb', 'dll',
+  'pesertadidik', 'memahami', 'mempraktikkan', 'menerapkan', 'mengidentifikasi'
+]);
+
+function getSubstantiveTokens(text: string): string[] {
+  if (!text) return [];
+  const normalized = text.toLowerCase().replace(/[^a-z0-9\s]/g, ' ');
+  const words = normalized.split(/\s+/).filter(Boolean);
+  return words.filter(w => w.length > 2 && !cpStopWords.has(w));
+}
+
 // 1. Endpoint: AI Analyze CP -> Return canonical CPAnalysisData items
 app.post('/api/ai/analyze-cp', async (req, res) => {
   const { cpText, elements = [], subject, grade, phase, curriculum } = req.body || {};
@@ -540,7 +556,8 @@ PRINSIP BEDAH & ANALISIS CP:
    - "meaningfulUnderstanding": Pemahaman bermakna / variasi keterampilan yang diharapkan.
    - "suggestedTp": Rekomendasi/usulan rumusan awal Tujuan Pembelajaran yang diturunkan langsung dari elemen CP tersebut.
 3. GRANULARITAS BEDAH ELEMEN: Jika satu elemen CP memuat beberapa kompetensi atau lingkup materi yang berbeda secara pedagogis, AI HARUS memecahnya menjadi beberapa CPAnalysisItem tersendiri. Setiap item harus mewakili satu pasangan kompetensi + lingkup materi yang cukup fokus untuk menjadi dasar TP. Jangan memaksakan jumlah angka tertentu (bukan kuota).
-4. "generalSummary": Berikan ringkasan 1-2 paragraf mengenai fokus utama dan orientasi pedagogis CP ini.
+4. KELENGKAPAN SEMANTIK & KLAUSA: Setiap klausa/kompetensi berbeda pada uraian elemen, terutama yang dipisahkan ;, wajib terwakili dan tidak boleh dihilangkan.
+5. "generalSummary": Berikan ringkasan 1-2 paragraf mengenai fokus utama dan orientasi pedagogis CP ini.
 
 DATA PEMBELAJARAN:
 - Mata Pelajaran: ${subject || '-'}
@@ -647,6 +664,37 @@ Kembalikan respon JSON sesuai schema:`;
             if (!eId || !coveredElementIds.has(eId)) {
               isGeminiValid = false;
               break;
+            }
+          }
+        }
+
+        if (isGeminiValid && sanitizedItems.length > 0) {
+          // Semantic coverage guard against baseline (fallbackAnalyzeCP)
+          const baseline = fallbackAnalyzeCP({ cpText, elements: validElements, subject, grade, phase, curriculum });
+          if (baseline && Array.isArray(baseline.items) && baseline.items.length > 0) {
+            for (const bItem of baseline.items) {
+              const bElemId = bItem.elementId ? String(bItem.elementId).trim() : '';
+              if (!bElemId) continue;
+              const baselineTokens = getSubstantiveTokens(bItem.materialScope);
+              if (baselineTokens.length === 0) continue;
+
+              const geminiItemsForElem = sanitizedItems.filter(i => i.elementId === bElemId);
+              const geminiTextPool = geminiItemsForElem.map(i => `${i.cpCompetence} ${i.materialScope} ${i.meaningfulUnderstanding} ${i.suggestedTp}`).join(' ');
+              const geminiTokens = new Set(getSubstantiveTokens(geminiTextPool));
+
+              const matched = baselineTokens.filter(t => geminiTokens.has(t));
+              if (baselineTokens.length <= 2) {
+                if (matched.length < baselineTokens.length) {
+                  isGeminiValid = false;
+                  break;
+                }
+              } else {
+                const minOverlap = Math.max(2, Math.ceil(0.5 * baselineTokens.length));
+                if (matched.length < minOverlap) {
+                  isGeminiValid = false;
+                  break;
+                }
+              }
             }
           }
         }
