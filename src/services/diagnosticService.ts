@@ -902,6 +902,17 @@ export function buildATPUnitMappingDiagnosticReport(params: BuildATPUnitMappingD
     });
   });
 
+  // Map of canonical ATP items & TP items
+  const canonicalAtpMap = new Map<string, any>();
+  (atp?.items || []).forEach((item) => {
+    canonicalAtpMap.set(item.id, item);
+  });
+
+  const canonicalTpMap = new Map<string, any>();
+  (tp?.items || []).forEach((t) => {
+    canonicalTpMap.set(t.id, t);
+  });
+
   const unitsWithoutLineageFormatted = (validation.unitsWithoutLineage || []).map((uId) => {
     const title = unitTitleMap.get(uId);
     return title ? `${uId} ("${title}")` : uId;
@@ -965,14 +976,19 @@ export function buildATPUnitMappingDiagnosticReport(params: BuildATPUnitMappingD
   const atpFindingLines: string[] = [];
   if (analysisResult && Array.isArray(analysisResult.atpFindings) && analysisResult.atpFindings.length > 0) {
     analysisResult.atpFindings.forEach((f) => {
+      const atpFocus = canonicalAtpMap.get(f.atpItemId)?.focus || '-';
+      const suggestedUnitTitle = f.suggestedUnitId ? unitTitleMap.get(f.suggestedUnitId) || '-' : undefined;
+      const targetUnitTitle = f.action?.targetUnitId ? unitTitleMap.get(f.action.targetUnitId) || '-' : undefined;
+
       atpFindingLines.push(
         `- atpItemId: ${f.atpItemId}`,
+        `  focus: ${atpFocus}`,
         `  status: ${f.status}`,
         `  strength: ${f.strength || '-'}`,
         `  reason: ${f.reason || '-'}`,
-        `  suggestedUnitId: ${f.suggestedUnitId || '-'}`,
+        `  suggestedUnitId: ${f.suggestedUnitId ? `${f.suggestedUnitId}${suggestedUnitTitle ? ` ("${suggestedUnitTitle}")` : ''}` : '-'}`,
         `  actionType: ${f.action?.type || '-'}`,
-        `  targetUnitId: ${f.action?.targetUnitId || '-'}`,
+        `  targetUnitId: ${f.action?.targetUnitId ? `${f.action.targetUnitId}${targetUnitTitle ? ` ("${targetUnitTitle}")` : ''}` : '-'}`,
         `  linkedTpIds: [${(f.action?.linkedTpIds || []).join(', ')}]`
       );
     });
@@ -983,9 +999,13 @@ export function buildATPUnitMappingDiagnosticReport(params: BuildATPUnitMappingD
   const materialFindingLines: string[] = [];
   if (analysisResult && Array.isArray(analysisResult.materialFindings) && analysisResult.materialFindings.length > 0) {
     analysisResult.materialFindings.forEach((m) => {
+      const matInfo = m.materialId ? materialTitleMap.get(m.materialId) : undefined;
+      const matTitle = matInfo?.materialTitle || m.suggestedTitle || '-';
+      const unitTitle = unitTitleMap.get(m.unitId) || '-';
+
       materialFindingLines.push(
-        `- materialId: ${m.materialId || '-'}`,
-        `  unitId: ${m.unitId}`,
+        `- materialId: ${m.materialId ? `${m.materialId} ("${matTitle}")` : `- ("${matTitle}")`}`,
+        `  unitId: ${m.unitId} ("${unitTitle}")`,
         `  status: ${m.status}`,
         `  strength: ${m.strength || '-'}`,
         `  reason: ${m.reason || '-'}`,
@@ -996,6 +1016,40 @@ export function buildATPUnitMappingDiagnosticReport(params: BuildATPUnitMappingD
     });
   } else {
     materialFindingLines.push('- none');
+  }
+
+  // Canonical ATP section
+  const canonicalAtpLines: string[] = [];
+  if (atp && Array.isArray(atp.items) && atp.items.length > 0) {
+    atp.items.forEach((item) => {
+      const linkedTps = Array.isArray(item.linkedTpIds) && item.linkedTpIds.length > 0
+        ? item.linkedTpIds
+        : item.tpId ? [item.tpId] : [];
+      canonicalAtpLines.push(
+        `- id: ${item.id}`,
+        `  step: ${item.stepNumber ?? '-'}`,
+        `  focus: ${item.focus || '-'}`,
+        `  linkedTpIds: [${linkedTps.join(', ')}]`
+      );
+    });
+  } else {
+    canonicalAtpLines.push('- none');
+  }
+
+  // Canonical TP section
+  const canonicalTpLines: string[] = [];
+  if (tp && Array.isArray(tp.items) && tp.items.length > 0) {
+    tp.items.forEach((t) => {
+      canonicalTpLines.push(
+        `- id: ${t.id}`,
+        `  code: ${t.code || '-'}`,
+        `  statement: ${t.statement || '-'}`,
+        `  competence: ${t.competence || '-'}`,
+        `  contentScope: ${t.contentScope || '-'}`
+      );
+    });
+  } else {
+    canonicalTpLines.push('- none');
   }
 
   const validationIssueLines = (validation.issues || []).length > 0
@@ -1017,13 +1071,7 @@ export function buildATPUnitMappingDiagnosticReport(params: BuildATPUnitMappingD
   } else {
     lastAnalysisLines.push(
       'engine: -',
-      'totalAtp: -',
-      'mappedAtp: -',
-      'unmappedAtp: -',
-      'alignedAtp: -',
-      'reviewAtp: -',
-      'alignableMaterials: -',
-      'manualMaterialReview: -'
+      '- none (belum pernah dianalisis)'
     );
   }
 
@@ -1057,6 +1105,12 @@ export function buildATPUnitMappingDiagnosticReport(params: BuildATPUnitMappingD
     ...unitLines,
     'VALIDATION ISSUES:',
     ...validationIssueLines,
+    '',
+    'CANONICAL ATP:',
+    ...canonicalAtpLines,
+    '',
+    'CANONICAL TP:',
+    ...canonicalTpLines,
     '',
     'LAST ANALYSIS:',
     ...lastAnalysisLines,

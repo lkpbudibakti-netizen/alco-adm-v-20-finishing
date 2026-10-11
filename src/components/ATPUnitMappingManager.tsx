@@ -353,6 +353,8 @@ export const ATPUnitMappingManager: React.FC<ATPUnitMappingManagerProps> = ({
         setSaveSuccessNotice(false);
         setSaveErrorNotice(null);
         setAnalysisResult(null);
+        setLastAnalysisSnapshot(null);
+        setLastAppliedActionIds([]);
         setSelectedAnalysisActionIds(new Set());
         setAppliedNotice(
           'Draf Pemetaan Bab dan Lingkup Materi berhasil disusun otomatis oleh AI dari TP & ATP. Silakan tinjau dan klik "Simpan Pemetaan" untuk menyimpan.'
@@ -912,6 +914,8 @@ export const ATPUnitMappingManager: React.FC<ATPUnitMappingManagerProps> = ({
 
     // Section 5: Reset state analysis lama bila diperlukan
     setAnalysisResult(null);
+    setLastAnalysisSnapshot(null);
+    setLastAppliedActionIds([]);
     setSelectedAnalysisActionIds(new Set());
     setAppliedNotice(null);
     setSaveSuccessNotice(false);
