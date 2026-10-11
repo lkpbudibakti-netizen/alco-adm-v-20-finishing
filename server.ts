@@ -30,6 +30,7 @@ import {
 import { validateGraduateProfileDimensions } from './src/constants/graduateProfileDimensions';
 import { checkSemanticCoverage } from './server/cpAnalysisSemanticCoverage';
 import { checkTPSemanticFidelity } from './src/services/tpSemanticFidelity';
+import { validateATPGeneratedItemsSemanticFidelity } from './src/services/atpSemanticFidelity';
 import {
   getCognitiveAdaptationProfile,
   CognitiveAdaptationProfile,
@@ -1170,6 +1171,13 @@ Kembalikan output JSON sesuai schema:`;
       const missingDetails = missingTps.map((t: any) => `[${t.code || t.id}]`).join(', ');
       return res.status(500).json({
         error: `Respons AI tidak sah: Terdapat ${missingTps.length} TP yang belum tercakup dalam alur ATP: ${missingDetails}. Seluruh TP input wajib tercakup.`
+      });
+    }
+
+    const semanticCheck = validateATPGeneratedItemsSemanticFidelity(resolvedItems, tps);
+    if (!semanticCheck.isValid) {
+      return res.status(500).json({
+        error: `Respons AI tidak sah secara semantic fidelity ATP: ${semanticCheck.reason || 'Fokus ATP tidak sesuai dengan TP canonical tertaut.'}`
       });
     }
 

@@ -24,6 +24,7 @@ import {
   resolveATPItemTPReferences,
   validateTPDataWorkflow,
 } from '../services/cpWorkflowService';
+import { prepareATPFinalization } from '../services/atpFinalizationService';
 import {
   buildTPDiagnosticReport,
   recordDiagnosticEvent,
@@ -308,38 +309,31 @@ export const ATPManager: React.FC<ATPManagerProps> = ({
 
   const handleConfirmAndFinalize = () => {
     const isAiOrigin = atp.generatedBy === 'AI' || atp.generatedBy === 'AI_EDITED_BY_TEACHER';
-    const candidate: ATPData = {
+    const currentDraft: ATPData = {
       ...atp,
-      academicSettingId: academicSetting.id,
-      tpDataId: tp.id,
-      tpId: tp.id,
-      academicYear: context.academicYear,
-      subjectCode: context.subjectCode || context.subject,
-      phase: context.phase,
-      rationale,
       items: items.map((item, idx) => ({ ...item, stepNumber: idx + 1 })),
-      workflowStatus: 'SIAP',
-      needsReview: false,
-      reviewReason: undefined,
-      generatedBy: isAiOrigin ? 'AI_EDITED_BY_TEACHER' : (atp.generatedBy || 'TEACHER'),
-      basedOnTpUpdatedAt: tp.updatedAt || new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
     };
 
-    const valRes = validateATPReferences(candidate, tp, academicSetting, cp, cpAnalysis);
-    if (valRes.isSiap) {
-      candidate.workflowStatus = 'SIAP';
-      candidate.needsReview = false;
-      candidate.reviewReason = undefined;
-      onSaveATP(candidate);
+    const result = prepareATPFinalization({
+      atp: currentDraft,
+      tp,
+      academicSetting,
+      cp,
+      cpAnalysis,
+      rationale,
+      isAiOrigin,
+      subjectCode: context.subjectCode,
+      subject: context.subject,
+      phase: context.phase,
+      academicYear: context.academicYear,
+    });
+
+    if (result.canFinalize && result.candidate) {
+      onSaveATP(result.candidate);
       setSaveNotice(true);
       setTimeout(() => setSaveNotice(false), 2500);
     } else {
-      candidate.workflowStatus = 'PERLU_DILENGKAPI';
-      candidate.needsReview = true;
-      candidate.reviewReason = valRes.issues.join('; ');
-      onSaveATP(candidate);
-      alert(`ATP belum dapat difinalisasi karena ditemukan isu validasi:\n\n• ${valRes.issues.join('\n• ')}`);
+      alert(`ATP belum dapat difinalisasi karena ditemukan isu validasi:\n\n• ${result.issues.join('\n• ')}`);
     }
   };
 

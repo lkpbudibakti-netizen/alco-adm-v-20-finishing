@@ -13,6 +13,7 @@ import {
   normalizeCPVerificationStatus,
 } from '../types';
 import { checkTPSemanticFidelity } from './tpSemanticFidelity';
+import { checkATPSemanticFidelity } from './atpSemanticFidelity';
 
 export interface CPValidationDetails {
   status: WorkflowCompletionStatus;
@@ -1142,6 +1143,12 @@ export function validateATPDataWorkflow(
         }
       });
     } else {
+      const semanticRes = checkATPSemanticFidelity(item.focus, multiRes.canonicalTPItems);
+      if (!semanticRes.isValid) {
+        issues.push(
+          `ATP_SEMANTIC_FIDELITY: Langkah ATP ke-${item.stepNumber || i + 1} gagal kesesuaian fokus dengan TP canonical: ${semanticRes.reason}`
+        );
+      }
       // Record all linked TPs for coverage
       multiRes.canonicalTPItems.forEach((t) => coveredTpIdSet.add(t.id));
     }
