@@ -125,7 +125,7 @@ const validMapping: ATPUnitMappingData = {
   const atp: ATPData = { ...mockATP, tpId: 'other-tp' };
   const res = resolveATPUnitMappingReadiness(validMapping, atp, mockTP, mockSetting);
   assert(res.canProceed === false, 'Wrong ATP-TP relation blocks proceed');
-  assert(res.blockers.some(b => b.includes('relasi') || b.includes('ATP-TP') || b.includes('ID')), 'Blocker mentions relation');
+  assert(res.blockers.some(b => /relasi\s+ATP[\s–-]*TP/i.test(b)), 'Blocker mentions relation');
 }
 
 // 9. Academic setting berbeda -> blokir
