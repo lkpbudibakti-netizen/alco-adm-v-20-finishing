@@ -175,35 +175,63 @@ assertCase(!genericOnly.isValid, 'Fokus menggunakan kata-kata umum saja FAIL', g
 const invalidMulti = checkATPSemanticFidelity('Menelaah struktur teks laporan hasil observasi', tpItems);
 assertCase(!invalidMulti.isValid, 'Multi-TP focus menyesatkan FAIL', invalidMulti);
 
+const changedCp: CPData = {
+  ...cp,
+  generalDescription: 'Peserta didik memahami bilangan desimal dan pengukuran dalam pemecahan masalah sehari-hari.',
+  elements: [
+    { id: 'elem-1', code: 'E1', name: 'Bilangan', content: 'Bilangan desimal dan operasi desimal.' },
+    cp.elements[1],
+  ],
+  updatedAt: '2026-01-04T00:00:00.000Z',
+};
+
+const changedCpAnalysis: CPAnalysisData = {
+  ...cpAnalysis,
+  basedOnCpUpdatedAt: changedCp.updatedAt,
+  items: cpAnalysis.items.map((item) => item.id === 'ana-pecahan'
+    ? {
+        ...item,
+        cpText: changedCp.elements[0].content,
+        materialScope: 'Bilangan desimal dan penjumlahan desimal',
+      }
+    : {
+        ...item,
+        cpText: changedCp.elements[1].content,
+      }),
+  updatedAt: '2026-01-04T00:00:00.000Z',
+};
+
 const changedTpData: TPData = {
   ...tpData,
   items: [
     {
       ...tpItems[0],
-      statement: 'Peserta didik menganalisis daur hidup tumbuhan berbunga.',
-      competence: 'Menganalisis',
-      contentScope: 'Daur hidup tumbuhan berbunga',
+      statement: 'Peserta didik memahami bilangan desimal dan menerapkan penjumlahan desimal.',
+      competence: 'Memahami dan menerapkan',
+      contentScope: 'Bilangan desimal dan penjumlahan desimal',
     },
     tpItems[1],
   ],
+  basedOnCpUpdatedAt: changedCp.updatedAt,
+  basedOnAnalysisUpdatedAt: changedCpAnalysis.updatedAt,
   updatedAt: '2026-01-05T00:00:00.000Z',
 };
 
 const staleOldAtp = atp([
-  { id: 'atp-1', stepNumber: 1, linkedTpIds: ['tp-pecahan'], focus: 'Memahami pecahan senilai dan penjumlahan pecahan' },
+  { id: 'atp-1', stepNumber: 1, linkedTpIds: ['tp-pecahan'], focus: 'Memahami pecahan senilai' },
   { id: 'atp-2', stepNumber: 2, linkedTpIds: ['tp-ukur'], focus: 'Menganalisis keliling dan luas persegi panjang' },
 ]);
-const staleResult = validateATPDataWorkflow(staleOldAtp, changedTpData, academicSetting, cp, cpAnalysis);
+const staleResult = validateATPDataWorkflow(staleOldAtp, changedTpData, academicSetting, changedCp, changedCpAnalysis);
 assertCase(!staleResult.isSiap && staleResult.issues.some((issue) => issue.includes('ATP_SEMANTIC_FIDELITY')), 'TP berubah substantif, ATP lama tidak sesuai FAIL', staleResult.issues);
 
 const reconfirmedStillAligned = atp(
   [
-    { id: 'atp-1', stepNumber: 1, linkedTpIds: ['tp-pecahan'], focus: 'Menganalisis daur hidup tumbuhan berbunga' },
+    { id: 'atp-1', stepNumber: 1, linkedTpIds: ['tp-pecahan'], focus: 'Memahami bilangan desimal dan menerapkan penjumlahan desimal' },
     { id: 'atp-2', stepNumber: 2, linkedTpIds: ['tp-ukur'], focus: 'Menganalisis keliling dan luas persegi panjang' },
   ],
   { basedOnTpUpdatedAt: changedTpData.updatedAt }
 );
-const reconfirmedResult = validateATPDataWorkflow(reconfirmedStillAligned, changedTpData, academicSetting, cp, cpAnalysis);
+const reconfirmedResult = validateATPDataWorkflow(reconfirmedStillAligned, changedTpData, academicSetting, changedCp, changedCpAnalysis);
 assertCase(reconfirmedResult.isSiap, 'TP berubah tetapi ATP masih sesuai dan dikonfirmasi ulang PASS', reconfirmedResult.issues);
 
 const persisted = atp([

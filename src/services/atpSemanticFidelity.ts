@@ -24,7 +24,7 @@ const MATERIAL_ONLY_STOPWORDS = new Set([
 
 const COMPETENCE_GROUPS: Record<string, string[]> = {
   understand: ['memahami', 'pemahaman', 'paham', 'menjelaskan', 'jelas', 'menguraikan', 'uraikan', 'mengenal', 'identifikasi', 'mengidentifikasi', 'menunjukkan'],
-  apply: ['menerapkan', 'penerapan', 'terap', 'menggunakan', 'gunakan', 'menentukan', 'tentukan', 'menghitung', 'hitung', 'menjumlahkan', 'jumlah'],
+  apply: ['menerapkan', 'penerapan', 'terap', 'menggunakan', 'gunakan', 'menentukan', 'tentukan', 'menghitung', 'hitung'],
   analyze: ['menganalisis', 'analisis', 'menelaah', 'telaah', 'membandingkan', 'banding', 'mengaitkan', 'kait', 'menghubungkan', 'hubung'],
   practice: ['mempraktikkan', 'praktik', 'mendemonstrasikan', 'demonstrasi', 'melakukan', 'lakukan'],
   create: ['membuat', 'buat', 'menyusun', 'susun', 'merancang', 'rancang', 'menghasilkan', 'hasil'],
@@ -91,10 +91,11 @@ function normalizeToken(token: string): string {
 }
 
 function tokenize(value?: string, stopwords: Set<string> = STOPWORDS): string[] {
+  const normalizedStopwords = new Set(Array.from(stopwords).map(normalizeToken));
   return normalizeText(value)
     .split(/\s+/u)
     .map(normalizeToken)
-    .filter((token) => token.length >= 3 && !stopwords.has(token));
+    .filter((token) => token.length >= 3 && !normalizedStopwords.has(token));
 }
 
 function uniqueTokens(value?: string, stopwords: Set<string> = STOPWORDS): string[] {
