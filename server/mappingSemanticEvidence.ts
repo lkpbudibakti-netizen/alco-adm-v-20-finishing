@@ -17,6 +17,8 @@ const COMPETENCE_WORDS = new Set([
   'mengidentifikasi', 'mempraktikkan', 'menunjukkan', 'melakukan',
 ]);
 
+const GENERIC_SIGNALS = new Set(['gerak', 'variasi', 'kegiatan', 'aktivitas', 'materi', 'pembelajaran']);
+
 const EQUIVALENTS: Record<string, string> = {
   bergerak: 'gerak',
   gerakan: 'gerak',
@@ -63,6 +65,29 @@ function hasTwoTokenPhrase(left: Set<string>, right: string[]): boolean {
   return false;
 }
 
+function detectDomainConflict(labelTokens: string[], evidenceTokens: string[]): string | null {
+  const getSpecificDomains = (tokensArr: string[]) => {
+    const found = new Set<string>();
+    if (tokensArr.includes('lokomotor')) found.add('lokomotor');
+    if (tokensArr.includes('non-lokomotor')) found.add('non-lokomotor');
+    if (tokensArr.includes('manipulatif')) found.add('manipulatif');
+    if (tokensArr.includes('keselamatan')) found.add('keselamatan');
+    return Array.from(found);
+  };
+
+  const labelDomains = getSpecificDomains(labelTokens);
+  const evidenceDomains = getSpecificDomains(evidenceTokens);
+
+  if (labelDomains.length > 0 && evidenceDomains.length > 0) {
+    const hasOverlap = labelDomains.some((ld) => evidenceDomains.includes(ld));
+    if (!hasOverlap) {
+      return `Domain label (${labelDomains.join(', ')}) tidak cocok dengan domain bukti (${evidenceDomains.join(', ')}).`;
+    }
+  }
+
+  return null;
+}
+
 export function checkMappingSemanticEvidence(params: {
   label: string;
   atpItems?: Array<{ focus?: string; linkedTpIds?: string[]; tpId?: string }>;
@@ -86,10 +111,12 @@ export function checkMappingSemanticEvidence(params: {
 
   const matchedSignals = new Set<string>();
   let phraseMatch = false;
+  const allEvidenceTokens = new Set<string>();
 
   for (const text of evidenceTexts) {
     const candidateTokens = tokens(text);
     candidateTokens.forEach((token) => {
+      allEvidenceTokens.add(token);
       if (labelSet.has(token)) matchedSignals.add(token);
     });
     if (hasTwoTokenPhrase(labelSet, candidateTokens)) {
@@ -98,7 +125,21 @@ export function checkMappingSemanticEvidence(params: {
   }
 
   const matches = Array.from(matchedSignals);
-  if (phraseMatch || matches.length >= 2) {
+  const evidenceTokensArray = Array.from(allEvidenceTokens);
+
+  const domainConflict = detectDomainConflict(labelTokens, evidenceTokensArray);
+  if (domainConflict) {
+    return {
+      supported: false,
+      ambiguous: true,
+      matchedSignals: matches,
+      reason: `Domain pembelajaran berbeda: ${domainConflict}`,
+    };
+  }
+
+  const hasSubstantiveSignal = matches.some((token) => !GENERIC_SIGNALS.has(token));
+
+  if (phraseMatch || (matches.length >= 2 && hasSubstantiveSignal)) {
     return {
       supported: true,
       ambiguous: false,
@@ -107,12 +148,12 @@ export function checkMappingSemanticEvidence(params: {
     };
   }
 
-  if (matches.length === 1) {
+  if (matches.length === 1 || (matches.length > 0 && !hasSubstantiveSignal)) {
     return {
       supported: false,
       ambiguous: true,
       matchedSignals: matches,
-      reason: `Hanya satu sinyal substansi terdeteksi (${matches[0]}), belum cukup untuk menyatakan selaras.`,
+      reason: `Sinyal substansi belum cukup atau generik (${matches.join(', ') || 'umum'}), belum cukup untuk menyatakan selaras.`,
     };
   }
 

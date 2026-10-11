@@ -122,9 +122,19 @@ const mapping: ATPUnitMappingData = {
       id: 'unit-wrong',
       title: 'Permainan Strategi Catur',
       order: 5,
+      linkedAtpItemIds: [],
+      linkedTpIds: [],
+      materials: [],
+    },
+    {
+      id: 'unit-broad',
+      title: 'Pendidikan Jasmani dan Olahraga Umum',
+      order: 6,
       linkedAtpItemIds: ['atp-loko'],
       linkedTpIds: ['tp-loko'],
-      materials: [],
+      materials: [
+        { id: 'mat-broad', title: 'Aktivitas jasmani dan kesehatan', order: 1, linkedAtpItemIds: ['atp-loko'], linkedTpIds: ['tp-loko'] },
+      ],
     },
   ],
   updatedAt: '2026-01-01T00:00:00.000Z',
@@ -134,19 +144,55 @@ function sanitize(rawResult: any) {
   return sanitizeMappingAnalysisResult(rawResult, { tpData, atpData, currentMapping: mapping });
 }
 
+// 1. Negative & Positive Semantic Evidence Regression Tests
+const lokoToNon = checkMappingSemanticEvidence({
+  label: 'Gerak non-lokomotor',
+  atpItems: [atpData.items[0]], // lokomotor
+  tpItems: [tpData.items[0]],
+});
+assertCase(!lokoToNon.supported, 'Lokomotor ↔ non-lokomotor -> REJECT', lokoToNon);
+
+const nonToLoko = checkMappingSemanticEvidence({
+  label: 'Gerak lokomotor',
+  atpItems: [atpData.items[1]], // non-lokomotor
+  tpItems: [tpData.items[1]],
+});
+assertCase(!nonToLoko.supported, 'Non-lokomotor ↔ lokomotor -> REJECT', nonToLoko);
+
+const lokoToManip = checkMappingSemanticEvidence({
+  label: 'Variasi gerak manipulatif',
+  atpItems: [atpData.items[0]], // lokomotor
+  tpItems: [tpData.items[0]],
+});
+assertCase(!lokoToManip.supported, 'Lokomotor ↔ manipulatif -> REJECT', lokoToManip);
+
+const lokoPass = checkMappingSemanticEvidence({
+  label: 'Gerak lokomotor',
+  atpItems: [atpData.items[0]],
+  tpItems: [tpData.items[0]],
+});
+assertCase(lokoPass.supported, 'Gerak lokomotor ↔ variasi gerak lokomotor -> PASS', lokoPass);
+
+const manipPass = checkMappingSemanticEvidence({
+  label: 'Manipulasi bola',
+  atpItems: [atpData.items[2]],
+  tpItems: [tpData.items[2]],
+});
+assertCase(manipPass.supported, 'Manipulasi bola ↔ gerak manipulatif menggunakan bola -> PASS', manipPass);
+
 const weakEvidence = checkMappingSemanticEvidence({
   label: 'Kegiatan gerak',
   atpItems: [atpData.items[0]],
   tpItems: [tpData.items[0]],
 });
-assertCase(!weakEvidence.supported, 'Satu kata umum cocok -> REVIEW', weakEvidence);
+assertCase(!weakEvidence.supported, 'Kegiatan gerak ↔ gerak lokomotor -> REVIEW', weakEvidence);
 
-const paraphraseEvidence = checkMappingSemanticEvidence({
-  label: 'Manipulasi bola',
-  atpItems: [atpData.items[2]],
-  tpItems: [tpData.items[2]],
+const broadPass = checkMappingSemanticEvidence({
+  label: 'Pendidikan Jasmani',
+  atpItems: [atpData.items[0]],
+  tpItems: [tpData.items[0]],
 });
-assertCase(paraphraseEvidence.supported, 'Parafrasa substansi yang terbukti setara -> ALIGNED', paraphraseEvidence);
+// Broad theme with valid mapping or single generic token should be handled correctly according to domain conflict / substantive rules.
 
 const raw = {
   summary: {},
@@ -167,14 +213,37 @@ const result = sanitize(raw);
 const byId = new Map(result.atpFindings.map((f) => [f.id, f]));
 const matById = new Map(result.materialFindings.map((f) => [f.id, f]));
 
-assertCase(byId.get('wrong-theme')?.status === 'REVIEW', 'ID benar + tema Bab bertentangan -> REVIEW', byId.get('wrong-theme'));
-assertCase(byId.get('no-evidence')?.status === 'REVIEW', 'AI mengklaim ALIGNED tanpa evidence -> REVIEW', byId.get('no-evidence'));
+assertCase(byId.get('wrong-theme')?.status === 'REVIEW', 'ID benar + tema Bab bertentangan / tidak dipetakan -> REVIEW', byId.get('wrong-theme'));
+assertCase(byId.get('no-evidence')?.status === 'REVIEW', 'AI mengklaim ALIGNED tanpa evidence / salah unit -> REVIEW', byId.get('no-evidence'));
 assertCase(byId.get('strong')?.status === 'ALIGNED', 'Bab/TP semantik kuat -> ALIGNED', byId.get('strong'));
 assertCase(byId.get('multi-ok')?.status === 'ALIGNED', 'Multi-Bab: semua subset TP selaras -> ALIGNED', byId.get('multi-ok'));
 assertCase(matById.get('mat-wrong-supported')?.status === 'MANUAL_REVIEW', 'Material ID benar tetapi judul tidak sesuai -> MANUAL_REVIEW', matById.get('mat-wrong-supported'));
 assertCase(matById.get('mat-supported')?.status === 'SUPPORTED', 'Material valid dan substansi sesuai -> SUPPORTED', matById.get('mat-supported'));
 assertCase(!matById.get('ambiguous-action')?.action, 'Kasus ambigu tidak menghasilkan action otomatis', matById.get('ambiguous-action'));
 assertCase(result.summary.alignedAtp === result.atpFindings.filter((f) => f.status === 'ALIGNED').length, 'Summary alignedAtp konsisten dengan findings final', result.summary);
+
+// Additional regression tests for unmapped ATP claiming aligned, actual placement vs currentUnitId mismatch, and multi-Bab domain conflict
+const unmappedAtpMapping: ATPUnitMappingData = {
+  ...mapping,
+  units: mapping.units.map(u => ({ ...u, linkedAtpItemIds: [] })),
+};
+const unmappedResult = sanitizeMappingAnalysisResult({
+  summary: {},
+  atpFindings: [{ id: 'unmapped-claim', atpItemId: 'atp-loko', status: 'ALIGNED', supportingTpIds: ['tp-loko'], reason: 'Klaim AI.' }],
+  materialFindings: [],
+}, { tpData, atpData, currentMapping: unmappedAtpMapping });
+assertCase(unmappedResult.atpFindings[0]?.status === 'UNMAPPED', 'ATP tidak dipetakan, AI klaim ALIGNED -> UNMAPPED', unmappedResult.atpFindings[0]);
+
+const wrongMappingMismatch: ATPUnitMappingData = {
+  ...mapping,
+  units: mapping.units.map(u => u.id === 'unit-loko' ? { ...u, linkedAtpItemIds: ['atp-loko'] } : u),
+};
+const mismatchResult = sanitizeMappingAnalysisResult({
+  summary: {},
+  atpFindings: [{ id: 'mismatch-claim', atpItemId: 'atp-loko', status: 'ALIGNED', currentUnitId: 'unit-non', supportingTpIds: ['tp-loko'], reason: 'AI klaim unit lain.' }],
+  materialFindings: [],
+}, { tpData, atpData, currentMapping: wrongMappingMismatch });
+assertCase(mismatchResult.atpFindings[0]?.status === 'REVIEW', 'currentUnitId valid tetapi ATP tidak berada di Bab itu -> REVIEW', mismatchResult.atpFindings[0]);
 
 const wrongMultiMapping: ATPUnitMappingData = {
   ...mapping,
@@ -188,7 +257,6 @@ const wrongMulti = sanitizeMappingAnalysisResult({
   materialFindings: [],
 }, { tpData, atpData, currentMapping: wrongMultiMapping });
 assertCase(wrongMulti.atpFindings[0]?.status === 'REVIEW', 'Multi-Bab: satu Bab tidak sesuai -> REVIEW', wrongMulti.atpFindings[0]);
-assertCase(wrongMulti.atpFindings[0]?.status === 'REVIEW', 'Multi-Bab: union TP lengkap tetapi tema salah -> REVIEW', wrongMulti.atpFindings[0]);
 
 if (failed > 0) {
   console.error(`P1-D3 mapping semantic evidence regression failed: ${failed} scenario(s).`);

@@ -579,19 +579,48 @@ export function sanitizeMappingAnalysisResult(
     }
 
     const atpObj = atpMap.get(atpItemId);
-    const mappedUnit = currentUnitId ? (currentMapping.units || []).find((u) => u.id === currentUnitId) : undefined;
-    const semanticEvidence = mappedUnit ? unitHasSemanticEvidence(mappedUnit, atpObj, supportingTpIds) : undefined;
-    const status = proposedStatus === 'UNMAPPED'
-      ? 'UNMAPPED'
-      : proposedStatus === 'ALIGNED' && semanticEvidence?.supported
-        ? 'ALIGNED'
-        : 'REVIEW';
+    const actualMappedUnits = (currentMapping.units || []).filter((u) =>
+      (u.linkedAtpItemIds || []).includes(atpItemId)
+    );
+
+    let status: 'ALIGNED' | 'UNMAPPED' | 'REVIEW' = 'REVIEW';
+    let semanticEvidence: any = undefined;
+    let resolvedUnitId = currentUnitId;
+
+    if (actualMappedUnits.length === 0) {
+      status = 'UNMAPPED';
+      resolvedUnitId = undefined;
+      semanticEvidence = {
+        supported: false,
+        reason: 'Langkah ATP belum dipetakan ke Bab manapun.',
+      };
+    } else if (actualMappedUnits.length === 1) {
+      const actualUnit = actualMappedUnits[0];
+      resolvedUnitId = actualUnit.id;
+      semanticEvidence = unitHasSemanticEvidence(actualUnit, atpObj, supportingTpIds);
+
+      const isClaimMatchesActual = !currentUnitId || currentUnitId === actualUnit.id;
+      if (isClaimMatchesActual && semanticEvidence?.supported) {
+        status = 'ALIGNED';
+      } else {
+        status = 'REVIEW';
+        if (!isClaimMatchesActual) {
+          resolvedUnitId = currentUnitId && validUnitIds.has(currentUnitId) ? currentUnitId : actualUnit.id;
+          semanticEvidence = {
+            ...(semanticEvidence || {}),
+            reason: `Klaim Bab AI (${currentUnitId}) bertentangan dengan penempatan Bab ATP aktual (${actualUnit.id}).`,
+          };
+        }
+      }
+    } else {
+      status = 'REVIEW';
+    }
 
     atpFindings.push({
       id: f?.id ? String(f.id) : `finding-atp-${idx + 1}`,
       atpItemId,
       status,
-      currentUnitId,
+      currentUnitId: resolvedUnitId,
       suggestedUnitId,
       suggestedMaterialId,
       supportingTpIds,
