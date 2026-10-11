@@ -196,7 +196,7 @@ export const TPManager: React.FC<TPManagerProps> = ({
       return;
     }
 
-    const cpAnalysisVal = validateCPAnalysisDataWorkflow(cpAnalysis, cp, academicSetting);
+    const cpAnalysisVal = validateCPAnalysisDataWorkflow(cpAnalysis, cp);
     if (!cpAnalysisVal.isSiap) {
       alert(`Analisis CP rujukan belum SIAP (${cpAnalysisVal.issues[0] || 'Validasi belum terpenuhi'}). Harap perbaiki Analisis CP terlebih dahulu.`);
       return;
@@ -270,7 +270,7 @@ export const TPManager: React.FC<TPManagerProps> = ({
       return;
     }
 
-    const cpAnalysisVal = validateCPAnalysisDataWorkflow(cpAnalysis, cp, academicSetting);
+    const cpAnalysisVal = validateCPAnalysisDataWorkflow(cpAnalysis, cp);
     if (!cpAnalysisVal.isSiap) {
       alert(`Analisis CP belum SIAP (${cpAnalysisVal.issues[0] || 'Validasi belum terpenuhi'}). Harap perbaiki Analisis CP sebelum merumuskan TP dengan AI.`);
       return;
@@ -589,7 +589,34 @@ export const TPManager: React.FC<TPManagerProps> = ({
           'Penting: Pertahankan secara mutlak Kompetensi dan Lingkup Materi di atas, jangan mengubah makna atau substansi canonical.',
         context: `${context.subject} ${context.grade} (${context.phase}) - Elemen: ${targetAnalysisItem.elementName}, Kompetensi: ${targetAnalysisItem.cpCompetence}, Materi: ${targetAnalysisItem.materialScope}`,
       });
-      setCurrentItem({ ...currentItem, statement: refined, description: refined });
+
+      const refinedProbe = {
+        id: currentItem.id,
+        code: currentItem.code,
+        statement: refined,
+        description: refined,
+        competence: '',
+        contentScope: '',
+        cpAnalysisItemIds: [String(targetAnalysisItem.id)],
+      };
+
+      const refinedSemanticCheck = checkTPSemanticFidelity(
+        [refinedProbe],
+        [targetAnalysisItem]
+      );
+
+      if (!refinedSemanticCheck.isValid) {
+        alert(
+          'Hasil Poles AI ditolak karena menyimpang dari kompetensi atau lingkup materi Analisis CP canonical.'
+        );
+        return;
+      }
+
+      setCurrentItem({
+        ...currentItem,
+        statement: refined,
+        description: refined,
+      });
     } catch (err: unknown) {
       alert('Gagal menyempurnakan teks dengan AI.');
     } finally {
