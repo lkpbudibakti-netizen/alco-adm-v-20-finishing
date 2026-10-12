@@ -8,8 +8,17 @@ export type CPAnalysisSemanticFindingType =
 
 export type CPAnalysisFindingSeverity = 'WARNING' | 'INFO';
 
+export interface CPAnalysisSuggestedChange {
+  field: 'cpCompetence' | 'materialScope' | 'suggestedTp';
+  fieldLabel: string;
+  currentValue: string;
+  suggestedValue: string;
+}
+
 export interface CPAnalysisSemanticFinding {
+  id: string;
   itemId: string;
+  itemOrder?: number;
   elementId?: string;
   elementName?: string;
   type: CPAnalysisSemanticFindingType;
@@ -24,6 +33,17 @@ export interface CPAnalysisSemanticFinding {
     suggestedTp?: string;
   };
   suggestion: string;
+  canAutoApply: boolean;
+  suggestedChange?: CPAnalysisSuggestedChange;
+}
+
+export interface AppliedFindingRecord {
+  findingId: string;
+  itemId: string;
+  field: keyof CPAnalysisItem;
+  previousValue: any;
+  appliedValue: any;
+  appliedAt: string;
 }
 
 export interface CPAnalysisSemanticReviewResult {
@@ -131,6 +151,98 @@ function areCompetenceGroupsCompatible(groupsA: string[], groupsB: string[]): bo
 }
 
 /**
+ * Extracts action verbs directly from the CP text to formulate accurate, authentic recommendations.
+ */
+export function extractTargetCompetenceFromCP(cpText?: string): string {
+  if (!cpText) return '';
+  const verbsFound: string[] = [];
+  const priorityGroups = ['practice', 'apply', 'analyze', 'create', 'evaluate', 'explore', 'participate', 'observe'];
+
+  for (const group of priorityGroups) {
+    const groupVerbs = COMPETENCE_GROUPS[group] || [];
+    for (const v of groupVerbs) {
+      if (v.length < 4) continue;
+      const regex = new RegExp(`\\b${v}\\b`, 'i');
+      if (regex.test(cpText) && !verbsFound.some((vf) => vf.toLowerCase() === v.toLowerCase())) {
+        verbsFound.push(v.charAt(0).toUpperCase() + v.slice(1));
+      }
+    }
+  }
+
+  if (verbsFound.length === 0) {
+    for (const v of COMPETENCE_GROUPS.understand) {
+      if (v.length < 4) continue;
+      const regex = new RegExp(`\\b${v}\\b`, 'i');
+      if (regex.test(cpText) && !verbsFound.some((vf) => vf.toLowerCase() === v.toLowerCase())) {
+        verbsFound.push(v.charAt(0).toUpperCase() + v.slice(1));
+      }
+    }
+  }
+
+  if (verbsFound.length === 0) return '';
+  if (verbsFound.length === 1) return verbsFound[0];
+  return verbsFound.slice(0, 2).join(' dan ');
+}
+
+/**
+ * Applies a finding's suggested change to a list of CPAnalysisItem, with optional user customization.
+ * Guarantees that ONLY the target field of the specific row is updated.
+ */
+export function applyFindingToItems(
+  items: CPAnalysisItem[],
+  finding: CPAnalysisSemanticFinding,
+  customValue?: string
+): { updatedItems: CPAnalysisItem[]; record?: AppliedFindingRecord } {
+  if (!finding.suggestedChange || !finding.itemId) {
+    return { updatedItems: items };
+  }
+
+  const { field, currentValue, suggestedValue } = finding.suggestedChange;
+  const valueToApply = customValue !== undefined ? customValue : suggestedValue;
+
+  const targetItem = items.find((it) => it.id === finding.itemId);
+  if (!targetItem) {
+    return { updatedItems: items };
+  }
+
+  const previousValue = targetItem[field] ?? currentValue;
+  const updatedItems = items.map((it) => {
+    if (it.id !== finding.itemId) return it;
+    return {
+      ...it,
+      [field]: valueToApply,
+    };
+  });
+
+  const record: AppliedFindingRecord = {
+    findingId: finding.id,
+    itemId: finding.itemId,
+    field,
+    previousValue,
+    appliedValue: valueToApply,
+    appliedAt: new Date().toISOString(),
+  };
+
+  return { updatedItems, record };
+}
+
+/**
+ * Undoes an applied suggestion, returning the item field to its previous state.
+ */
+export function undoAppliedFinding(
+  items: CPAnalysisItem[],
+  record: AppliedFindingRecord
+): CPAnalysisItem[] {
+  return items.map((it) => {
+    if (it.id !== record.itemId) return it;
+    return {
+      ...it,
+      [record.field]: record.previousValue,
+    };
+  });
+}
+
+/**
  * Splits CP text into atomic substantive clauses/segments for coverage checking.
  */
 function splitCPSubstantiveClauses(text?: string): string[] {
@@ -199,8 +311,21 @@ export function reviewCPAnalysisSemantic(
             ? 'Teks CP menuntut penalaran tingkat tinggi (analisis/kreasi/evaluasi), sedangkan analisis menurunkan tuntutan menjadi pemahaman dasar.'
             : `Tuntutan kompetensi pada analisis ("${item.cpCompetence}") berbeda tingkat atau jenis keterampilannya dengan teks CP.`;
 
+          const targetCompetence = extractTargetCompetenceFromCP(cpText);
+          const canAutoApply = Boolean(targetCompetence && targetCompetence.trim().length > 0);
+          const suggestedChange: CPAnalysisSuggestedChange | undefined = canAutoApply
+            ? {
+                field: 'cpCompetence',
+                fieldLabel: 'Kata Kerja Operasional (Kompetensi)',
+                currentValue: item.cpCompetence || '',
+                suggestedValue: targetCompetence,
+              }
+            : undefined;
+
           findings.push({
+            id: `finding-${item.id}-COMPETENCE_MISMATCH-${findings.length + 1}`,
             itemId: item.id,
+            itemOrder: item.order,
             elementId: item.elementId,
             elementName: item.elementName || canonicalElem?.name,
             type: 'COMPETENCE_MISMATCH',
@@ -213,7 +338,11 @@ export function reviewCPAnalysisSemantic(
               analysisCompetence: item.cpCompetence,
               analysisMaterial: item.materialScope,
             },
-            suggestion: `Sesuaikan Kata Kerja Operasional (KKO) agar mencerminkan tindakan pembelajaran yang ditargetkan pada teks CP (misal: memuat kata kerja tindakan yang selaras).`,
+            suggestion: canAutoApply
+              ? `Sesuaikan kompetensi menjadi "${targetCompetence}" agar selaras dengan tuntutan tindakan pada teks CP rujukan.`
+              : `Sesuaikan Kata Kerja Operasional (KKO) agar mencerminkan tindakan pembelajaran yang ditargetkan pada teks CP (misal: memuat kata kerja tindakan yang selaras).`,
+            canAutoApply,
+            suggestedChange,
           });
         }
       }
@@ -232,7 +361,9 @@ export function reviewCPAnalysisSemantic(
         // If ZERO substantive tokens match anywhere in the CP element or general description
         if (matchingTokens.length === 0) {
           findings.push({
+            id: `finding-${item.id}-UNSUPPORTED_ADDITION-${findings.length + 1}`,
             itemId: item.id,
+            itemOrder: item.order,
             elementId: item.elementId,
             elementName: item.elementName || canonicalElem?.name,
             type: 'UNSUPPORTED_ADDITION',
@@ -245,6 +376,7 @@ export function reviewCPAnalysisSemantic(
               analysisMaterial: item.materialScope,
             },
             suggestion: `Pastikan materi yang dianalisis bersumber langsung dari pokok bahasan CP elemen ini atau sesuaikan rumusan materi inti.`,
+            canAutoApply: false,
           });
         }
       }
@@ -267,8 +399,28 @@ export function reviewCPAnalysisSemantic(
         materialTokens.length === 0 || materialTokens.some((t) => tpTokens.has(t));
 
       if (hasCompConflict || !hasMaterialOverlap) {
+        const comp = (item.cpCompetence || '').trim();
+        const mat = (item.materialScope || '').trim();
+        const canFormulateTp = Boolean(comp.length > 0 && mat.length > 0);
+        const cleanComp = comp ? comp.charAt(0).toLowerCase() + comp.slice(1) : '';
+        const cleanMat = mat ? mat.charAt(0).toLowerCase() + mat.slice(1) : '';
+        const recommendedTp = canFormulateTp
+          ? `Peserta didik mampu ${cleanComp} ${cleanMat}.`
+          : '';
+
+        const suggestedChange: CPAnalysisSuggestedChange | undefined = canFormulateTp
+          ? {
+              field: 'suggestedTp',
+              fieldLabel: 'Usulan Rumusan TP',
+              currentValue: item.suggestedTp || '',
+              suggestedValue: recommendedTp,
+            }
+          : undefined;
+
         findings.push({
+          id: `finding-${item.id}-SUGGESTED_TP_INCONSISTENT-${findings.length + 1}`,
           itemId: item.id,
+          itemOrder: item.order,
           elementId: item.elementId,
           elementName: item.elementName || canonicalElem?.name,
           type: 'SUGGESTED_TP_INCONSISTENT',
@@ -283,7 +435,11 @@ export function reviewCPAnalysisSemantic(
             analysisMaterial: item.materialScope,
             suggestedTp: item.suggestedTp,
           },
-          suggestion: `Rumuskan usulan TP dengan memadukan kompetensi "${item.cpCompetence || 'KKO'}" dan lingkup materi "${item.materialScope || 'Materi'}".`,
+          suggestion: canFormulateTp
+            ? `Perbarui usulan TP menjadi: "${recommendedTp}" agar mencerminkan kompetensi dan materi baris ini.`
+            : `Rumuskan usulan TP dengan memadukan kompetensi "${item.cpCompetence || 'KKO'}" dan lingkup materi "${item.materialScope || 'Materi'}".`,
+          canAutoApply: canFormulateTp,
+          suggestedChange,
         });
       }
     }
@@ -298,6 +454,7 @@ export function reviewCPAnalysisSemantic(
     if (elemItems.length === 0) {
       // Element has no analysis items at all
       findings.push({
+        id: `finding-${eid}-MISSING_ELEM-${findings.length + 1}`,
         itemId: `missing-elem-${eid}`,
         elementId: eid,
         elementName: el.name,
@@ -310,6 +467,7 @@ export function reviewCPAnalysisSemantic(
           cpText: el.content,
         },
         suggestion: `Tambahkan baris analisis baru dan pilih elemen "${el.name}" untuk membedah kompetensi serta materinya.`,
+        canAutoApply: false,
       });
       continue;
     }
@@ -326,7 +484,9 @@ export function reviewCPAnalysisSemantic(
         // If less than 20% of the substantive tokens of this major clause are represented
         if (matched.length === 0 || (clauseTokens.length >= 4 && matched.length < 2)) {
           findings.push({
+            id: `finding-${eid}-CLAUSE_MISSING-${findings.length + 1}`,
             itemId: elemItems[0].id,
+            itemOrder: elemItems[0].order,
             elementId: eid,
             elementName: el.name,
             type: 'MATERIAL_MISSING',
@@ -339,6 +499,7 @@ export function reviewCPAnalysisSemantic(
               analysisMaterial: combinedElemMaterial,
             },
             suggestion: `Tinjau kembali apakah materi terkait "${clauseTokens.slice(0, 3).join(', ')}" perlu ditambahkan pada lingkup materi atau dibuatkan baris analisis terpisah.`,
+            canAutoApply: false,
           });
         }
       }
@@ -348,9 +509,9 @@ export function reviewCPAnalysisSemantic(
   const warningCount = findings.filter((f) => f.severity === 'WARNING').length;
   const infoCount = findings.filter((f) => f.severity === 'INFO').length;
 
-  let summaryMessage = 'Seluruh butir Analisis CP selaras secara semantik dengan Capaian Pembelajaran (CP) rujukan.';
+  let summaryMessage = 'Tidak ditemukan indikasi ketidakselarasan. Butir Analisis CP selaras secara semantik pada pemeriksaan otomatis (guru tetap disarankan memverifikasi konteks pembelajaran).';
   if (warningCount > 0) {
-    summaryMessage = `Ditemukan ${warningCount} catatan keselarasan semantik untuk ditinjau oleh guru.`;
+    summaryMessage = `Ditemukan ${warningCount} catatan keselarasan semantik yang disarankan untuk ditinjau oleh guru.`;
   }
 
   return {
