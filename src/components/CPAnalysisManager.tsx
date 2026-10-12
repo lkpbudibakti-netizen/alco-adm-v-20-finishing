@@ -124,7 +124,7 @@ export const CPAnalysisManager: React.FC<CPAnalysisManagerProps> = ({
   };
 
   const handleOpenApplyPreview = (finding: CPAnalysisSemanticFinding) => {
-    if (!finding.suggestedChange) return;
+    if (isReviewStale || !finding.suggestedChange) return;
     setActivePreviewModal({
       finding,
       editedValue: finding.suggestedChange.suggestedValue,
@@ -132,7 +132,7 @@ export const CPAnalysisManager: React.FC<CPAnalysisManagerProps> = ({
   };
 
   const handleConfirmApply = () => {
-    if (!activePreviewModal) return;
+    if (!activePreviewModal || isReviewStale) return;
     const { finding, editedValue } = activePreviewModal;
     const { updatedItems, record } = applyFindingToItems(items, finding, editedValue);
     setItems(updatedItems);
@@ -157,17 +157,27 @@ export const CPAnalysisManager: React.FC<CPAnalysisManagerProps> = ({
     const recordIndex = appliedRecords.findIndex((r) => r.itemId === itemId);
     if (recordIndex === -1) return;
     const record = appliedRecords[recordIndex];
-    const restoredItems = undoAppliedFinding(items, record);
-    setItems(restoredItems);
+    const undoRes = undoAppliedFinding(items, record);
+
+    if (!undoRes.success) {
+      // Tampilkan pemberitahuan ketika Urungkan tidak dapat dilakukan dengan aman
+      setNotificationToast(undoRes.message);
+      // Hapus record ini dari riwayat agar tombol tidak lagi aktif jika manual edit telah terjadi
+      setAppliedRecords((prev) => prev.filter((_, idx) => idx !== recordIndex));
+      setTimeout(() => setNotificationToast(null), 5000);
+      return;
+    }
+
+    setItems(undoRes.updatedItems);
     setAppliedRecords((prev) => prev.filter((_, idx) => idx !== recordIndex));
     setHasUnsavedChanges(true);
 
-    const refreshed = reviewCPAnalysisSemantic(restoredItems, cp);
+    const refreshed = reviewCPAnalysisSemantic(undoRes.updatedItems, cp);
     setSemanticReview(refreshed);
     setIsReviewStale(false);
 
-    setNotificationToast(`Perubahan pada baris berhasil diurungkan.`);
-    setTimeout(() => setNotificationToast(null), 3000);
+    setNotificationToast(undoRes.message);
+    setTimeout(() => setNotificationToast(null), 3500);
   };
 
   const handleDismissFinding = (findingId: string) => {
@@ -637,13 +647,22 @@ export const CPAnalysisManager: React.FC<CPAnalysisManagerProps> = ({
                   <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
                 )}
                 <div className="space-y-1">
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
                     <span className="font-bold text-slate-900 text-sm">
                       Hasil Pemeriksaan Keselarasan Semantik
                     </span>
-                    {semanticReview.warningCount > 0 && (
+                    {isReviewStale ? (
+                      <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-500 text-white flex items-center gap-1 shadow-2xs">
+                        <AlertTriangle className="w-3 h-3" />
+                        <span>Perlu Diperiksa Ulang</span>
+                      </span>
+                    ) : semanticReview.warningCount > 0 ? (
                       <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-amber-200 text-amber-900">
                         {semanticReview.warningCount} Catatan
+                      </span>
+                    ) : (
+                      <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-800">
+                        Selaras
                       </span>
                     )}
                   </div>
@@ -675,20 +694,23 @@ export const CPAnalysisManager: React.FC<CPAnalysisManagerProps> = ({
             </div>
 
             {isReviewStale && (
-              <div className="p-3 bg-amber-100/70 border border-amber-300 rounded-xl flex items-center justify-between text-xs text-amber-950 shadow-xs">
-                <div className="flex items-center gap-2">
-                  <AlertTriangle className="w-4 h-4 text-amber-700 shrink-0" />
-                  <span>
-                    Data analisis telah diubah manual sejak pemeriksaan terakhir. Hasil temuan di bawah mungkin sudah tidak mutakhir.
-                  </span>
+              <div className="p-3.5 bg-amber-100/90 border border-amber-300 rounded-xl flex items-center justify-between gap-3 text-xs text-amber-950 shadow-xs">
+                <div className="flex items-center gap-2.5">
+                  <AlertTriangle className="w-4 h-4 text-amber-800 shrink-0" />
+                  <div>
+                    <span className="font-bold block text-amber-950">Data Analisis Telah Berubah — Perlu Diperiksa Ulang</span>
+                    <span className="text-amber-900">
+                      Terdapat perubahan data sejak pemeriksaan terakhir. Tombol "Terapkan Saran" dinonaktifkan sementara hingga Anda menekan tombol Periksa Ulang.
+                    </span>
+                  </div>
                 </div>
                 <button
                   type="button"
                   onClick={handleReviewSemantics}
                   disabled={isReviewing}
-                  className="px-2.5 py-1 text-xs font-semibold bg-white border border-amber-300 hover:bg-amber-50 rounded-lg text-amber-900 cursor-pointer shadow-2xs"
+                  className="px-3 py-1.5 text-xs font-bold bg-amber-600 hover:bg-amber-700 text-white rounded-lg cursor-pointer shadow-xs shrink-0 transition"
                 >
-                  Periksa Ulang
+                  Periksa Ulang Sekarang
                 </button>
               </div>
             )}
@@ -808,7 +830,17 @@ export const CPAnalysisManager: React.FC<CPAnalysisManagerProps> = ({
                               <button
                                 type="button"
                                 onClick={() => handleOpenApplyPreview(finding)}
-                                className="px-3.5 py-1.5 rounded-xl text-xs font-semibold bg-amber-600 hover:bg-amber-700 text-white flex items-center gap-1.5 shadow-xs transition cursor-pointer"
+                                disabled={isReviewStale}
+                                title={
+                                  isReviewStale
+                                    ? 'Data analisis telah diubah manual. Silakan klik "Periksa Ulang" terlebih dahulu untuk memperbarui temuan.'
+                                    : 'Terapkan Saran'
+                                }
+                                className={`px-3.5 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 shadow-xs transition ${
+                                  isReviewStale
+                                    ? 'bg-slate-200 text-slate-400 border border-slate-300 cursor-not-allowed opacity-75'
+                                    : 'bg-amber-600 hover:bg-amber-700 text-white cursor-pointer'
+                                }`}
                               >
                                 <Sparkles className="w-3.5 h-3.5" />
                                 <span>Terapkan Saran</span>
@@ -1207,7 +1239,7 @@ export const CPAnalysisManager: React.FC<CPAnalysisManagerProps> = ({
               <button
                 type="button"
                 onClick={handleConfirmApply}
-                disabled={!activePreviewModal.editedValue.trim()}
+                disabled={isReviewStale || !activePreviewModal.editedValue.trim()}
                 className="px-4 py-2 rounded-xl text-xs font-semibold bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white shadow-xs transition flex items-center gap-1.5 cursor-pointer"
               >
                 <Check className="w-3.5 h-3.5" />

@@ -151,37 +151,172 @@ function areCompetenceGroupsCompatible(groupsA: string[], groupsB: string[]): bo
 }
 
 /**
- * Extracts action verbs directly from the CP text to formulate accurate, authentic recommendations.
+ * Splits CP text into atomic substantive clauses/segments for coverage and competence checking.
  */
-export function extractTargetCompetenceFromCP(cpText?: string): string {
-  if (!cpText) return '';
-  const verbsFound: string[] = [];
-  const priorityGroups = ['practice', 'apply', 'analyze', 'create', 'evaluate', 'explore', 'participate', 'observe'];
+export function splitCPSubstantiveClauses(text?: string): string[] {
+  if (!text || !text.trim()) return [];
+  return text
+    .split(/;\s*|\.\s+(?=[A-Z0-9])|,\s*serta\s+|\r?\n+/i)
+    .map((clause) => clause.trim())
+    .filter((clause) => clause.length >= 8);
+}
 
-  for (const group of priorityGroups) {
-    const groupVerbs = COMPETENCE_GROUPS[group] || [];
-    for (const v of groupVerbs) {
+/**
+ * Extracts all action verbs directly from a specific text fragment, preserving appearance order.
+ * NEVER artificially slices or truncates compound verbs.
+ */
+function extractActionVerbsFromText(text: string): string[] {
+  if (!text || !text.trim()) return [];
+  const lower = text.toLowerCase();
+
+  const allGroups = [
+    'practice',
+    'apply',
+    'analyze',
+    'create',
+    'evaluate',
+    'explore',
+    'participate',
+    'observe',
+    'understand',
+  ];
+
+  interface VerbMatch {
+    verb: string;
+    index: number;
+  }
+
+  const matches: VerbMatch[] = [];
+  const seenBase = new Set<string>();
+
+  for (const group of allGroups) {
+    const verbs = COMPETENCE_GROUPS[group] || [];
+    for (const v of verbs) {
       if (v.length < 4) continue;
-      const regex = new RegExp(`\\b${v}\\b`, 'i');
-      if (regex.test(cpText) && !verbsFound.some((vf) => vf.toLowerCase() === v.toLowerCase())) {
-        verbsFound.push(v.charAt(0).toUpperCase() + v.slice(1));
+      const regex = new RegExp(`\\b${v}\\b`, 'gi');
+      let m: RegExpExecArray | null;
+      while ((m = regex.exec(lower)) !== null) {
+        const canonicalBase = v.toLowerCase();
+        if (!seenBase.has(canonicalBase)) {
+          seenBase.add(canonicalBase);
+          matches.push({
+            verb: v.charAt(0).toUpperCase() + v.slice(1).toLowerCase(),
+            index: m.index,
+          });
+        }
       }
     }
   }
 
-  if (verbsFound.length === 0) {
-    for (const v of COMPETENCE_GROUPS.understand) {
-      if (v.length < 4) continue;
-      const regex = new RegExp(`\\b${v}\\b`, 'i');
-      if (regex.test(cpText) && !verbsFound.some((vf) => vf.toLowerCase() === v.toLowerCase())) {
-        verbsFound.push(v.charAt(0).toUpperCase() + v.slice(1));
+  matches.sort((a, b) => a.index - b.index);
+  return matches.map((m) => m.verb);
+}
+
+/**
+ * Formats an array of verbs into authentic Indonesian compound competence phrasing without truncation.
+ */
+export function formatCompoundCompetence(verbs: string[]): string {
+  if (verbs.length === 0) return '';
+  if (verbs.length === 1) return verbs[0];
+  if (verbs.length === 2) return `${verbs[0]} dan ${verbs[1].toLowerCase()}`;
+  const leading = verbs.slice(0, -1).map((v, i) => (i === 0 ? v : v.toLowerCase())).join(', ');
+  const last = verbs[verbs.length - 1].toLowerCase();
+  return `${leading}, dan ${last}`;
+}
+
+export interface ResolvedTargetCompetence {
+  targetCompetence: string;
+  confidence: 'HIGH' | 'MEDIUM' | 'LOW';
+  canAutoApply: boolean;
+  matchedClause?: string;
+}
+
+/**
+ * Resolves the appropriate competence recommendation for a specific analysis item.
+ * - Tailors the suggestion to the substantive scope of the specific row.
+ * - Does not copy all verbs from disparate CP clauses.
+ * - Preserves all compound verbs in the relevant clause without artificial truncation.
+ * - If competence cannot be verified with certainty, returns canAutoApply: false.
+ * - Does not fabricate alien verbs or materials.
+ */
+export function resolveTargetCompetenceForAnalysis(
+  cpText?: string,
+  materialScope?: string
+): ResolvedTargetCompetence {
+  if (!cpText || !cpText.trim()) {
+    return { targetCompetence: '', confidence: 'LOW', canAutoApply: false };
+  }
+
+  const clauses = splitCPSubstantiveClauses(cpText);
+
+  // If there's only 1 clause or CP text is short
+  if (clauses.length <= 1) {
+    const verbs = extractActionVerbsFromText(cpText);
+    if (verbs.length === 0) {
+      return { targetCompetence: '', confidence: 'LOW', canAutoApply: false };
+    }
+    return {
+      targetCompetence: formatCompoundCompetence(verbs),
+      confidence: 'HIGH',
+      canAutoApply: true,
+      matchedClause: cpText,
+    };
+  }
+
+  // Multi-clause element: match against row's substantive material scope
+  if (materialScope && materialScope.trim()) {
+    const matTokens = extractSubstantiveTokens(materialScope);
+    let bestClause: string | null = null;
+    let bestScore = 0;
+
+    for (const clause of clauses) {
+      const clauseTokens = new Set(extractSubstantiveTokens(clause));
+      const matchCount = matTokens.filter((t) => clauseTokens.has(t)).length;
+      if (matchCount > bestScore) {
+        bestScore = matchCount;
+        bestClause = clause;
+      }
+    }
+
+    if (bestClause && bestScore >= 1) {
+      const verbs = extractActionVerbsFromText(bestClause);
+      if (verbs.length > 0) {
+        return {
+          targetCompetence: formatCompoundCompetence(verbs),
+          confidence: 'HIGH',
+          canAutoApply: true,
+          matchedClause: bestClause,
+        };
       }
     }
   }
 
-  if (verbsFound.length === 0) return '';
-  if (verbsFound.length === 1) return verbsFound[0];
-  return verbsFound.slice(0, 2).join(' dan ');
+  // If materialScope doesn't match a specific clause, but all clauses share the same verbs
+  const allVerbsPerClause = clauses.map((c) => extractActionVerbsFromText(c));
+  const flatVerbs = Array.from(new Set(allVerbsPerClause.flat()));
+
+  if (flatVerbs.length === 1) {
+    return {
+      targetCompetence: flatVerbs[0],
+      confidence: 'MEDIUM',
+      canAutoApply: true,
+    };
+  }
+
+  // Multi-clause with disparate verbs and cannot determine which belongs to this row:
+  // Cannot be verified with certainty -> Teacher Review Required (Perlu Tinjauan Guru)
+  return {
+    targetCompetence: '',
+    confidence: 'LOW',
+    canAutoApply: false,
+  };
+}
+
+/**
+ * Extracts action verbs directly from CP text for backward compatibility.
+ */
+export function extractTargetCompetenceFromCP(cpText?: string, materialScope?: string): string {
+  return resolveTargetCompetenceForAnalysis(cpText, materialScope).targetCompetence;
 }
 
 /**
@@ -226,31 +361,57 @@ export function applyFindingToItems(
   return { updatedItems, record };
 }
 
+export interface UndoResult {
+  success: boolean;
+  updatedItems: CPAnalysisItem[];
+  reason: 'MATCH_REVERTED' | 'VALUE_MODIFIED_MANUALLY' | 'ITEM_NOT_FOUND';
+  message: string;
+}
+
 /**
- * Undoes an applied suggestion, returning the item field to its previous state.
+ * Undoes an applied suggestion safely.
+ * Only reverts if the current field value still strictly matches appliedValue.
+ * If the teacher has manually edited the field after applying, the manual edit is preserved!
  */
 export function undoAppliedFinding(
   items: CPAnalysisItem[],
   record: AppliedFindingRecord
-): CPAnalysisItem[] {
-  return items.map((it) => {
+): UndoResult {
+  const targetItem = items.find((it) => it.id === record.itemId);
+  if (!targetItem) {
+    return {
+      success: false,
+      updatedItems: items,
+      reason: 'ITEM_NOT_FOUND',
+      message: 'Baris analisis tidak ditemukan atau telah dihapus.',
+    };
+  }
+
+  const currentValue = targetItem[record.field];
+  // Urungkan hanya jika nilai saat ini masih sama dengan nilai hasil penerapan
+  if (currentValue !== record.appliedValue) {
+    return {
+      success: false,
+      updatedItems: items,
+      reason: 'VALUE_MODIFIED_MANUALLY',
+      message: `Tidak dapat mengurungkan: kolom "${String(record.field)}" telah diedit secara manual setelah saran diterapkan. Perubahan manual Anda tetap dipertahankan.`,
+    };
+  }
+
+  const updatedItems = items.map((it) => {
     if (it.id !== record.itemId) return it;
     return {
       ...it,
       [record.field]: record.previousValue,
     };
   });
-}
 
-/**
- * Splits CP text into atomic substantive clauses/segments for coverage checking.
- */
-function splitCPSubstantiveClauses(text?: string): string[] {
-  if (!text || !text.trim()) return [];
-  return text
-    .split(/;\s*|\.\s+(?=[A-Z0-9])|\b(?:serta|dan)\s+(?=(?:mampu|dapat|peserta|memahami|menerapkan|mempraktikkan|mengenali|menjelaskan|menganalisis)\b)/i)
-    .map((clause) => clause.trim())
-    .filter((clause) => clause.length >= 10);
+  return {
+    success: true,
+    updatedItems,
+    reason: 'MATCH_REVERTED',
+    message: 'Perubahan pada baris berhasil diurungkan ke nilai sebelum saran diterapkan.',
+  };
 }
 
 /**
@@ -311,8 +472,10 @@ export function reviewCPAnalysisSemantic(
             ? 'Teks CP menuntut penalaran tingkat tinggi (analisis/kreasi/evaluasi), sedangkan analisis menurunkan tuntutan menjadi pemahaman dasar.'
             : `Tuntutan kompetensi pada analisis ("${item.cpCompetence}") berbeda tingkat atau jenis keterampilannya dengan teks CP.`;
 
-          const targetCompetence = extractTargetCompetenceFromCP(cpText);
-          const canAutoApply = Boolean(targetCompetence && targetCompetence.trim().length > 0);
+          const compResolution = resolveTargetCompetenceForAnalysis(cpText, item.materialScope);
+          const canAutoApply = compResolution.canAutoApply && Boolean(compResolution.targetCompetence);
+          const targetCompetence = compResolution.targetCompetence;
+
           const suggestedChange: CPAnalysisSuggestedChange | undefined = canAutoApply
             ? {
                 field: 'cpCompetence',
@@ -330,7 +493,7 @@ export function reviewCPAnalysisSemantic(
             elementName: item.elementName || canonicalElem?.name,
             type: 'COMPETENCE_MISMATCH',
             severity: 'WARNING',
-            confidence: isPracticeToUnderstand || isHigherOrderReduced ? 'HIGH' : 'MEDIUM',
+            confidence: canAutoApply ? compResolution.confidence : 'LOW',
             title: 'Tingkat Kompetensi Berbeda dengan Teks CP',
             reason: shiftDescription,
             evidence: {
@@ -340,7 +503,7 @@ export function reviewCPAnalysisSemantic(
             },
             suggestion: canAutoApply
               ? `Sesuaikan kompetensi menjadi "${targetCompetence}" agar selaras dengan tuntutan tindakan pada teks CP rujukan.`
-              : `Sesuaikan Kata Kerja Operasional (KKO) agar mencerminkan tindakan pembelajaran yang ditargetkan pada teks CP (misal: memuat kata kerja tindakan yang selaras).`,
+              : `Sesuaikan Kata Kerja Operasional (KKO) agar mencerminkan tindakan pembelajaran yang ditargetkan pada teks CP (tinjau langsung pada baris analisis ini).`,
             canAutoApply,
             suggestedChange,
           });

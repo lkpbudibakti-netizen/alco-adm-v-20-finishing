@@ -2,6 +2,10 @@ import assert from 'node:assert';
 import {
   reviewCPAnalysisSemantic,
   detectCompetenceGroups,
+  resolveTargetCompetenceForAnalysis,
+  extractTargetCompetenceFromCP,
+  applyFindingToItems,
+  undoAppliedFinding,
 } from '../src/services/cpAnalysisSemanticReviewService';
 import type { CPData, CPAnalysisItem } from '../src/types';
 
@@ -247,6 +251,166 @@ runTest('6. PERFECT_ALIGNMENT: completely aligned CP analysis produces zero warn
   assert.strictEqual(result.warningCount, 0, 'Warning count must be 0 for perfectly aligned analysis');
   assert.strictEqual(result.isValid, true, 'Review result must be valid');
   assert.ok(result.summaryMessage.includes('selaras secara semantik'), 'Summary message must confirm alignment');
+});
+
+// 7. Compound competence preservation: all action verbs preserved (not cut off at 2)
+runTest('7. COMPOUND_COMPETENCE: preserves all verbs (e.g. 3 verbs) without truncation', () => {
+  const cpText = 'Peserta didik mengamati, menyelidiki, dan menjelaskan daur hidup tumbuhan berbunga.';
+  const res = resolveTargetCompetenceForAnalysis(cpText, 'daur hidup tumbuhan berbunga');
+  assert.strictEqual(res.canAutoApply, true);
+  const compLower = res.targetCompetence.toLowerCase();
+  assert.ok(compLower.includes('mengamati'), 'Must include mengamati');
+  assert.ok(compLower.includes('menyelidiki'), 'Must include menyelidiki');
+  assert.ok(compLower.includes('menjelaskan'), 'Must include menjelaskan');
+});
+
+// 8. Tailored recommendations to row substance
+runTest('8. SUBSTANCE_TAILORED: matches verbs from the specific clause corresponding to row materialScope', () => {
+  const cpText = 'Peserta didik menyusun dan menerapkan aturan untuk fair play, serta mempertunjukkan peran dalam kelompok.';
+  
+  // Row 1: materialScope matches clause 1
+  const res1 = resolveTargetCompetenceForAnalysis(cpText, 'Aturan untuk fair play');
+  assert.strictEqual(res1.canAutoApply, true);
+  const comp1Lower = res1.targetCompetence.toLowerCase();
+  assert.ok(comp1Lower.includes('menyusun'), 'Must include menyusun');
+  assert.ok(comp1Lower.includes('menerapkan'), 'Must include menerapkan');
+  assert.ok(!comp1Lower.includes('mempertunjukkan'), 'Must NOT copy verb from unrelated clause');
+
+  // Row 2: materialScope matches clause 2
+  const res2 = resolveTargetCompetenceForAnalysis(cpText, 'Peran dalam kelompok');
+  assert.strictEqual(res2.canAutoApply, true);
+  const comp2Lower = res2.targetCompetence.toLowerCase();
+  assert.ok(comp2Lower.includes('mempertunjukkan'), 'Must include mempertunjukkan');
+  assert.ok(!comp2Lower.includes('menyusun'), 'Must NOT copy verbs from clause 1');
+});
+
+// 9. Ambiguous or uncertain competence triggers Perlu Tinjauan Guru (canAutoApply = false)
+runTest('9. PERLU_TINJAUAN_GURU: triggers when competence cannot be ascertained with certainty', () => {
+  const multiClauseCP = 'Peserta didik mengamati pertumbuhan tanaman; serta menghitung massa jenis larutan.';
+  // Alien material that does not match any clause
+  const res = resolveTargetCompetenceForAnalysis(multiClauseCP, 'Topik sejarah kerajaan kuno');
+  assert.strictEqual(res.canAutoApply, false);
+  assert.strictEqual(res.confidence, 'LOW');
+});
+
+// 10. applyFindingToItems isolation: updates ONLY target field on target row
+runTest('10. APPLY_ISOLATION: modifies only target field of target item and preserves others', () => {
+  const initialItems: CPAnalysisItem[] = [
+    {
+      id: 'row-1',
+      elementId: 'elem-1',
+      elementName: 'Terampil Bergerak',
+      cpText: 'Peserta didik mempraktikkan keterampilan gerak fundamental.',
+      cpCompetence: 'Memahami',
+      materialScope: 'keterampilan gerak fundamental',
+      order: 1,
+    },
+    {
+      id: 'row-2',
+      elementId: 'elem-2',
+      elementName: 'Belajar Melalui Gerak',
+      cpText: 'Peserta didik menerapkan fair play.',
+      cpCompetence: 'Menerapkan',
+      materialScope: 'fair play',
+      order: 2,
+    },
+  ];
+
+  const fakeFinding = {
+    id: 'f-1',
+    itemId: 'row-1',
+    elementId: 'elem-1',
+    type: 'COMPETENCE_MISMATCH' as const,
+    severity: 'WARNING' as const,
+    confidence: 'HIGH' as const,
+    title: 'Mismatch',
+    reason: 'Reduced',
+    evidence: {},
+    suggestion: 'Ubah ke Mempraktikkan',
+    canAutoApply: true,
+    suggestedChange: {
+      field: 'cpCompetence' as const,
+      fieldLabel: 'KKO',
+      currentValue: 'Memahami',
+      suggestedValue: 'Mempraktikkan',
+    },
+  };
+
+  const { updatedItems, record } = applyFindingToItems(initialItems, fakeFinding, 'Mempraktikkan');
+  assert.ok(record);
+  assert.strictEqual(record?.previousValue, 'Memahami');
+  assert.strictEqual(record?.appliedValue, 'Mempraktikkan');
+
+  // Row 1 competence updated
+  assert.strictEqual(updatedItems[0].cpCompetence, 'Mempraktikkan');
+  // Row 1 other fields unchanged
+  assert.strictEqual(updatedItems[0].elementId, 'elem-1');
+  assert.strictEqual(updatedItems[0].cpText, 'Peserta didik mempraktikkan keterampilan gerak fundamental.');
+  assert.strictEqual(updatedItems[0].materialScope, 'keterampilan gerak fundamental');
+
+  // Row 2 completely untouched
+  assert.strictEqual(updatedItems[1].cpCompetence, 'Menerapkan');
+  assert.strictEqual(updatedItems[1].materialScope, 'fair play');
+});
+
+// 11. Safe Undo: reverts cleanly when value matches applied value
+runTest('11. SAFE_UNDO_SUCCESS: reverts when current value still matches applied value', () => {
+  const items: CPAnalysisItem[] = [
+    {
+      id: 'row-1',
+      elementId: 'elem-1',
+      elementName: 'E1',
+      cpText: 'Teks',
+      cpCompetence: 'Mempraktikkan', // was applied
+      materialScope: 'Materi',
+      order: 1,
+    },
+  ];
+
+  const record = {
+    findingId: 'f-1',
+    itemId: 'row-1',
+    field: 'cpCompetence' as const,
+    previousValue: 'Memahami',
+    appliedValue: 'Mempraktikkan',
+    appliedAt: new Date().toISOString(),
+  };
+
+  const undoRes = undoAppliedFinding(items, record);
+  assert.strictEqual(undoRes.success, true);
+  assert.strictEqual(undoRes.reason, 'MATCH_REVERTED');
+  assert.strictEqual(undoRes.updatedItems[0].cpCompetence, 'Memahami');
+});
+
+// 12. Safe Undo: blocked and preserves manual edit when teacher edited after applying
+runTest('12. SAFE_UNDO_BLOCKED_ON_MANUAL_EDIT: refuses to overwrite teacher manual changes', () => {
+  const items: CPAnalysisItem[] = [
+    {
+      id: 'row-1',
+      elementId: 'elem-1',
+      elementName: 'E1',
+      cpText: 'Teks',
+      cpCompetence: 'Mempraktikkan dan menguji secara mandiri', // edited manually by teacher!
+      materialScope: 'Materi',
+      order: 1,
+    },
+  ];
+
+  const record = {
+    findingId: 'f-1',
+    itemId: 'row-1',
+    field: 'cpCompetence' as const,
+    previousValue: 'Memahami',
+    appliedValue: 'Mempraktikkan', // was applied earlier
+    appliedAt: new Date().toISOString(),
+  };
+
+  const undoRes = undoAppliedFinding(items, record);
+  assert.strictEqual(undoRes.success, false);
+  assert.strictEqual(undoRes.reason, 'VALUE_MODIFIED_MANUALLY');
+  // Manual edit is preserved!
+  assert.strictEqual(undoRes.updatedItems[0].cpCompetence, 'Mempraktikkan dan menguji secara mandiri');
+  assert.ok(undoRes.message.includes('telah diedit secara manual'));
 });
 
 console.log(`\n========================================`);
