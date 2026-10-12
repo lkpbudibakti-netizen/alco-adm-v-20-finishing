@@ -29,6 +29,7 @@
     "test:audit9c8:export": "tsx scripts/testAuditNo9C8DocumentExportRegression.ts",
     "test:regulatory2026": "tsx scripts/testAudit2026RegulatoryCompatibility.ts",
     "test:p0c-atp-semantic": "tsx scripts/testP0CAtpSemanticFidelityRegression.ts",
+    "test:cp-semantic": "tsx scripts/testCPAnalysisSemanticReviewRegression.ts",
     "test:b12l": "tsx scripts/testB12lAssessmentConfirmationGateRegression.ts",
     "test:b12m": "tsx scripts/testB12mAnswerKeyExactItemNumberRegression.ts",
     "test:b12n": "tsx scripts/testB12nCanonicalAnswerKeySsotRegression.ts",

@@ -14,18 +14,6 @@ const STOPWORDS = new Set([
   'serta', 'tentang', 'terhadap', 'untuk', 'yang',
 ]);
 
-const MATERIAL_ONLY_STOPWORDS = new Set([
-  ...STOPWORDS,
-  'analisis', 'menganalisis', 'memahami', 'menerapkan', 'menjelaskan', 'mengidentifikasi',
-  'menyajikan', 'menyimpulkan', 'membandingkan', 'mengevaluasi', 'membuat', 'menentukan',
-  'menguraikan', 'mempraktikkan', 'mendemonstrasikan', 'mengenal', 'mempelajari',
-  'menggunakan', 'menunjukkan',
-]);
-
-const GENERIC_MATERIAL_TOKENS = new Set([
-  'pola', 'gerak', 'dasar', 'aktivitas', 'materi', 'aturan', 'peran', 'kelompok', 'tahap', 'bagian'
-]);
-
 const COMPETENCE_GROUPS: Record<string, string[]> = {
   understand: [
     'memahami', 'pemahaman', 'paham', 'menjelaskan', 'jelas', 'menguraikan', 'uraikan',
@@ -61,8 +49,18 @@ const COMPETENCE_GROUPS: Record<string, string[]> = {
   ],
 };
 
+const MATERIAL_ONLY_STOPWORDS = new Set([
+  ...STOPWORDS,
+  ...Object.values(COMPETENCE_GROUPS).flatMap((words) => words),
+  'mempelajari',
+]);
+
+const GENERIC_MATERIAL_TOKENS = new Set([
+  'pola', 'gerak', 'dasar', 'aktivitas', 'materi', 'aturan', 'peran', 'kelompok', 'tahap', 'bagian'
+]);
+
 const COMPETENCE_EQUIVALENCE: Record<string, string[]> = {
-  understand: ['understand'],
+  understand: ['understand', 'apply', 'analyze', 'create', 'evaluate'],
   apply: ['apply', 'practice'],
   analyze: ['analyze'],
   practice: ['practice', 'apply'],
@@ -272,9 +270,14 @@ export function checkATPSemanticFidelity(
     const statementMatches = intersect(substance.statementTokens, focusTokens);
     const phraseMatch = hasPhraseMatch(focusMaterialTokens, tp.contentScope) || hasPhraseMatch(focusMaterialTokens, tp.statement);
 
+    const contentScopeTokens = uniqueTokens(tp.contentScope, MATERIAL_ONLY_STOPWORDS);
+    const hasCompleteContentScopeMatch =
+      contentScopeTokens.length > 0 && contentScopeTokens.every((t) => focusTokens.has(t));
+
     // Prevent false positive material match from a single generic token (e.g. 'pola', 'gerak', 'dasar')
     const specificMaterialMatches = materialMatches.filter((t) => !GENERIC_MATERIAL_TOKENS.has(t));
     const hasMaterialSignal =
+      hasCompleteContentScopeMatch ||
       phraseMatch ||
       materialMatches.length >= 2 ||
       (materialMatches.length === 1 && specificMaterialMatches.length === 1 && specificMaterialMatches[0].length >= 5);

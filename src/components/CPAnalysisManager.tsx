@@ -27,6 +27,10 @@ import {
 } from '../types';
 import { validateCPAnalysisDataWorkflow } from '../services/cpWorkflowService';
 import { analyzeCPWithAI } from '../services/aiService';
+import {
+  reviewCPAnalysisSemantic,
+  type CPAnalysisSemanticReviewResult,
+} from '../services/cpAnalysisSemanticReviewService';
 import { RefreshCw, AlertCircle } from 'lucide-react';
 
 interface CPAnalysisManagerProps {
@@ -82,8 +86,20 @@ export const CPAnalysisManager: React.FC<CPAnalysisManagerProps> = ({
   const [showSavedToast, setShowSavedToast] = useState(false);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisError, setAnalysisError] = useState<string | null>(null);
+  const [semanticReview, setSemanticReview] = useState<CPAnalysisSemanticReviewResult | null>(null);
+  const [isReviewing, setIsReviewing] = useState(false);
 
   const [showConfirmModal, setShowConfirmModal] = useState(false);
+
+  const handleReviewSemantics = () => {
+    setIsReviewing(true);
+    try {
+      const result = reviewCPAnalysisSemantic(items, cp);
+      setSemanticReview(result);
+    } finally {
+      setIsReviewing(false);
+    }
+  };
 
   useEffect(() => {
     if (cpAnalysis?.items && cpAnalysis.items.length > 0) {
@@ -448,6 +464,16 @@ export const CPAnalysisManager: React.FC<CPAnalysisManagerProps> = ({
           </button>
           <button
             type="button"
+            onClick={handleReviewSemantics}
+            disabled={isReviewing || items.length === 0}
+            className="px-3.5 py-2 rounded-xl text-xs font-semibold bg-amber-50 text-amber-800 hover:bg-amber-100 border border-amber-300 flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+            title="Periksa keselarasan kompetensi dan materi terhadap teks CP rujukan"
+          >
+            <ShieldCheck className="w-4 h-4 text-amber-700" />
+            <span>Periksa Keselarasan</span>
+          </button>
+          <button
+            type="button"
             onClick={handleSave}
             className="px-4 py-2 rounded-xl text-xs font-semibold bg-emerald-600 text-white hover:bg-emerald-700 flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
           >
@@ -463,6 +489,50 @@ export const CPAnalysisManager: React.FC<CPAnalysisManagerProps> = ({
           <div className="space-y-1">
             <span className="font-bold text-rose-950">Gagal Melakukan Analisis AI</span>
             <p className="text-rose-800">{analysisError}</p>
+          </div>
+        </div>
+      )}
+
+      {semanticReview && (
+        <div className={`p-4 rounded-2xl border flex items-start justify-between gap-3 text-xs shadow-xs ${
+          semanticReview.warningCount > 0
+            ? 'bg-amber-50 border-amber-300 text-amber-950'
+            : 'bg-emerald-50 border-emerald-300 text-emerald-950'
+        }`}>
+          <div className="flex items-start gap-3">
+            {semanticReview.warningCount > 0 ? (
+              <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+            ) : (
+              <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
+            )}
+            <div className="space-y-1">
+              <span className="font-bold text-slate-900 text-sm">
+                Hasil Pemeriksaan Keselarasan Semantik
+              </span>
+              <p className="text-slate-800 leading-relaxed font-medium">
+                {semanticReview.summaryMessage}
+              </p>
+              <p className="text-[11px] text-slate-500">
+                Pemeriksaan ini adalah evaluasi mutu pendamping (non-blocking). Anda dapat menyempurnakan rumusan analisis sebelum melanjutkan ke perumusan TP.
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={handleReviewSemantics}
+              disabled={isReviewing}
+              className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 cursor-pointer shadow-2xs"
+            >
+              Periksa Ulang
+            </button>
+            <button
+              type="button"
+              onClick={() => setSemanticReview(null)}
+              className="px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-500 hover:text-slate-800 cursor-pointer"
+            >
+              Tutup
+            </button>
           </div>
         </div>
       )}

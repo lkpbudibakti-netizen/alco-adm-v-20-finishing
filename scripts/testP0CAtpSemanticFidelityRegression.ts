@@ -24,7 +24,7 @@ const academicSetting: AcademicSetting = {
   profileId: 'profile-p0c',
   curriculum: 'Kurikulum Merdeka',
   academicYear: '2026/2027',
-  semester: '1',
+  semester: '1 (Ganjil)',
   subject: 'Matematika',
   grade: 'Kelas 4',
   phase: 'Fase B',
@@ -53,6 +53,7 @@ const cpAnalysis: CPAnalysisData = {
   generalSummary: 'Analisis CP Matematika fase B.',
   workflowStatus: 'SIAP',
   needsReview: false,
+  basedOnCpUpdatedAt: cp.updatedAt,
   items: [
     {
       id: 'ana-pecahan',
@@ -409,17 +410,57 @@ assertCase(
 );
 
 // PJOK 10 TP CANONICAL FIXTURE (Fase B, Kelas 3, TA 2026/2027)
+const pjokCp: CPData = {
+  id: 'cp-pjok-p0c',
+  academicSettingId: 'acad-p0c',
+  generalDescription: 'Peserta didik menguasai keterampilan gerak dasar dan pola hidup sehat.',
+  elements: [
+    { id: 'elem-pjok-1', code: 'E1', name: 'Terampil Bergerak', content: 'Keterampilan gerak fundamental.' },
+    { id: 'elem-pjok-2', code: 'E2', name: 'Belajar Melalui Gerak', content: 'Perilaku fair play dan peran kelompok.' },
+    { id: 'elem-pjok-3', code: 'E3', name: 'Bergaya Hidup Aktif', content: 'Aktivitas jasmani yang menyenangkan.' },
+    { id: 'elem-pjok-4', code: 'E4', name: 'Memilih Hidup Sehat', content: 'Pola makan dan penanganan cedera.' },
+  ],
+  source: { verificationStatus: 'VERIFIED' } as any,
+  workflowStatus: 'SIAP',
+  updatedAt: '2026-01-01T00:00:00.000Z',
+};
+
+const pjokAnalysisItems = [
+  { id: 'ana-pjok-01', elementId: 'elem-pjok-1', elementName: 'Terampil Bergerak', cpText: 'Keterampilan gerak fundamental.', cpCompetence: 'Mempraktikkan', materialScope: 'Pola gerak dasar lokomotor', order: 1 },
+  { id: 'ana-pjok-02', elementId: 'elem-pjok-1', elementName: 'Terampil Bergerak', cpText: 'Keterampilan gerak fundamental.', cpCompetence: 'Mempraktikkan', materialScope: 'Pola gerak dasar non-lokomotor', order: 2 },
+  { id: 'ana-pjok-03', elementId: 'elem-pjok-1', elementName: 'Terampil Bergerak', cpText: 'Keterampilan gerak fundamental.', cpCompetence: 'Mempraktikkan', materialScope: 'Pola gerak dasar manipulatif', order: 3 },
+  { id: 'ana-pjok-04', elementId: 'elem-pjok-1', elementName: 'Terampil Bergerak', cpText: 'Keterampilan gerak fundamental.', cpCompetence: 'Mempraktikkan', materialScope: 'Pola gerak dominan senam', order: 4 },
+  { id: 'ana-pjok-05', elementId: 'elem-pjok-1', elementName: 'Terampil Bergerak', cpText: 'Keterampilan gerak fundamental.', cpCompetence: 'Mempraktikkan', materialScope: 'Aktivitas gerak di air', order: 5 },
+  { id: 'ana-pjok-06', elementId: 'elem-pjok-2', elementName: 'Belajar Melalui Gerak', cpText: 'Perilaku fair play dan peran kelompok.', cpCompetence: 'Menyusun & Menerapkan', materialScope: 'Aturan untuk fair play', order: 6 },
+  { id: 'ana-pjok-07', elementId: 'elem-pjok-2', elementName: 'Belajar Melalui Gerak', cpText: 'Perilaku fair play dan peran kelompok.', cpCompetence: 'Mempertunjukkan', materialScope: 'Peran dalam aktivitas kelompok', order: 7 },
+  { id: 'ana-pjok-08', elementId: 'elem-pjok-3', elementName: 'Bergaya Hidup Aktif', cpText: 'Aktivitas jasmani yang menyenangkan.', cpCompetence: 'Mengenali & Berpartisipasi', materialScope: 'Aktivitas jasmani yang menyenangkan', order: 8 },
+  { id: 'ana-pjok-09', elementId: 'elem-pjok-4', elementName: 'Memilih Hidup Sehat', cpText: 'Pola makan dan penanganan cedera.', cpCompetence: 'Mengeksplorasi', materialScope: 'Pola makan sehat dan bergizi seimbang', order: 9 },
+  { id: 'ana-pjok-10', elementId: 'elem-pjok-4', elementName: 'Memilih Hidup Sehat', cpText: 'Pola makan dan penanganan cedera.', cpCompetence: 'Mempraktikkan', materialScope: 'Penanganan cedera ringan', order: 10 },
+];
+
+const pjokCpAnalysis: CPAnalysisData = {
+  id: 'analysis-pjok-p0c',
+  academicSettingId: 'acad-p0c',
+  cpId: pjokCp.id,
+  generalSummary: 'Analisis CP PJOK fase B.',
+  workflowStatus: 'SIAP',
+  needsReview: false,
+  basedOnCpUpdatedAt: pjokCp.updatedAt,
+  items: pjokAnalysisItems,
+  updatedAt: '2026-01-01T00:00:00.000Z',
+};
+
 const pjok10Tps: TPItem[] = [
-  { id: 'tp-pjok-01', code: 'E1-PGD-01', statement: 'Peserta didik mempraktikkan variasi pola gerak dasar lokomotor.', competence: 'Mempraktikkan', contentScope: 'Pola gerak dasar lokomotor', order: 1 },
-  { id: 'tp-pjok-02', code: 'E1-PGD-02', statement: 'Peserta didik mempraktikkan variasi pola gerak dasar non-lokomotor.', competence: 'Mempraktikkan', contentScope: 'Pola gerak dasar non-lokomotor', order: 2 },
-  { id: 'tp-pjok-03', code: 'E1-PGD-03', statement: 'Peserta didik mempraktikkan variasi pola gerak dasar manipulatif.', competence: 'Mempraktikkan', contentScope: 'Pola gerak dasar manipulatif', order: 3 },
-  { id: 'tp-pjok-04', code: 'E1-ASM-01', statement: 'Peserta didik mempraktikkan pola gerak dominan senam.', competence: 'Mempraktikkan', contentScope: 'Pola gerak dominan senam', order: 4 },
-  { id: 'tp-pjok-05', code: 'E1-AIR-01', statement: 'Peserta didik mempraktikkan aktivitas gerak di air.', competence: 'Mempraktikkan', contentScope: 'Aktivitas gerak di air', order: 5 },
-  { id: 'tp-pjok-06', code: 'E2-MBDM-01', statement: 'Peserta didik menyusun dan menerapkan aturan untuk fair play.', competence: 'Menyusun & Menerapkan', contentScope: 'Aturan untuk fair play', order: 6 },
-  { id: 'tp-pjok-07', code: 'E2-MBPD-01', statement: 'Peserta didik mempertunjukkan peran dalam aktivitas kelompok.', competence: 'Mempertunjukkan', contentScope: 'Peran dalam aktivitas kelompok', order: 7 },
-  { id: 'tp-pjok-08', code: 'E3-BDBA-01', statement: 'Peserta didik mengenali dan berpartisipasi dalam aktivitas jasmani yang menyenangkan.', competence: 'Mengenali & Berpartisipasi', contentScope: 'Aktivitas jasmani yang menyenangkan', order: 8 },
-  { id: 'tp-pjok-09', code: 'E4-MPMS-01', statement: 'Peserta didik mengeksplorasi pola makan sehat dan bergizi seimbang.', competence: 'Mengeksplorasi', contentScope: 'Pola makan sehat dan bergizi seimbang', order: 9 },
-  { id: 'tp-pjok-10', code: 'E4-MPCR-01', statement: 'Peserta didik mempraktikkan penanganan cedera ringan.', competence: 'Mempraktikkan', contentScope: 'Penanganan cedera ringan', order: 10 },
+  { id: 'tp-pjok-01', code: 'E1-PGD-01', cpAnalysisId: 'ana-pjok-01', cpAnalysisItemIds: ['ana-pjok-01'], elementName: 'Terampil Bergerak', statement: 'Peserta didik mempraktikkan variasi pola gerak dasar lokomotor.', competence: 'Mempraktikkan', contentScope: 'Pola gerak dasar lokomotor', order: 1 },
+  { id: 'tp-pjok-02', code: 'E1-PGD-02', cpAnalysisId: 'ana-pjok-02', cpAnalysisItemIds: ['ana-pjok-02'], elementName: 'Terampil Bergerak', statement: 'Peserta didik mempraktikkan variasi pola gerak dasar non-lokomotor.', competence: 'Mempraktikkan', contentScope: 'Pola gerak dasar non-lokomotor', order: 2 },
+  { id: 'tp-pjok-03', code: 'E1-PGD-03', cpAnalysisId: 'ana-pjok-03', cpAnalysisItemIds: ['ana-pjok-03'], elementName: 'Terampil Bergerak', statement: 'Peserta didik mempraktikkan variasi pola gerak dasar manipulatif.', competence: 'Mempraktikkan', contentScope: 'Pola gerak dasar manipulatif', order: 3 },
+  { id: 'tp-pjok-04', code: 'E1-ASM-01', cpAnalysisId: 'ana-pjok-04', cpAnalysisItemIds: ['ana-pjok-04'], elementName: 'Terampil Bergerak', statement: 'Peserta didik mempraktikkan pola gerak dominan senam.', competence: 'Mempraktikkan', contentScope: 'Pola gerak dominan senam', order: 4 },
+  { id: 'tp-pjok-05', code: 'E1-AIR-01', cpAnalysisId: 'ana-pjok-05', cpAnalysisItemIds: ['ana-pjok-05'], elementName: 'Terampil Bergerak', statement: 'Peserta didik mempraktikkan aktivitas gerak di air.', competence: 'Mempraktikkan', contentScope: 'Aktivitas gerak di air', order: 5 },
+  { id: 'tp-pjok-06', code: 'E2-MBDM-01', cpAnalysisId: 'ana-pjok-06', cpAnalysisItemIds: ['ana-pjok-06'], elementName: 'Belajar Melalui Gerak', statement: 'Peserta didik menyusun dan menerapkan aturan untuk fair play.', competence: 'Menyusun & Menerapkan', contentScope: 'Aturan untuk fair play', order: 6 },
+  { id: 'tp-pjok-07', code: 'E2-MBPD-01', cpAnalysisId: 'ana-pjok-07', cpAnalysisItemIds: ['ana-pjok-07'], elementName: 'Belajar Melalui Gerak', statement: 'Peserta didik mempertunjukkan peran dalam aktivitas kelompok.', competence: 'Mempertunjukkan', contentScope: 'Peran dalam aktivitas kelompok', order: 7 },
+  { id: 'tp-pjok-08', code: 'E3-BDBA-01', cpAnalysisId: 'ana-pjok-08', cpAnalysisItemIds: ['ana-pjok-08'], elementName: 'Bergaya Hidup Aktif', statement: 'Peserta didik mengenali dan berpartisipasi dalam aktivitas jasmani yang menyenangkan.', competence: 'Mengenali & Berpartisipasi', contentScope: 'Aktivitas jasmani yang menyenangkan', order: 8 },
+  { id: 'tp-pjok-09', code: 'E4-MPMS-01', cpAnalysisId: 'ana-pjok-09', cpAnalysisItemIds: ['ana-pjok-09'], elementName: 'Memilih Hidup Sehat', statement: 'Peserta didik mengeksplorasi pola makan sehat dan bergizi seimbang.', competence: 'Mengeksplorasi', contentScope: 'Pola makan sehat dan bergizi seimbang', order: 9 },
+  { id: 'tp-pjok-10', code: 'E4-MPCR-01', cpAnalysisId: 'ana-pjok-10', cpAnalysisItemIds: ['ana-pjok-10'], elementName: 'Memilih Hidup Sehat', statement: 'Peserta didik mempraktikkan penanganan cedera ringan.', competence: 'Mempraktikkan', contentScope: 'Penanganan cedera ringan', order: 10 },
 ];
 
 // D4. ATP relevan dengan 10 TP Fase B diterima
@@ -470,7 +511,12 @@ const pjokAcademicSetting: AcademicSetting = {
 };
 const pjokTpData: TPData = {
   ...tpData,
+  subjectCode: pjokAcademicSetting.subject,
+  cpId: pjokCp.id,
+  cpAnalysisId: pjokCpAnalysis.id,
   items: pjok10Tps,
+  basedOnCpUpdatedAt: pjokCp.updatedAt,
+  basedOnAnalysisUpdatedAt: pjokCpAnalysis.updatedAt,
 };
 const candidateAtp: ATPData = atp(
   validPjok10AtpItems.map((item, idx) => ({
@@ -489,8 +535,8 @@ const finalizeRes = prepareATPFinalization({
   atp: candidateAtp,
   tp: pjokTpData,
   academicSetting: pjokAcademicSetting,
-  cp,
-  cpAnalysis,
+  cp: pjokCp,
+  cpAnalysis: pjokCpAnalysis,
   rationale: 'Rasional alur pembelajaran PJOK Fase B',
   subject: pjokAcademicSetting.subject,
   phase: pjokAcademicSetting.phase,
@@ -503,7 +549,7 @@ assertCase(
 
 // D10. Hasil invalid tidak mengganti data ATP tersimpan
 const persistedPjokAtp = { ...candidateAtp, id: 'persisted-pjok', workflowStatus: 'SIAP' as const };
-let liveAtp = persistedPjokAtp;
+let liveAtp: ATPData = persistedPjokAtp;
 const invalidCandidateAtp = atp([
   { id: 'atp-inv-1', stepNumber: 1, linkedTpIds: ['tp-pjok-09'], focus: 'Menulis teks observasi' },
 ]);
@@ -511,8 +557,8 @@ const invalidFinalize = prepareATPFinalization({
   atp: invalidCandidateAtp,
   tp: pjokTpData,
   academicSetting: pjokAcademicSetting,
-  cp,
-  cpAnalysis,
+  cp: pjokCp,
+  cpAnalysis: pjokCpAnalysis,
   rationale: 'Rasional gagal',
   subject: pjokAcademicSetting.subject,
   phase: pjokAcademicSetting.phase,
