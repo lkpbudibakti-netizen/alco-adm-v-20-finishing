@@ -152,7 +152,7 @@ export function resolveCPContext(
 
   if (academicYear) {
     candidates = baseCandidates.filter((cp) => {
-      return isCPApplicableForAcademicYear(cp, academicYear);
+      return cp.verificationStatus !== 'SUPERSEDED' && isCPApplicableForAcademicYear(cp, academicYear);
     });
   } else {
     // Tanpa filter tahun ajaran spesifik: utamakan kandidat yang aktif dan open-ended

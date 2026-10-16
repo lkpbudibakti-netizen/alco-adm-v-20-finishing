@@ -1,5 +1,12 @@
 import { ActiveContext, CPSource, CPElem, CPVerificationStatus, normalizeCPVerificationStatus } from '../types';
-import { CP_PRESETS, CPSamplePreset } from '../data/curriculumDefaults';
+import {
+  ALL_MASTER_CP_ENTRIES,
+  MasterCPEntry,
+  resolveCPContext,
+} from '../data/curriculum/cp';
+import { CurriculumPhase, SchoolLevel } from '../data/curriculum/types';
+import { getRegulationSource } from '../data/curriculum/regulations';
+import { findSubjectByCode, findSubjectByNameOrAlias } from '../data/curriculum/subjects';
 
 export interface CPSourceSearchResult {
   id: string;
@@ -18,6 +25,8 @@ export interface CPSourceSearchResult {
   elements: CPElem[];
   sourceMeta: CPSource;
   confidenceScore: number;
+  statusReason?: string;
+  isSelectable?: boolean;
 }
 
 const ALIAS_CLUSTERS: string[][] = [
@@ -211,91 +220,116 @@ function computeSubjectRelevance(target: string, candidate: string): number {
  * Fallbacks are transparently labeled as local_reference.
  */
 class CPSourceRepository {
-  private registry: CPSamplePreset[] = [...CP_PRESETS];
+  private registry: MasterCPEntry[] = [...ALL_MASTER_CP_ENTRIES];
+
+  private normalizePhase(value?: string): CurriculumPhase | null {
+    const phase = (value || '').trim().toUpperCase().replace(/^FASE\s+/, '');
+    return ['A', 'B', 'C', 'D', 'E', 'F'].includes(phase) ? (phase as CurriculumPhase) : null;
+  }
+
+  private normalizeLevel(value?: string): SchoolLevel | null {
+    const level = (value || '').trim().toUpperCase();
+    return ['SD', 'SMP', 'SMA', 'SMK'].includes(level) ? (level as SchoolLevel) : null;
+  }
+
+  private mapMasterEntryToResult(
+    entry: MasterCPEntry,
+    context: Partial<ActiveContext>,
+    options?: { conflict?: boolean; reason?: string }
+  ): CPSourceSearchResult {
+    const subject = findSubjectByCode(entry.subjectCode);
+    const regulation = getRegulationSource(entry.regulationSourceId);
+    const status = options?.conflict
+      ? 'VERSION_CONFLICT'
+      : normalizeCPVerificationStatus(entry.verificationStatus);
+    const documentYear = regulation?.year
+      ? String(regulation.year)
+      : entry.implementationFromAcademicYear || context.academicYear || '';
+    const sourceMeta: CPSource = {
+      id: entry.id,
+      title: regulation?.title || `Capaian Pembelajaran ${subject?.name || entry.subjectCode} Fase ${entry.phase}`,
+      institution: regulation?.authority || 'Kementerian Pendidikan RI',
+      documentYear,
+      url: regulation?.sourceUrl,
+      page: entry.evidence?.[0]
+        ? [entry.evidence[0].attachment, entry.evidence[0].pageRange, entry.evidence[0].table].filter(Boolean).join(' • ')
+        : `Fase ${entry.phase}`,
+      retrievedAt: new Date().toISOString(),
+      verificationStatus: status,
+      regulationId: entry.regulationSourceId,
+      regulationIds: [entry.regulationSourceId],
+      versionCode: entry.id,
+      subjectCode: entry.subjectCode,
+      phase: entry.phase,
+      level: entry.level,
+      implementationFromAcademicYear: entry.implementationFromAcademicYear || null,
+      implementationUntilAcademicYear: entry.implementationUntilAcademicYear || null,
+    };
+
+    return {
+      id: entry.id,
+      subject: subject?.name || entry.subjectCode,
+      level: entry.level,
+      grade: context.grade || `Fase ${entry.phase}`,
+      phase: `Fase ${entry.phase}`,
+      curriculum: context.curriculum || 'Kurikulum Merdeka',
+      title: sourceMeta.title,
+      institution: sourceMeta.institution,
+      documentYear,
+      url: sourceMeta.url,
+      page: sourceMeta.page,
+      verificationStatus: status,
+      generalDescription: entry.generalDescription,
+      elements: entry.elements.map((el, elIdx) => ({
+        id: `${entry.id}-elem-${elIdx + 1}`,
+        code: `E${elIdx + 1}`,
+        name: el.name,
+        content: el.content,
+      })),
+      sourceMeta,
+      confidenceScore: options?.conflict ? 0 : 100,
+      statusReason: options?.reason,
+      isSelectable: !options?.conflict && status !== 'SUPERSEDED' && status !== 'VERSION_CONFLICT',
+    };
+  }
 
   /**
-   * Search available CP entries by ActiveContext using tolerant relevance scoring.
-   * Subject match / known aliases is the primary ranking signal.
-   * Completely unrelated subjects are filtered out by the relevance threshold.
+   * Search canonical CP entries by ActiveContext using strict subject, phase, level,
+   * academic-year, and regulation applicability from the master registry.
    */
-  public search(context: Partial<ActiveContext>): CPSourceSearchResult[] {
+  public search(context: Partial<ActiveContext>, entriesPool: MasterCPEntry[] = this.registry): CPSourceSearchResult[] {
     const rawTargetSubject = context.subject || '';
     const targetSubject = rawTargetSubject.trim();
     if (!targetSubject) {
       return [];
     }
 
-    const targetLevel = (context.level || '').trim().toLowerCase();
-    const targetPhase = (context.phase || '').trim().toLowerCase();
-    const targetGrade = (context.grade || '').trim().toLowerCase();
+    const subject = findSubjectByCode(targetSubject) || findSubjectByNameOrAlias(targetSubject);
+    if (!subject) return [];
 
-    // Minimum subject relevance required so completely unrelated subjects are not included
-    const RELEVANCE_THRESHOLD = 20;
+    const phase = this.normalizePhase(context.phase);
+    const level = this.normalizeLevel(context.level);
+    if (!phase || !level) return [];
 
-    const scoredCandidates: { item: CPSamplePreset; index: number; score: number }[] = [];
-
-    this.registry.forEach((item, index) => {
-      const subjectScore = computeSubjectRelevance(targetSubject, item.subject);
-
-      // Clearly unrelated subjects must not rank as valid results
-      // Phase/grade alone must not make an unrelated subject a match
-      if (subjectScore < RELEVANCE_THRESHOLD) {
-        return;
-      }
-
-      let score = subjectScore;
-      const itemPhase = (item.phase || '').toLowerCase();
-      const itemLevel = (item.level || '').toLowerCase();
-      const itemGrade = (item.grade || '').toLowerCase();
-
-      // Phase match (up to +25)
-      if (targetPhase && itemPhase === targetPhase) {
-        score += 25;
-      } else if (targetPhase && (itemPhase.includes(targetPhase) || targetPhase.includes(itemPhase))) {
-        score += 15;
-      }
-
-      // Level match (+15)
-      if (targetLevel && itemLevel === targetLevel) {
-        score += 15;
-      }
-
-      // Grade match (up to +10)
-      if (targetGrade && itemGrade === targetGrade) {
-        score += 10;
-      } else if (targetGrade && (itemGrade.includes(targetGrade) || targetGrade.includes(itemGrade))) {
-        score += 5;
-      }
-
-      scoredCandidates.push({ item, index, score });
+    const resolution = resolveCPContext({
+      subjectCode: subject.code,
+      phase,
+      level,
+      academicYear: context.academicYear,
+      entriesPool,
     });
 
-    // Rank best matching candidates first
-    scoredCandidates.sort((a, b) => b.score - a.score);
+    if (resolution.status === 'RESOLVED' && resolution.cp) {
+      return [this.mapMasterEntryToResult(resolution.cp, context)];
+    }
 
-    return scoredCandidates.map(({ item, index, score }) => ({
-      id: `src-${index + 1}`,
-      subject: item.subject,
-      level: item.level,
-      grade: item.grade,
-      phase: item.phase,
-      curriculum: 'Kurikulum Merdeka',
-      title: item.sourceInfo.title,
-      institution: item.sourceInfo.institution,
-      documentYear: item.sourceInfo.documentYear || '2024/2025',
-      url: item.sourceInfo.url,
-      page: item.sourceInfo.page,
-      verificationStatus: normalizeCPVerificationStatus(item.sourceInfo.verificationStatus),
-      generalDescription: item.generalDescription,
-      elements: item.elements.map((el, elIdx) => ({
-        id: `elem-${index + 1}-${elIdx + 1}`,
-        code: `E${elIdx + 1}`,
-        name: el.name,
-        content: el.content,
-      })),
-      sourceMeta: item.sourceInfo,
-      confidenceScore: score,
-    }));
+    if (resolution.status === 'AMBIGUOUS') {
+      return (resolution.candidates || []).map((entry) =>
+        this.mapMasterEntryToResult(entry, context, { conflict: true, reason: resolution.reason })
+      );
+    }
+
+    return [];
   }
 
   /**
@@ -338,6 +372,7 @@ class CPSourceRepository {
         verificationStatus: 'local_reference',
       },
       confidenceScore: 10,
+      isSelectable: true,
     };
   }
 }

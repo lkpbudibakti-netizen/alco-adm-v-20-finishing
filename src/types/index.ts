@@ -298,6 +298,11 @@ export interface CPSource {
   regulationId?: string;
   regulationIds?: string[];
   versionCode?: string;
+  subjectCode?: string;
+  phase?: string;
+  level?: string;
+  implementationFromAcademicYear?: string | null;
+  implementationUntilAcademicYear?: string | null;
 }
 
 export interface CPElem {
