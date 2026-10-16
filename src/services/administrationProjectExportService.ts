@@ -32,6 +32,34 @@ import {
   validateStorageStateV5,
 } from './storageV5';
 import { validateAdministrationProjectPackage } from './administrationProjectTransferService';
+import type { CompleteProjectArchive } from '../types/completeProjectTransfer';
+
+export function exportCompleteAdministrationProjectFromState(state: AppStorageStateV5, yearPlanId: string): CompleteProjectArchive {
+  const year = state.yearPlans.find(y => y.id === yearPlanId);
+  if (!year) throw new Error('Proyek tidak ditemukan.');
+  const project = createInitialStorageV5();
+  project.yearPlans = [year];
+  project.workspaces = state.workspaces.filter(w => w.yearPlanId === yearPlanId);
+  project.semesterPlans = state.semesterPlans.filter(s => s.yearPlanId === yearPlanId);
+  const semesterIds = new Set(project.semesterPlans.map(s => s.id));
+  project.profiles = state.profiles.filter(p => p.id === year.profileId);
+  project.schools = state.schools.filter(s => s.id === year.schoolId);
+  project.principalHistories = state.principalHistories.filter(h => h.schoolId === year.schoolId);
+  for (const key of Object.keys(state.annualData)) {
+    (project.annualData as any)[key] = (state.annualData as any)[key].filter((e: any) => e.yearPlanId === yearPlanId);
+  }
+  for (const key of Object.keys(state.semesterData)) {
+    (project.semesterData as any)[key] = (state.semesterData as any)[key].filter((e: any) => semesterIds.has(e.semesterPlanId));
+  }
+  project.annualJPReferences = state.annualJPReferences.filter(e => e.yearPlanId === yearPlanId);
+  project.semesterJPSettings = state.semesterJPSettings.filter(e => semesterIds.has(e.semesterPlanId));
+  const workspaceIds = new Set(project.workspaces.map(w => w.id));
+  project.documents = state.documents.filter(d => d.academicSettingId === yearPlanId ||
+    (d.academicSettingId && semesterIds.has(d.academicSettingId)) || (d.workspaceId && workspaceIds.has(d.workspaceId)));
+  const detached = JSON.parse(JSON.stringify(project));
+  validateStorageStateV5(detached);
+  return { kind: 'ADMINISTRATION_PROJECT', schemaVersion: '2.0', exportedAt: new Date().toISOString(), project: detached };
+}
 
 export interface AdministrationProjectExportSuccess {
   success: true;

@@ -20,6 +20,8 @@ import {
   AlertTriangle,
   FolderPlus,
   FileSpreadsheet,
+  Download,
+  Upload,
 } from 'lucide-react';
 import { TeacherProfile, SchoolData, PrincipalHistory, AdministrationWorkspace, YearPlan } from '../types';
 import { AdministrationWorkspaceV5 } from '../types/storageV5';
@@ -37,6 +39,8 @@ interface ProfileManagerProps {
   yearPlans?: YearPlan[];
   onCreateWorkspaceClick?: () => void;
   onImportProjectClick?: () => void;
+  onImportCompleteProjectClick?: () => void;
+  onExportCompleteProject?: (yearPlanId: string) => void;
   onSelectProfile: (id: string) => void;
   onSaveProfile: (profile: TeacherProfile, isCreate?: boolean) => boolean | void;
   onDeleteProfile: (id: string) => void;
@@ -60,6 +64,8 @@ export const ProfileManager: React.FC<ProfileManagerProps> = ({
   yearPlans = [],
   onCreateWorkspaceClick,
   onImportProjectClick,
+  onImportCompleteProjectClick,
+  onExportCompleteProject,
   onSelectProfile,
   onSaveProfile,
   onDeleteProfile,
@@ -989,6 +995,10 @@ export const ProfileManager: React.FC<ProfileManagerProps> = ({
           </div>
 
           <div className="flex items-center gap-2 self-start sm:self-auto flex-wrap">
+            {onImportCompleteProjectClick && <button type="button" onClick={onImportCompleteProjectClick}
+              disabled={!activeProfile} className="inline-flex items-center gap-2 border px-3 py-2 rounded-lg text-sm disabled:opacity-40">
+              <Upload size={16} />Import Proyek (.zip)
+            </button>}
             {onImportProjectClick && (
               <button
                 id="btn-import-annual-workspace"
@@ -1116,6 +1126,11 @@ export const ProfileManager: React.FC<ProfileManagerProps> = ({
                   </div>
 
                   <div className="text-xs text-slate-500 space-y-1 pt-2 border-t border-slate-100">
+                    {isSelected && yearPlan && onExportCompleteProject && <button type="button"
+                      className="inline-flex items-center gap-2 border px-3 py-2 rounded-lg text-sm text-blue-800"
+                      onClick={e => { e.stopPropagation(); onExportCompleteProject(yearPlan.id); }}>
+                      <Download size={16} />Export Proyek Lengkap
+                    </button>}
                     <div className="flex items-center justify-between">
                       <span className="text-slate-400">Tahun Ajaran:</span>
                       <span className="font-semibold text-slate-700">{yearPlan?.academicYear || '-'}</span>

@@ -88,6 +88,8 @@ import { validateSubjectWeeklySchedule } from './services/subjectScheduleService
 import { Header } from './components/Header';
 import { WorkflowStepper } from './components/WorkflowStepper';
 import { ProfileManager } from './components/ProfileManager';
+import { CompleteProjectImportModal } from './components/CompleteProjectImportModal';
+import { downloadCompleteProjectZip } from './services/completeProjectZipService';
 import { AcademicSettings } from './components/AcademicSettings';
 import { CPManager } from './components/CPManager';
 import { CPAnalysisManager } from './components/CPAnalysisManager';
@@ -128,6 +130,7 @@ export function App() {
   const [isBackupModalOpen, setIsBackupModalOpen] = useState(false);
   const [isNewWorkspaceModalOpen, setIsNewWorkspaceModalOpen] = useState(false);
   const [isImportProjectModalOpen, setIsImportProjectModalOpen] = useState(false);
+  const [isCompleteProjectImportOpen, setIsCompleteProjectImportOpen] = useState(false);
   const [appNotice, setAppNotice] = useState<{ type: 'error' | 'warning' | 'info'; message: string } | null>(null);
 
   // New Workspace form state (Canonical Merdeka Annual Hierarchy - No Semester)
@@ -1579,6 +1582,11 @@ export function App() {
               yearPlans={yearPlansForActiveProfile || []}
               onCreateWorkspaceClick={openNewWorkspaceModal}
               onImportProjectClick={() => setIsImportProjectModalOpen(true)}
+              onImportCompleteProjectClick={() => setIsCompleteProjectImportOpen(true)}
+              onExportCompleteProject={async (yearPlanId) => {
+                try { await downloadCompleteProjectZip(loadStorageV5(), yearPlanId); }
+                catch (error) { setAppNotice({ type: 'error', message: error instanceof Error ? error.message : String(error) }); }
+              }}
               onSelectProfile={handleSelectProfile}
               onSaveProfile={handleSaveProfile}
               onDeleteProfile={handleDeleteProfile}
@@ -2015,6 +2023,11 @@ export function App() {
       )}
 
       {/* Backup / Restore JSON Modal */}
+      {isCompleteProjectImportOpen && <CompleteProjectImportModal state={v5State}
+        onClose={() => setIsCompleteProjectImportOpen(false)} onSuccess={() => {
+          refreshV5(); setIsCompleteProjectImportOpen(false); setCurrentStep('academic');
+          setAppNotice({ type: 'info', message: 'Proyek lengkap berhasil diimpor. Tinjau kesiapan dan waktu pada profil tujuan.' });
+        }} />}
       <BackupModal
         isOpen={isBackupModalOpen}
         onClose={() => setIsBackupModalOpen(false)}

@@ -40,6 +40,282 @@ import {
 } from './storageV5';
 import { validateAdministrationProjectPackage } from './administrationProjectTransferService';
 import { validateAssessmentPackage } from './assessmentPackageService';
+import type { CompleteProjectArchive, CompleteProjectImportOptions } from '../types/completeProjectTransfer';
+import { validateATPUnitMappingCanonical } from './atpUnitMappingValidationService';
+import { validateUnitExecutionPlan } from './unitExecutionPlanService';
+import { resolveSemesterJPFromState } from './semesterJPResolver';
+import { validateLearningMeetingScheduleData } from './learningMeetingScheduleService';
+import { validateCalendarCompleteness } from './jpEngine';
+import { validateSubjectWeeklySchedule } from './subjectScheduleService';
+import { validateCPDataWorkflow, validateCPAnalysisDataWorkflow, validateTPDataWorkflow, validateATPDataWorkflow } from './cpWorkflowService';
+
+const cloneProject = <T,>(value: T): T => JSON.parse(JSON.stringify(value));
+const externalProjectFields = new Set(['source', 'evidence', 'snapshot', 'regulationSources', 'curriculumLock']);
+
+function visitProject(value: any, visit: (node: any) => void) {
+  if (!value || typeof value !== 'object') return;
+  visit(value);
+  for (const [key, child] of Object.entries(value)) if (!externalProjectFields.has(key)) visitProject(child, visit);
+}
+
+export function validateCompleteProjectArchive(value: unknown): CompleteProjectArchive {
+  const archive = cloneProject(value) as CompleteProjectArchive;
+  if (archive?.kind !== 'ADMINISTRATION_PROJECT' || archive.schemaVersion !== '2.0') {
+    throw new Error('Format proyek lengkap tidak didukung (diperlukan versi 2.0).');
+  }
+  const state = validateStorageStateV5(archive.project);
+  if (state.yearPlans.length !== 1 || state.profiles.length !== 1 || state.schools.length !== 1) {
+    throw new Error('Arsip harus berisi tepat satu proyek dan pemilik asalnya.');
+  }
+  const known = createInitialStorageV5();
+  for (const scope of ['annualData', 'semesterData'] as const) {
+    for (const key of Object.keys(state[scope])) {
+      if (!Object.hasOwn(known[scope], key)) throw new Error(`Koleksi proyek belum didukung: ${scope}.${key}`);
+    }
+  }
+  const definedIds = new Set<string>();
+  const entities = [
+    ...state.yearPlans, ...state.workspaces, ...state.semesterPlans,
+    ...state.annualData.cp.flatMap(e => [e.value, ...e.value.elements]),
+    ...state.annualData.cpAnalysis.flatMap(e => [e.value, ...e.value.items]),
+    ...state.annualData.tp.flatMap(e => [e.value, ...e.value.items]),
+    ...state.annualData.atp.flatMap(e => [e.value, ...e.value.items]),
+    ...(state.annualData.atpUnitMappings || []).flatMap(e => [e.value, ...e.value.units.flatMap(u => [u, ...u.materials])]),
+    ...(state.annualData.unitExecutionPlans || []).flatMap(e => [e.value, ...e.value.units.flatMap(u => u.meetings)]),
+    ...state.semesterData.learningPlan.flatMap(e => e.value),
+    ...state.semesterData.assessmentCriteria.flatMap(e => e.value),
+    ...state.semesterData.assessmentPlan.flatMap(e => e.value),
+    ...state.semesterData.assessmentPackage.flatMap(e => e.value),
+  ];
+  for (const node of entities) {
+    if (typeof node.id !== 'string' || !node.id.trim()) throw new Error('Entity proyek tidak memiliki ID valid.');
+    if (definedIds.has(node.id)) throw new Error(`Konflik ID di dalam arsip proyek: ${node.id}`);
+    definedIds.add(node.id);
+  }
+  const cpIds = new Set(state.annualData.cp.map(e => e.value.id));
+  const elementIds = new Set(state.annualData.cp.flatMap(e => e.value.elements.map(i => i.id)));
+  const analysisIds = new Set(state.annualData.cpAnalysis.map(e => e.value.id));
+  const analysisItemIds = new Set(state.annualData.cpAnalysis.flatMap(e => e.value.items.map(i => i.id)));
+  const tpIds = new Set(state.annualData.tp.flatMap(e => e.value.items.map(i => i.id)));
+  const atpIds = new Set(state.annualData.atp.flatMap(e => e.value.items.map(i => i.id)));
+  const units = (state.annualData.atpUnitMappings || []).flatMap(e => e.value.units);
+  const unitIds = new Set(units.map(u => u.id));
+  const materialIds = new Set(units.flatMap(u => u.materials.map(m => m.id)));
+  const meetingIds = new Set((state.annualData.unitExecutionPlans || []).flatMap(e => e.value.units.flatMap(u => u.meetings.map(m => m.id))));
+  const referenceSets: Record<string, Set<string>> = {
+    linkedTpIds: tpIds, tpIds, linkedAtpItemIds: atpIds, atpItemIds: atpIds,
+    unitId: unitIds, materialIds, meetingId: meetingIds,
+    meetingIds, unresolvedMeetingIds: meetingIds,
+    atpItemId: atpIds, objectiveRefId: tpIds,
+    tpId: new Set([...tpIds, ...state.annualData.tp.map(e => e.value.id)]),
+    criterionIds: new Set(state.semesterData.assessmentCriteria.flatMap(e => e.value.map(i => i.id))),
+    kktpCriterionIds: new Set(state.semesterData.assessmentCriteria.flatMap(e => e.value.map(i => i.id))),
+    criterionId: new Set(state.semesterData.assessmentCriteria.flatMap(e => e.value.map(i => i.id))),
+    learningPlanIds: new Set(state.semesterData.learningPlan.flatMap(e => e.value.map(i => i.id))),
+    assessmentPlanId: new Set(state.semesterData.assessmentPlan.flatMap(e => e.value.map(i => i.id))),
+    academicCalendarId: new Set(state.semesterData.academicCalendar.map(e => e.value.calendar.id)),
+    cpAnalysisItemIds: analysisItemIds, elementId: elementIds,
+    tpDataId: new Set(state.annualData.tp.map(e => e.value.id)),
+    atpId: new Set(state.annualData.atp.map(e => e.value.id)),
+    mappingId: new Set((state.annualData.atpUnitMappings || []).map(e => e.value.id)),
+  };
+  visitProject([state.annualData, state.semesterData], node => {
+    for (const [key, ids] of Object.entries(referenceSets)) {
+      if (node[key] === undefined || node[key] === null) continue;
+      const refs = Array.isArray(node[key]) ? node[key] : [node[key]];
+      for (const id of refs) if (!ids.has(id)) throw new Error(`Relasi proyek tidak ditemukan: ${key} [${id}].`);
+    }
+  });
+  const checkRef = (id: string | undefined, ids: Set<string>, path: string) => {
+    if (id && !ids.has(id)) throw new Error(`Relasi proyek tidak ditemukan: ${path} [${id}].`);
+  };
+  for (const e of state.annualData.cpAnalysis) checkRef(e.value.cpId, cpIds, 'cpAnalysis.cpId');
+  for (const e of state.annualData.tp) {
+    checkRef(e.value.cpId, cpIds, 'tp.cpId');
+    checkRef(e.value.cpAnalysisId, analysisIds, 'tp.cpAnalysisId');
+  }
+  for (const e of state.annualData.atp) for (const item of e.value.items) checkRef(item.tpId, tpIds, 'atp.tpId');
+  for (const e of state.semesterData.assessmentCriteria) for (const criterion of e.value) checkRef(criterion.tpId, tpIds, 'criterion.tpId');
+  for (const semester of state.semesterPlans) {
+    const criteria = new Set(state.semesterData.assessmentCriteria.find(e => e.semesterPlanId === semester.id)?.value.map(i => i.id) || []);
+    const plans = new Set(state.semesterData.learningPlan.find(e => e.semesterPlanId === semester.id)?.value.map(i => i.id) || []);
+    const assessments = new Set(state.semesterData.assessmentPlan.find(e => e.semesterPlanId === semester.id)?.value.map(i => i.id) || []);
+    const semesterRefs: Record<string, Set<string>> = { criterionId: criteria, criterionIds: criteria, kktpCriterionIds: criteria,
+      learningPlanIds: plans, assessmentPlanId: assessments };
+    const values = Object.values(state.semesterData).flatMap(entries => entries.filter(e => e.semesterPlanId === semester.id));
+    visitProject(values, node => {
+      for (const [key, ids] of Object.entries(semesterRefs)) {
+        const refs = node[key] == null ? [] : Array.isArray(node[key]) ? node[key] : [node[key]];
+        for (const id of refs) checkRef(id, ids, `semester ${semester.semester}.${key}`);
+      }
+    });
+  }
+  const mapping = state.annualData.atpUnitMappings?.[0]?.value;
+  const tp = state.annualData.tp[0]?.value;
+  const atp = state.annualData.atp[0]?.value;
+  const execution = state.annualData.unitExecutionPlans?.[0]?.value;
+  if (mapping && tp && atp) {
+    const checked = validateATPUnitMappingCanonical(mapping, atp, tp);
+    if (!checked.isValid) throw new Error(`Lineage Bab/Materi invalid: ${checked.issues.join('; ')}`);
+  }
+  if (execution && mapping) {
+    const checked = validateUnitExecutionPlan(execution, mapping, atp, tp);
+    if (!checked.isValid) throw new Error(`Lineage pertemuan invalid: ${checked.errors.join('; ')}`);
+  }
+  return archive;
+}
+
+/** Pure preparation is used by preview and commit; no writes until every check succeeds. */
+export function prepareCompleteAdministrationProjectImport(current: AppStorageStateV5, value: unknown,
+  options: CompleteProjectImportOptions) {
+  const archive = validateCompleteProjectArchive(value);
+  if (options.mode !== 'RESTORE' && options.mode !== 'COPY') throw new Error('Mode import tidak dikenal.');
+  const source = archive.project;
+  const sourceYear = source.yearPlans[0];
+  const profile = current.profiles.find(p => p.id === options.targetProfileId);
+  const school = current.schools.find(s => s.id === options.targetSchoolId);
+  if (!profile || !school || profile.schoolId !== school.id) throw new Error('Profil dan sekolah tujuan tidak sesuai.');
+  if (options.mode === 'RESTORE' && (profile.id !== sourceYear.profileId || school.id !== sourceYear.schoolId)) {
+    throw new Error('Pemulihan memerlukan profil/sekolah asal. Gunakan Salin ke Profil Lain untuk tujuan berbeda.');
+  }
+  const next = cloneProject(current);
+  const conflict = next.yearPlans.find(y => y.profileId === profile.id && y.schoolId === school.id &&
+    y.academicYear === sourceYear.academicYear && y.grade === sourceYear.grade &&
+    (y.classSection || '') === (sourceYear.classSection || '') && y.subject.toLowerCase().trim() === sourceYear.subject.toLowerCase().trim());
+  if (conflict && (options.mode !== 'RESTORE' || options.replaceYearPlanId !== conflict.id || conflict.id !== sourceYear.id)) {
+    throw new Error(`Konflik proyek: ${conflict.subject} / ${conflict.grade} / ${conflict.academicYear} (${conflict.id}).`);
+  }
+  if (options.replaceYearPlanId && options.replaceYearPlanId !== conflict?.id) throw new Error('Persetujuan penimpaan tidak sesuai proyek konflik.');
+  if (conflict) {
+    const semesterIds = new Set(next.semesterPlans.filter(s => s.yearPlanId === conflict.id).map(s => s.id));
+    const wsIds = new Set(next.workspaces.filter(w => w.yearPlanId === conflict.id).map(w => w.id));
+    next.yearPlans = next.yearPlans.filter(y => y.id !== conflict.id);
+    next.workspaces = next.workspaces.filter(w => !wsIds.has(w.id));
+    next.semesterPlans = next.semesterPlans.filter(s => !semesterIds.has(s.id));
+    for (const key of Object.keys(next.annualData)) (next.annualData as any)[key] = (next.annualData as any)[key].filter((e: any) => e.yearPlanId !== conflict.id);
+    for (const key of Object.keys(next.semesterData)) (next.semesterData as any)[key] = (next.semesterData as any)[key].filter((e: any) => !semesterIds.has(e.semesterPlanId));
+    next.annualJPReferences = next.annualJPReferences.filter(e => e.yearPlanId !== conflict.id);
+    next.semesterJPSettings = next.semesterJPSettings.filter(e => !semesterIds.has(e.semesterPlanId));
+    next.documents = next.documents.filter(d => !wsIds.has(d.workspaceId || '') && d.academicSettingId !== conflict.id && !semesterIds.has(d.academicSettingId || ''));
+  }
+  const occupied = new Set<string>();
+  visitProject(next, n => { if (typeof n.id === 'string') occupied.add(n.id); });
+  const idMap = new Map<string, string>([[sourceYear.profileId, profile.id], [sourceYear.schoolId, school.id]]);
+  const graph = { yearPlans: source.yearPlans, workspaces: source.workspaces, semesterPlans: source.semesterPlans,
+    annualJPReferences: source.annualJPReferences, semesterJPSettings: source.semesterJPSettings,
+    annualData: source.annualData, semesterData: source.semesterData, documents: source.documents };
+  visitProject(graph, node => {
+    if (typeof node.id !== 'string' || idMap.has(node.id)) return;
+    if (options.mode === 'RESTORE') {
+      if (occupied.has(node.id)) throw new Error(`Konflik ID dengan proyek existing: ${node.id}`);
+      idMap.set(node.id, node.id);
+    } else {
+      let id: string;
+      do { id = `transfer-${crypto.randomUUID()}`; } while (occupied.has(id));
+      occupied.add(id);
+      idMap.set(node.id, id);
+    }
+  });
+  const remap = (node: any, key = ''): any => {
+    if (externalProjectFields.has(key)) return cloneProject(node);
+    if (typeof node === 'string') {
+      if (idMap.has(node)) return idMap.get(node);
+      if (/Fingerprint$/i.test(key)) {
+        try { return JSON.stringify(remap(JSON.parse(node))); } catch { return node; }
+      }
+      return node;
+    }
+    if (Array.isArray(node)) return node.map(v => remap(v));
+    if (node && typeof node === 'object') return Object.fromEntries(Object.entries(node).map(([k, v]) => [k, remap(v, k)]));
+    return node;
+  };
+  const imported = remap(graph) as typeof graph;
+  const year = imported.yearPlans[0];
+  const warnings: string[] = [];
+  if (options.mode === 'COPY') {
+    // Source calendars remain inspectable; dated schedules and confirmations need target-school review.
+    warnings.push('Kalender, JP, pola jadwal, dan alokasi waktu disalin sebagai rujukan; konfirmasi ulang pada sekolah tujuan.');
+    for (const entry of imported.semesterData.academicCalendar) {
+      entry.value.calendar.workflowStatus = 'UNRESOLVED';
+      entry.value.calendar.reviewStatus = 'UNREVIEWED';
+      entry.value.calendar.confirmedAt = undefined;
+      entry.value.calendar.reviewedAt = undefined;
+      entry.value.calendar.actionableMessage = 'Tinjau kalender sekolah tujuan dan konfirmasi ulang setelah penyalinan proyek.';
+    }
+    for (const entry of imported.semesterData.learningMeetingSchedules || []) {
+      entry.value.status = 'DRAFT';
+      entry.value.unresolvedMeetingIds = Array.from(new Set([...entry.value.unresolvedMeetingIds, ...entry.value.entries.map(e => e.meetingId)]));
+      entry.value.entries = [];
+    }
+    for (const entry of imported.semesterData.learningPlan) for (const plan of entry.value) {
+      plan.status = 'DRAFT'; plan.confirmedAt = undefined;
+    }
+    for (const entry of imported.semesterData.assessmentPlan) for (const plan of entry.value) {
+      plan.confirmedAt = undefined;
+      plan.workflowStatus = 'DRAFT';
+      plan.needsReview = true;
+    }
+    for (const entry of imported.semesterData.assessmentPackage) for (const pkg of entry.value) {
+      pkg.workflowStatus = 'DRAFT';
+      pkg.needsReview = true;
+      pkg.reviewReason = [pkg.reviewReason, 'Tinjau perangkat asesmen pada profil/sekolah tujuan setelah import.'].filter(Boolean).join(' ');
+    }
+    for (const doc of imported.documents) { doc.status = 'draft'; delete doc.snapshot; }
+  }
+  next.yearPlans.push(...imported.yearPlans);
+  next.workspaces.push(...imported.workspaces);
+  next.semesterPlans.push(...imported.semesterPlans);
+  next.annualJPReferences.push(...imported.annualJPReferences);
+  next.semesterJPSettings.push(...imported.semesterJPSettings);
+  for (const key of Object.keys(imported.annualData)) ((next.annualData as any)[key] ||= []).push(...(imported.annualData as any)[key]);
+  for (const key of Object.keys(imported.semesterData)) ((next.semesterData as any)[key] ||= []).push(...(imported.semesterData as any)[key]);
+  next.documents.push(...imported.documents);
+  next.activeProfileId = profile.id; next.activeYearPlanId = year.id;
+  next.activeWorkspaceId = imported.workspaces[0]?.id; next.activeSemesterPlanId = imported.semesterPlans[0]?.id;
+  validateStorageStateV5(next);
+  const mapping = imported.annualData.atpUnitMappings?.[0]?.value;
+  const execution = imported.annualData.unitExecutionPlans?.[0]?.value;
+  const cp = imported.annualData.cp[0]?.value;
+  const analysis = imported.annualData.cpAnalysis[0]?.value;
+  const tp = imported.annualData.tp[0]?.value;
+  const atp = imported.annualData.atp[0]?.value;
+  if (cp) { const check = validateCPDataWorkflow(cp, year); cp.workflowStatus = check.status; warnings.push(...check.issues); }
+  if (analysis) { const check = validateCPAnalysisDataWorkflow(analysis, cp); analysis.workflowStatus = check.status; warnings.push(...check.issues); }
+  if (tp) { const check = validateTPDataWorkflow(tp, cp, analysis); tp.workflowStatus = check.status; warnings.push(...check.issues); }
+  if (atp) { const check = validateATPDataWorkflow(atp, tp, undefined, cp, analysis); atp.workflowStatus = check.status; warnings.push(...check.issues); }
+  if (mapping) warnings.push(...validateATPUnitMappingCanonical(mapping, imported.annualData.atp[0]?.value, imported.annualData.tp[0]?.value).issues);
+  if (mapping && execution) warnings.push(...validateUnitExecutionPlan(execution, mapping, imported.annualData.atp[0]?.value, imported.annualData.tp[0]?.value).errors);
+  for (const semester of imported.semesterPlans) {
+    const jp = resolveSemesterJPFromState(semester.id, next).weeklyJP;
+    const calendar = imported.semesterData.academicCalendar.find(e => e.semesterPlanId === semester.id)?.value;
+    const weekly = imported.semesterData.subjectWeeklySchedules?.find(e => e.semesterPlanId === semester.id)?.value;
+    const schedule = imported.semesterData.learningMeetingSchedules?.find(e => e.semesterPlanId === semester.id)?.value;
+    if (!jp || !calendar || !weekly) warnings.push(`Semester ${semester.semester}: kalender/JP/jadwal mingguan belum lengkap.`);
+    if (calendar) {
+      const checked = validateCalendarCompleteness(calendar.calendar, calendar.days);
+      if (!checked.complete) {
+        warnings.push(`Semester ${semester.semester}: ${checked.diagnostic}`);
+        calendar.calendar.workflowStatus = 'UNRESOLVED';
+        calendar.calendar.confirmedAt = undefined;
+      }
+    }
+    if (weekly) warnings.push(...validateSubjectWeeklySchedule(weekly, jp).errors);
+    if (schedule && mapping && execution && calendar && weekly && jp) {
+      const checked = validateLearningMeetingScheduleData({ data: schedule, semester: semester.semester, mapping,
+        unitExecutionPlan: execution, subjectWeeklySchedule: weekly, expectedWeeklyJP: jp, calendar: calendar.calendar, calendarDays: calendar.days });
+      warnings.push(...checked.errors);
+      if (!checked.isValid || checked.isStale) schedule.status = 'DRAFT';
+    }
+  }
+  return { state: next, yearPlanId: year.id, warnings: Array.from(new Set(warnings)) };
+}
+
+export function importCompleteAdministrationProject(value: unknown, options: CompleteProjectImportOptions,
+  persist: (state: AppStorageStateV5) => void = saveStorageV5) {
+  const prepared = prepareCompleteAdministrationProjectImport(loadStorageV5(), value, options);
+  persist(prepared.state);
+  return prepared;
+}
 
 export interface AdministrationProjectImportParams {
   package: AdministrationProjectPackage;
