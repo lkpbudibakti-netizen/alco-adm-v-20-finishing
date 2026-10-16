@@ -835,7 +835,7 @@ function normalizeAIAssessmentItems(rawItems: any, type: AssessmentPlanItem['typ
     const technique = typeof item.technique === 'string' ? item.technique.trim() : undefined;
     const method = typeof item.method === 'string' ? item.method.trim() : undefined;
     const instrument = typeof item.instrument === 'string' ? item.instrument.trim() : undefined;
-    if (!description && !technique && !method && !instrument) continue;
+    if (!description) continue;
     results.push({
       id: `asm-${type.toLowerCase()}-${results.length + 1}-${Date.now().toString(36)}`,
       type,
@@ -844,7 +844,7 @@ function normalizeAIAssessmentItems(rawItems: any, type: AssessmentPlanItem['typ
       technique,
       instrument,
       learningMeetingId: typeof item.learningMeetingId === 'string' && item.learningMeetingId.trim() ? item.learningMeetingId.trim() : undefined,
-      description: description || technique || method || instrument,
+      description,
     });
   }
   return results;

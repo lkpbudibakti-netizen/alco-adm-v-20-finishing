@@ -3234,7 +3234,16 @@ function normalizeExperiencePhase(phase: any): 'UNDERSTAND' | 'APPLY' | 'REFLECT
 }
 
 // Runtime validator for AI Learning Plan response
-function validateAILearningPlanPayload(data: any): { isValid: boolean; reason?: string } {
+export function isPedagogicalItemValid(item: any): boolean {
+  return Boolean(
+    item &&
+    typeof item === 'object' &&
+    typeof item.description === 'string' &&
+    item.description.trim().length > 0
+  );
+}
+
+export function validateAILearningPlanPayload(data: any): { isValid: boolean; reason?: string } {
   if (!data || typeof data !== 'object' || Array.isArray(data)) {
     return { isValid: false, reason: 'Payload AI bukan berupa objek valid' };
   }
@@ -3291,14 +3300,6 @@ function validateAILearningPlanPayload(data: any): { isValid: boolean; reason?: 
     return { isValid: false, reason: 'Rencana Asesmen (assessmentPlan) wajib berupa objek' };
   }
 
-  const isPedagogicalItemValid = (item: any) =>
-    item &&
-    typeof item === 'object' &&
-    ((typeof item.description === 'string' && item.description.trim().length > 0) ||
-      (typeof item.technique === 'string' && item.technique.trim().length > 0) ||
-      (typeof item.method === 'string' && item.method.trim().length > 0) ||
-      (typeof item.instrument === 'string' && item.instrument.trim().length > 0));
-
   const initialItems = Array.isArray(data.assessmentPlan.initial)
     ? data.assessmentPlan.initial.filter(isPedagogicalItemValid)
     : [];
@@ -3341,6 +3342,234 @@ function validateAILearningPlanPayload(data: any): { isValid: boolean; reason?: 
 
   return { isValid: true };
 }
+
+export function getFailedAssessmentGroups(data: any): string[] {
+  const failedGroups: string[] = [];
+  if (!data || typeof data !== 'object' || Array.isArray(data)) {
+    failedGroups.push('Format JSON Modul Ajar');
+    return failedGroups;
+  }
+  if (!data.assessmentPlan || typeof data.assessmentPlan !== 'object' || Array.isArray(data.assessmentPlan)) {
+    failedGroups.push('Struktur assessmentPlan (wajib objek dengan initial, formative, summative)');
+    return failedGroups;
+  }
+  const initialItems = Array.isArray(data.assessmentPlan.initial)
+    ? data.assessmentPlan.initial.filter(isPedagogicalItemValid)
+    : [];
+  const formativeItems = Array.isArray(data.assessmentPlan.formative)
+    ? data.assessmentPlan.formative.filter(isPedagogicalItemValid)
+    : [];
+  const summativeItems = Array.isArray(data.assessmentPlan.summative)
+    ? data.assessmentPlan.summative.filter(isPedagogicalItemValid)
+    : [];
+
+  if (initialItems.length === 0) failedGroups.push('initial (Asesmen Diagnostik Awal)');
+  if (formativeItems.length === 0) failedGroups.push('formative (Asesmen Formatif)');
+  if (summativeItems.length === 0) failedGroups.push('summative (Asesmen Sumatif)');
+
+  return failedGroups;
+}
+
+export function buildLearningPlanRepairPrompt(params: {
+  parsed: any;
+  validationReason?: string;
+  failedGroups: string[];
+  topic?: string;
+  tps: any[];
+  meetings?: any[];
+  canonicalAllocatedJP?: number;
+}): string {
+  const { parsed, validationReason, failedGroups, topic, tps, meetings, canonicalAllocatedJP } = params;
+  return `PERINGATAN PERBAIKAN STRUKTUR MODUL AJAR:
+Hasil keluaran sebelumnya tidak memenuhi syarat validasi pedagogis Modul Ajar Kurikulum Merdeka.
+Alasan kegagalan: "${validationReason || 'Rencana Asesmen tidak lengkap'}"
+${failedGroups.length > 0 ? `Kelompok asesmen yang gagal/kosong: ${failedGroups.join(', ')}.` : ''}
+
+INSTRUKSI PERBAIKAN (WAJIB DIPATUHI SECARA MUTLAK):
+1. Perbaiki dan lengkapi bagian Rencana Asesmen (assessmentPlan):
+   - Wajib memiliki 'initial' (minimal 1 butir item dengan description tidak kosong).
+   - Wajib memiliki 'formative' (minimal 1 butir item dengan description tidak kosong).
+   - Wajib memiliki 'summative' (minimal 1 butir item dengan description tidak kosong).
+   - Setiap butir asesmen WAJIB memiliki 'description' yang spesifik, operasional, dan relevan dengan TP/materi, bukan teks generik. Sertakan juga 'technique' dan 'instrument'.
+2. PERTAHANKAN seluruh data asli yang sudah ada:
+   - Judul & Topik Bab: ${topic || tps[0]?.contentScope || tps[0]?.statement || 'Topik Pembelajaran'}
+   - Rujukan TP (${tps.length} butir) dan ATP
+   - Struktur ${meetings && meetings.length > 0 ? `${meetings.length} pertemuan` : 'pertemuan kanonikal'}
+   - Acuan KKTP jika tersedia
+   - Pengalaman Belajar (UNDERSTAND, APPLY, REFLECT)
+   - Alokasi waktu kanonikal: ${canonicalAllocatedJP ? `${canonicalAllocatedJP} JP` : 'tetap sesuai rancangan'}
+3. JANGAN menghasilkan asesmen fiktif, JANGAN mengosongkan kelompok asesmen '${failedGroups.join(', ') || 'apapun'}', dan JANGAN menggunakan placeholder generik.
+
+Draft JSON sebelumnya yang memerlukan perbaikan:
+${JSON.stringify(parsed || {}, null, 2)}
+
+Kembalikan dokumen JSON Modul Ajar lengkap yang telah diperbaiki sesuai schema yang valid.`;
+}
+
+export const learningPlanResponseSchema = {
+  type: Type.OBJECT,
+  required: [
+    'learningExperiences',
+    'initialCompetency',
+    'graduateProfileDimensions',
+    'resources',
+    'learningModel',
+    'assessmentPlan',
+  ],
+  properties: {
+    title: { type: Type.STRING },
+    topic: { type: Type.STRING },
+    initialCompetency: { type: Type.STRING, description: 'Kompetensi awal atau prasyarat pembelajaran' },
+    graduateProfileDimensions: {
+      type: Type.ARRAY,
+      items: { type: Type.STRING },
+      description: '2-4 Dimensi Profil Lulusan kanonikal yang relevan',
+    },
+    learningModel: { type: Type.STRING, description: 'Model atau praktik pembelajaran kontekstual' },
+    resources: {
+      type: Type.ARRAY,
+      items: {
+        type: Type.OBJECT,
+        properties: {
+          title: { type: Type.STRING },
+        },
+        required: ['title'],
+      },
+      description: 'Daftar sarana dan prasarana / sumber belajar',
+    },
+    meaningfulUnderstanding: { type: Type.STRING },
+    triggerQuestions: { type: Type.ARRAY, items: { type: Type.STRING } },
+    learningExperiences: {
+      type: Type.ARRAY,
+      items: {
+        type: Type.OBJECT,
+        properties: {
+          phase: { type: Type.STRING, description: 'MUST be UNDERSTAND, APPLY, or REFLECT' },
+          description: { type: Type.STRING },
+          durationMinutes: { type: Type.NUMBER },
+        },
+        required: ['phase', 'description'],
+      },
+    },
+    deepLearningContext: {
+      type: Type.OBJECT,
+      properties: {
+        principles: { type: Type.ARRAY, items: { type: Type.STRING } },
+        graduateProfileDimensions: { type: Type.ARRAY, items: { type: Type.STRING } },
+      },
+    },
+    learningSteps: {
+      type: Type.OBJECT,
+      properties: {
+        opening: {
+          type: Type.ARRAY,
+          items: {
+            type: Type.OBJECT,
+            properties: {
+              stepName: { type: Type.STRING },
+              description: { type: Type.STRING },
+              durationMinutes: { type: Type.NUMBER },
+            },
+          },
+        },
+        core: {
+          type: Type.ARRAY,
+          items: {
+            type: Type.OBJECT,
+            properties: {
+              stepName: { type: Type.STRING },
+              description: { type: Type.STRING },
+              durationMinutes: { type: Type.NUMBER },
+            },
+          },
+        },
+        closing: {
+          type: Type.ARRAY,
+          items: {
+            type: Type.OBJECT,
+            properties: {
+              stepName: { type: Type.STRING },
+              description: { type: Type.STRING },
+              durationMinutes: { type: Type.NUMBER },
+            },
+          },
+        },
+      },
+    },
+    assessmentPlan: {
+      type: Type.OBJECT,
+      description: 'Rencana Asesmen autentik memuat asesmen awal, formatif, dan sumatif',
+      required: ['initial', 'formative', 'summative'],
+      properties: {
+        initial: {
+          type: Type.ARRAY,
+          minItems: 1,
+          description: 'Minimal 1 butir asesmen diagnostik awal pembelajaran yang relevan dengan TP',
+          items: {
+            type: Type.OBJECT,
+            required: ['description'],
+            properties: {
+              type: { type: Type.STRING },
+              technique: { type: Type.STRING },
+              method: { type: Type.STRING },
+              instrument: { type: Type.STRING },
+              description: { type: Type.STRING, description: 'Deskripsi operasional spesifik asesmen awal' },
+            },
+          },
+        },
+        formative: {
+          type: Type.ARRAY,
+          minItems: 1,
+          description: 'Minimal 1 butir asesmen formatif proses belajar spesifik terhadap aktivitas dan KKTP',
+          items: {
+            type: Type.OBJECT,
+            required: ['description'],
+            properties: {
+              type: { type: Type.STRING },
+              technique: { type: Type.STRING },
+              method: { type: Type.STRING },
+              instrument: { type: Type.STRING },
+              description: { type: Type.STRING, description: 'Deskripsi operasional spesifik asesmen formatif' },
+            },
+          },
+        },
+        summative: {
+          type: Type.ARRAY,
+          minItems: 1,
+          description: 'Minimal 1 butir asesmen sumatif lingkup materi/akhir bab spesifik terhadap capaian TP',
+          items: {
+            type: Type.OBJECT,
+            required: ['description'],
+            properties: {
+              type: { type: Type.STRING },
+              technique: { type: Type.STRING },
+              method: { type: Type.STRING },
+              instrument: { type: Type.STRING },
+              description: { type: Type.STRING, description: 'Deskripsi operasional spesifik asesmen sumatif' },
+            },
+          },
+        },
+      },
+    },
+    differentiation: {
+      type: Type.OBJECT,
+      properties: {
+        content: { type: Type.STRING },
+        process: { type: Type.STRING },
+        product: { type: Type.STRING },
+      },
+    },
+    reflection: {
+      type: Type.OBJECT,
+      properties: {
+        teacherReflection: { type: Type.STRING },
+        studentReflection: { type: Type.STRING },
+      },
+    },
+    enrichmentPlan: { type: Type.STRING },
+    remedialPlan: { type: Type.STRING },
+  },
+};
 
 // Endpoint: AI Generate Learning Plan (Modul Ajar DRAFT)
 app.post('/api/ai/generate-learning-plan', async (req, res) => {
@@ -3464,7 +3693,12 @@ INSTRUKSI KEGIATAN & ASESMEN:
 5. Susun Pengalaman Belajar (learningExperiences) dengan struktur 3 fase utama (UNDERSTAND, APPLY, REFLECT) sesuai panduan 2026. Nilai properti "phase" HARUS salah satu dari: "UNDERSTAND", "APPLY", atau "REFLECT".
 6. Setiap Pengalaman Belajar memuat "description" yang jelas dan operasional, serta "durationMinutes" (dalam menit, opsional).
 7. Gunakan terminologi "Murid" (bukan peserta didik) dan "Dimensi Profil Lulusan".
-8. Sediakan Rencana Asesmen (Asesmen Diagnostik Awal, Formatif, dan Sumatif) dengan memperhatikan acuan KKTP jika tersedia.
+8. Rencana Asesmen (assessmentPlan) WAJIB memuat 3 kelompok asesmen secara lengkap, spesifik, dan non-generik:
+   a. "initial" (Asesmen Diagnostik Awal): Menilai pengetahuan atau keterampilan prasyarat murid sebelum memulai materi ini. Minimal 1 butir item dengan "description" konkret.
+   b. "formative" (Asesmen Formatif Proses Belajar): Memantau dan membimbing proses belajar murid di sepanjang kegiatan/pertemuan, selaras dengan indikator KKTP Bab dan aktivitas Pengalaman Belajar. JANGAN kosong dan JANGAN generik. Minimal 1 butir item dengan "description" konkret.
+   c. "summative" (Asesmen Sumatif Lingkup Materi): Menilai ketercapaian seluruh TP pada akhir Bab/Unit materi. Minimal 1 butir item dengan "description" konkret.
+   - PENTING: DILARANG KERAS membuat deskripsi asesmen generik seperti sekadar "Tes formatif", "Kuis", "Tanya jawab", atau "Penilaian harian". Deskripsi WAJIB menjelaskan secara eksplisit apa yang dinilai, materi apa yang diukur, serta teknik dan instrumen yang digunakan (misal: "Observasi unjuk kerja dan lembar ceklis saat murid menyusun alur flowchart percabangan secara berkelompok").
+   - Setiap butir asesmen WAJIB memiliki properti "description" yang tidak kosong. Lengkapi juga dengan "technique" (misal: Observasi, Kinerja, Tes Tertulis, Portofolio, Jurnal) dan "instrument" (misal: Rubrik Analitik, Lembar Ceklis, Soal Pilihan Ganda & Esai).
 9. Sediakan Rencana Diferensiasi (Konten, Proses, Produk).
 10. Buat kalimat pemahaman bermakna dan pertanyaan pemantik yang relevan.
 ${
@@ -3495,161 +3729,69 @@ Kembalikan output JSON sesuai schema.`;
       contents: prompt,
       config: {
         responseMimeType: 'application/json',
-        responseSchema: {
-          type: Type.OBJECT,
-          required: [
-            'learningExperiences',
-            'initialCompetency',
-            'graduateProfileDimensions',
-            'resources',
-            'learningModel',
-          ],
-          properties: {
-            title: { type: Type.STRING },
-            topic: { type: Type.STRING },
-            initialCompetency: { type: Type.STRING, description: 'Kompetensi awal atau prasyarat pembelajaran' },
-            graduateProfileDimensions: {
-              type: Type.ARRAY,
-              items: { type: Type.STRING },
-              description: '2-4 Dimensi Profil Lulusan kanonikal yang relevan',
-            },
-            learningModel: { type: Type.STRING, description: 'Model atau praktik pembelajaran kontekstual' },
-            resources: {
-              type: Type.ARRAY,
-              items: {
-                type: Type.OBJECT,
-                properties: {
-                  title: { type: Type.STRING },
-                },
-                required: ['title'],
-              },
-              description: 'Daftar sarana dan prasarana / sumber belajar',
-            },
-            meaningfulUnderstanding: { type: Type.STRING },
-            triggerQuestions: { type: Type.ARRAY, items: { type: Type.STRING } },
-            learningExperiences: {
-              type: Type.ARRAY,
-              items: {
-                type: Type.OBJECT,
-                properties: {
-                  phase: { type: Type.STRING, description: 'MUST be UNDERSTAND, APPLY, or REFLECT' },
-                  description: { type: Type.STRING },
-                  durationMinutes: { type: Type.NUMBER },
-                },
-                required: ['phase', 'description'],
-              },
-            },
-            deepLearningContext: {
-              type: Type.OBJECT,
-              properties: {
-                principles: { type: Type.ARRAY, items: { type: Type.STRING } },
-                graduateProfileDimensions: { type: Type.ARRAY, items: { type: Type.STRING } },
-              },
-            },
-            learningSteps: {
-              type: Type.OBJECT,
-              properties: {
-                opening: {
-                  type: Type.ARRAY,
-                  items: {
-                    type: Type.OBJECT,
-                    properties: {
-                      stepName: { type: Type.STRING },
-                      description: { type: Type.STRING },
-                      durationMinutes: { type: Type.NUMBER },
-                    },
-                  },
-                },
-                core: {
-                  type: Type.ARRAY,
-                  items: {
-                    type: Type.OBJECT,
-                    properties: {
-                      stepName: { type: Type.STRING },
-                      description: { type: Type.STRING },
-                      durationMinutes: { type: Type.NUMBER },
-                    },
-                  },
-                },
-                closing: {
-                  type: Type.ARRAY,
-                  items: {
-                    type: Type.OBJECT,
-                    properties: {
-                      stepName: { type: Type.STRING },
-                      description: { type: Type.STRING },
-                      durationMinutes: { type: Type.NUMBER },
-                    },
-                  },
-                },
-              },
-            },
-            assessmentPlan: {
-              type: Type.OBJECT,
-              properties: {
-                initial: {
-                  type: Type.ARRAY,
-                  items: {
-                    type: Type.OBJECT,
-                    properties: {
-                      type: { type: Type.STRING },
-                      technique: { type: Type.STRING },
-                      description: { type: Type.STRING },
-                    },
-                  },
-                },
-                formative: {
-                  type: Type.ARRAY,
-                  items: {
-                    type: Type.OBJECT,
-                    properties: {
-                      type: { type: Type.STRING },
-                      technique: { type: Type.STRING },
-                      description: { type: Type.STRING },
-                    },
-                  },
-                },
-                summative: {
-                  type: Type.ARRAY,
-                  items: {
-                    type: Type.OBJECT,
-                    properties: {
-                      type: { type: Type.STRING },
-                      technique: { type: Type.STRING },
-                      description: { type: Type.STRING },
-                    },
-                  },
-                },
-              },
-            },
-            differentiation: {
-              type: Type.OBJECT,
-              properties: {
-                content: { type: Type.STRING },
-                process: { type: Type.STRING },
-                product: { type: Type.STRING },
-              },
-            },
-            reflection: {
-              type: Type.OBJECT,
-              properties: {
-                teacherReflection: { type: Type.STRING },
-                studentReflection: { type: Type.STRING },
-              },
-            },
-            enrichmentPlan: { type: Type.STRING },
-            remedialPlan: { type: Type.STRING },
-          },
-        },
+        responseSchema: learningPlanResponseSchema,
       },
     });
 
-    const parsed = cleanAndParseJSON(response.text, null);
-    const validation = validateAILearningPlanPayload(parsed);
+    let parsed = cleanAndParseJSON(response.text, null);
+    let validation = validateAILearningPlanPayload(parsed);
 
+    // AI Recovery: Jika validasi asesmen atau struktur gagal, jalankan MAKSIMAL SATU perbaikan AI
     if (!validation.isValid) {
-      console.warn(`[AI Service][learning-plan][${requestId}] Gemini output invalid:`, validation.reason);
-      return res.status(500).json({ error: `Respons AI tidak memenuhi kualifikasi struktur Modul Ajar: ${validation.reason}` });
+      const failedGroups = getFailedAssessmentGroups(parsed);
+      console.warn(
+        `[AI Service][learning-plan][${requestId}] Gemini initial output invalid: "${validation.reason}". Kelompok asesmen gagal: [${failedGroups.join(', ')}]. Menjalankan 1x percobaan perbaikan AI...`
+      );
+
+      const repairPrompt = buildLearningPlanRepairPrompt({
+        parsed,
+        validationReason: validation.reason,
+        failedGroups,
+        topic,
+        tps,
+        meetings,
+        canonicalAllocatedJP,
+      });
+
+      try {
+        const repairResponse = await generateContentWithRetry(ai, {
+          contents: repairPrompt,
+          config: {
+            responseMimeType: 'application/json',
+            responseSchema: learningPlanResponseSchema,
+          },
+        });
+
+        const repairedParsed = cleanAndParseJSON(repairResponse.text, null);
+        const repairedValidation = validateAILearningPlanPayload(repairedParsed);
+
+        if (repairedValidation.isValid) {
+          console.info(`[AI Service][learning-plan][${requestId}] Percobaan perbaikan AI berhasil!`);
+          parsed = repairedParsed;
+          validation = repairedValidation;
+        } else {
+          console.warn(
+            `[AI Service][learning-plan][${requestId}] Percobaan perbaikan AI tetap gagal: "${repairedValidation.reason}"`
+          );
+          return res.status(400).json({
+            error: `Respons AI tidak memenuhi kualifikasi struktur Modul Ajar setelah perbaikan: ${repairedValidation.reason}`,
+            code: 'AI_RESPONSE_VALIDATION_FAILED',
+            reason: repairedValidation.reason,
+            failedGroups,
+          });
+        }
+      } catch (repairErr: any) {
+        console.error(
+          `[AI Service][learning-plan][${requestId}] Panggilan perbaikan AI gagal:`,
+          repairErr?.message || repairErr
+        );
+        return res.status(400).json({
+          error: `Respons AI tidak memenuhi kualifikasi struktur Modul Ajar: ${validation.reason}. Percobaan perbaikan gagal: ${repairErr.message || 'Error AI'}`,
+          code: 'AI_RESPONSE_VALIDATION_FAILED',
+          reason: validation.reason,
+          failedGroups,
+        });
+      }
     }
 
     if (canonicalAllocatedJP) {
@@ -4107,4 +4249,14 @@ async function startServer() {
   });
 }
 
-startServer();
+const isDirectExecution =
+  process.argv[1] &&
+  (process.argv[1].endsWith('server.ts') ||
+    process.argv[1].endsWith('server.cjs') ||
+    process.argv[1].endsWith('server.js') ||
+    process.argv[1].includes('server.ts'));
+
+if (isDirectExecution && process.env.NODE_ENV !== 'test' && !process.env.VITEST) {
+  startServer();
+}
+
