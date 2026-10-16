@@ -252,7 +252,11 @@ class CPSourceRepository {
       documentYear,
       url: regulation?.sourceUrl,
       page: entry.evidence?.[0]
-        ? [entry.evidence[0].attachment, entry.evidence[0].pageRange, entry.evidence[0].table].filter(Boolean).join(' • ')
+        ? [
+            entry.evidence[0].locator?.attachment,
+            entry.evidence[0].locator?.page ? `Hal. ${entry.evidence[0].locator.page}` : undefined,
+            entry.evidence[0].locator?.table,
+          ].filter(Boolean).join(' • ')
         : `Fase ${entry.phase}`,
       retrievedAt: new Date().toISOString(),
       verificationStatus: status,

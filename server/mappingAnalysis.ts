@@ -225,6 +225,7 @@ export function buildMappingAnalysisPrompt(params: AnalyzeATPUnitMappingServerPa
 
   // Build TP Map
   const tpMap = new Map<string, any>();
+  const validTpIds = new Set((tpData.items || []).map((t) => t.id));
   (tpData.items || []).forEach((t) => {
     tpMap.set(t.id, t);
   });
@@ -369,7 +370,17 @@ ${JSON.stringify(atpContext, null, 2)}
 2. ANALISIS LINGKUP MATERI (materialFindings):
    - Periksa semua Lingkup Materi manual yang ada pada Bab.
    - Untuk materi manual dengan silsilah kosong atau belum selaras, lakukan pemetaan semantik ke TP/ATP dalam Bab tersebut dengan "ALIGN_EXISTING_MATERIAL".
-   - Jika ada kebutuhan materi baru: berikan "MISSING_MATERIAL" dengan action "ADD_MATERIAL_TO_UNIT".
+   - Untuk Bab dengan daftar materi kosong (materials: []):
+     * Analisis keselarasan judul Bab terhadap kompetensi, lingkup materi TP, dan fokus langkah ATP.
+     * Jika keselarasan dapat dibuktikan dengan kuat: rekomendasikan Lingkup Materi baru dengan status "MISSING_MATERIAL" dan action "ADD_MATERIAL_TO_UNIT".
+       - targetUnitId: id Bab asli (wajib)
+       - title: judul Lingkup Materi yang spesifik, relevan, dan non-generik
+       - linkedAtpItemIds: array id ATP canonical yang benar
+       - linkedTpIds: array id TP canonical yang benar
+       - reason: penjelasan keselarasan
+     * Boleh menyarankan beberapa materi untuk satu Bab jika terdapat beberapa langkah ATP yang relevan.
+     * Jika keselarasan tidak dapat dipastikan atau bukti semantik tidak mencukupi: berikan status "MANUAL_REVIEW" untuk Bab tersebut tanpa action fiktif.
+   - Jika ada kebutuhan materi baru lainnya: berikan "MISSING_MATERIAL" dengan action "ADD_MATERIAL_TO_UNIT".
 
 Kembalikan respon DALAM FORMAT JSON VALID yang mematuhi skema berikut:
 {
@@ -429,6 +440,210 @@ Kembalikan respon DALAM FORMAT JSON VALID yang mematuhi skema berikut:
     }
   ]
 }`;
+}
+
+/**
+ * Deterministically analyzes an empty Bab (materials: []) to recommend
+ * MISSING_MATERIAL with ADD_MATERIAL_TO_UNIT or MANUAL_REVIEW when ambiguous.
+ */
+export function findDeterministicEmptyUnitRecommendations(params: {
+  unit: any;
+  allUnits: any[];
+  atpItems: any[];
+  tpMap: Map<string, any>;
+  validAtpIds: Set<string>;
+  validTpIds: Set<string>;
+}): MappingAnalysisResult['materialFindings'] {
+  const { unit, atpItems, tpMap, validAtpIds, validTpIds } = params;
+  const unitAtpIds = (unit.linkedAtpItemIds || []).filter((id: string) => validAtpIds.has(id));
+  const unitTpIds = (unit.linkedTpIds || []).filter((id: string) => validTpIds.has(id));
+
+  // Case 1: Unit already has assigned ATP/TP lineage
+  if (unitAtpIds.length > 0) {
+    const assignedAtps = atpItems.filter((it) => unitAtpIds.includes(it.id));
+    const recommendations: MappingAnalysisResult['materialFindings'] = [];
+    const seenTitles = new Set<string>();
+
+    assignedAtps.forEach((atpItem, idx) => {
+      const canonTps = getCanonicalTpsForAtpItem(atpItem).filter((id) => validTpIds.has(id));
+      const relevantTpIds = unitTpIds.length > 0
+        ? canonTps.filter((id) => unitTpIds.includes(id))
+        : canonTps;
+      const effectiveTps = relevantTpIds.length > 0 ? relevantTpIds : canonTps;
+
+      const rawTitle = atpItem.focus && atpItem.focus.trim().length > 0
+        ? atpItem.focus.trim()
+        : (tpMap.get(effectiveTps[0])?.contentScope || unit.title || `Materi ${idx + 1}`);
+
+      const title = rawTitle.trim();
+      const titleTokens = extractSubstantiveTokens(title);
+      if (titleTokens.length === 0) {
+        return;
+      }
+
+      const titleKey = title.toLowerCase();
+      if (seenTitles.has(titleKey)) {
+        const existing = recommendations.find((r) => r.action && 'title' in r.action && r.action.title.toLowerCase() === titleKey);
+        if (existing && existing.action && existing.action.type === 'ADD_MATERIAL_TO_UNIT') {
+          if (!existing.action.linkedAtpItemIds.includes(atpItem.id)) {
+            existing.action.linkedAtpItemIds.push(atpItem.id);
+          }
+          effectiveTps.forEach((tId) => {
+            if (!existing.action!.linkedTpIds.includes(tId)) {
+              existing.action!.linkedTpIds.push(tId);
+            }
+          });
+          existing.supportingAtpItemIds = [...existing.action.linkedAtpItemIds];
+          existing.supportingTpIds = [...existing.action.linkedTpIds];
+        }
+        return;
+      }
+
+      seenTitles.add(titleKey);
+      recommendations.push({
+        id: `empty-mat-${unit.id}-${atpItem.id}`,
+        status: 'MISSING_MATERIAL',
+        unitId: unit.id,
+        suggestedTitle: title,
+        supportingAtpItemIds: [atpItem.id],
+        supportingTpIds: effectiveTps,
+        strength: 'STRONG',
+        reason: `Rekomendasi Lingkup Materi '${title}' untuk Bab '${unit.title}' berdasarkan langkah ATP '${atpItem.focus || atpItem.id}' dan TP canonical tertaut.`,
+        action: {
+          type: 'ADD_MATERIAL_TO_UNIT',
+          targetUnitId: unit.id,
+          title,
+          linkedAtpItemIds: [atpItem.id],
+          linkedTpIds: effectiveTps,
+        },
+      });
+    });
+
+    if (recommendations.length > 0) {
+      return recommendations;
+    }
+
+    return [{
+      id: `review-empty-unit-${unit.id}`,
+      status: 'MANUAL_REVIEW',
+      unitId: unit.id,
+      supportingTpIds: unitTpIds,
+      supportingAtpItemIds: unitAtpIds,
+      strength: 'LOW',
+      reason: `Bab '${unit.title}' memiliki silsilah ATP tertaut tetapi belum dapat disusun judul Lingkup Materi yang spesifik. Perlu tinjauan guru.`,
+      action: undefined,
+    }];
+  }
+
+  // Case 2: Unit has NO lineage (unitAtpIds is empty) - Bab tanpa lineage
+  const uTokens = extractSubstantiveTokens(unit.title || '');
+  if (uTokens.length === 0) {
+    return [{
+      id: `review-empty-unit-${unit.id}`,
+      status: 'MANUAL_REVIEW',
+      unitId: unit.id,
+      supportingTpIds: [],
+      supportingAtpItemIds: [],
+      strength: 'LOW',
+      reason: `Judul Bab '${unit.title}' tidak memuat kata kunci substansi yang dapat dipetakan secara meyakinkan ke TP/ATP canonical. Perlu tinjauan guru.`,
+      action: undefined,
+    }];
+  }
+
+  const matchingAtps: Array<{ atpItem: any; canonicalTps: string[]; title: string }> = [];
+
+  atpItems.forEach((atpItem) => {
+    const canonTps = getCanonicalTpsForAtpItem(atpItem).filter((id) => validTpIds.has(id));
+    if (canonTps.length === 0) return;
+
+    const tpObjs = canonTps.map((id) => tpMap.get(id)).filter(Boolean);
+    const semanticCheck = checkMappingSemanticEvidence({
+      label: unit.title,
+      atpItems: [atpItem],
+      tpItems: tpObjs,
+    });
+
+    const atpFocusTokens = extractSubstantiveTokens(atpItem.focus || '');
+    const tpTokens = canonTps.flatMap((id) => {
+      const t = tpMap.get(id);
+      return extractSubstantiveTokens(`${t?.statement || ''} ${t?.contentScope || ''} ${t?.competence || ''}`);
+    });
+    const combinedTokens = Array.from(new Set([...atpFocusTokens, ...tpTokens]));
+    const overlapTokens = uTokens.filter((tok) => combinedTokens.includes(tok));
+
+    if (semanticCheck.supported && !semanticCheck.ambiguous && overlapTokens.length > 0) {
+      const rawTitle = atpItem.focus && atpItem.focus.trim().length > 0
+        ? atpItem.focus.trim()
+        : (tpObjs[0]?.contentScope || unit.title);
+      const title = rawTitle.trim();
+      const titleTokens = extractSubstantiveTokens(title);
+
+      if (titleTokens.length > 0) {
+        matchingAtps.push({
+          atpItem,
+          canonicalTps: canonTps,
+          title,
+        });
+      }
+    }
+  });
+
+  if (matchingAtps.length === 0) {
+    return [{
+      id: `review-empty-unit-${unit.id}`,
+      status: 'MANUAL_REVIEW',
+      unitId: unit.id,
+      supportingTpIds: [],
+      supportingAtpItemIds: [],
+      strength: 'LOW',
+      reason: `Keselarasan judul Bab '${unit.title}' terhadap TP/ATP canonical belum dapat dipastikan secara meyakinkan. Perlu tinjauan guru.`,
+      action: undefined,
+    }];
+  }
+
+  const recommendations: MappingAnalysisResult['materialFindings'] = [];
+  const seenTitles = new Set<string>();
+
+  matchingAtps.forEach(({ atpItem, canonicalTps, title }) => {
+    const titleKey = title.toLowerCase();
+    if (seenTitles.has(titleKey)) {
+      const existing = recommendations.find((r) => r.action && 'title' in r.action && r.action.title.toLowerCase() === titleKey);
+      if (existing && existing.action && existing.action.type === 'ADD_MATERIAL_TO_UNIT') {
+        if (!existing.action.linkedAtpItemIds.includes(atpItem.id)) {
+          existing.action.linkedAtpItemIds.push(atpItem.id);
+        }
+        canonicalTps.forEach((tId) => {
+          if (!existing.action!.linkedTpIds.includes(tId)) {
+            existing.action!.linkedTpIds.push(tId);
+          }
+        });
+        existing.supportingAtpItemIds = [...existing.action.linkedAtpItemIds];
+        existing.supportingTpIds = [...existing.action.linkedTpIds];
+      }
+      return;
+    }
+
+    seenTitles.add(titleKey);
+    recommendations.push({
+      id: `empty-mat-${unit.id}-${atpItem.id}`,
+      status: 'MISSING_MATERIAL',
+      unitId: unit.id,
+      suggestedTitle: title,
+      supportingAtpItemIds: [atpItem.id],
+      supportingTpIds: canonicalTps,
+      strength: 'STRONG',
+      reason: `Rekomendasi Lingkup Materi baru '${title}' untuk Bab '${unit.title}' berdasarkan keselarasan substantif dengan langkah ATP '${atpItem.focus || atpItem.id}' dan TP canonical.`,
+      action: {
+        type: 'ADD_MATERIAL_TO_UNIT',
+        targetUnitId: unit.id,
+        title,
+        linkedAtpItemIds: [atpItem.id],
+        linkedTpIds: canonicalTps,
+      },
+    });
+  });
+
+  return recommendations;
 }
 
 /**
@@ -673,26 +888,62 @@ export function sanitizeMappingAnalysisResult(
 
     let action: MappingAnalysisResult['materialFindings'][0]['action'] = undefined;
 
-    if (
-      status === 'MISSING_MATERIAL' &&
-      m?.action &&
-      m.action.type === 'ADD_MATERIAL_TO_UNIT' &&
-      m.action.targetUnitId &&
-      validUnitIds.has(m.action.targetUnitId) &&
-      m.action.title &&
-      String(m.action.title).trim().length > 0
-    ) {
-      action = {
-        type: 'ADD_MATERIAL_TO_UNIT',
-        targetUnitId: m.action.targetUnitId,
-        title: String(m.action.title).trim(),
-        linkedTpIds: (Array.isArray(m.action.linkedTpIds) ? m.action.linkedTpIds : []).filter((id: string) =>
-          validTpIds.has(id)
-        ),
-        linkedAtpItemIds: (Array.isArray(m.action.linkedAtpItemIds) ? m.action.linkedAtpItemIds : []).filter(
-          (id: string) => validAtpIds.has(id)
-        ),
-      };
+    if (status === 'MISSING_MATERIAL') {
+      const targetUnitId = m?.action?.targetUnitId && validUnitIds.has(m.action.targetUnitId)
+        ? m.action.targetUnitId
+        : unitId;
+      const targetUnit = (currentMapping.units || []).find((u) => u.id === targetUnitId);
+      const rawTitle = m?.action?.title || m?.suggestedTitle || '';
+      const title = String(rawTitle).trim();
+
+      const rawLinkedAtps = (Array.isArray(m?.action?.linkedAtpItemIds) ? m.action.linkedAtpItemIds : (Array.isArray(m?.supportingAtpItemIds) ? m.supportingAtpItemIds : []))
+        .map((id: any) => String(id).trim())
+        .filter((id: string) => validAtpIds.has(id));
+
+      const rawLinkedTps = (Array.isArray(m?.action?.linkedTpIds) ? m.action.linkedTpIds : (Array.isArray(m?.supportingTpIds) ? m.supportingTpIds : []))
+        .map((id: any) => String(id).trim())
+        .filter((id: string) => validTpIds.has(id));
+
+      const titleTokens = extractSubstantiveTokens(title);
+      const isNonGeneric = titleTokens.length > 0;
+
+      const unitHasLineage = ((targetUnit?.linkedAtpItemIds || []).length > 0 || (targetUnit?.linkedTpIds || []).length > 0);
+      const unitLineageValid = !unitHasLineage || (
+        rawLinkedAtps.every((aId: string) => (targetUnit?.linkedAtpItemIds || []).includes(aId)) &&
+        rawLinkedTps.every((tId: string) => (targetUnit?.linkedTpIds || []).includes(tId))
+      );
+
+      const allTpSupported = rawLinkedAtps.length > 0 && rawLinkedTps.length > 0 && rawLinkedTps.every((tId: string) =>
+        rawLinkedAtps.some((aId: string) => getCanonicalTpsForAtpItem(atpMap.get(aId)).includes(tId))
+      );
+
+      const actionAtpItems = rawLinkedAtps.map((id: string) => atpMap.get(id)).filter(Boolean);
+      const actionTpItems = rawLinkedTps.map((id: string) => tpMap.get(id)).filter(Boolean);
+      const semanticCheck = checkMappingSemanticEvidence({
+        label: `${targetUnit?.title || ''} ${title}`,
+        atpItems: actionAtpItems,
+        tpItems: actionTpItems,
+      });
+
+      if (
+        targetUnit &&
+        targetUnitId === unitId &&
+        isNonGeneric &&
+        allTpSupported &&
+        unitLineageValid &&
+        semanticCheck.supported
+      ) {
+        action = {
+          type: 'ADD_MATERIAL_TO_UNIT',
+          targetUnitId,
+          title,
+          linkedAtpItemIds: rawLinkedAtps,
+          linkedTpIds: rawLinkedTps,
+        };
+      } else {
+        status = 'MANUAL_REVIEW';
+        action = undefined;
+      }
     } else if (
       status === 'ALIGNABLE' &&
       m?.action &&
@@ -759,11 +1010,12 @@ export function sanitizeMappingAnalysisResult(
       }
     }
 
-    if (status === 'ALIGNABLE' && action?.type === 'ALIGN_EXISTING_MATERIAL') {
-      const targetUnit = (currentMapping.units || []).find((u) => u.id === action.targetUnitId);
-      const targetMaterial = (targetUnit?.materials || []).find((mat) => mat.id === action.targetMaterialId);
-      const actionAtpItems = action.linkedAtpItemIds.map((id) => atpMap.get(id)).filter(Boolean);
-      const actionTpItems = action.linkedTpIds.map((id) => tpMap.get(id)).filter(Boolean);
+    if (action && action.type === 'ALIGN_EXISTING_MATERIAL') {
+      const alignAction = action;
+      const targetUnit = (currentMapping.units || []).find((u) => u.id === alignAction.targetUnitId);
+      const targetMaterial = (targetUnit?.materials || []).find((mat) => mat.id === alignAction.targetMaterialId);
+      const actionAtpItems = alignAction.linkedAtpItemIds.map((id) => atpMap.get(id)).filter(Boolean);
+      const actionTpItems = alignAction.linkedTpIds.map((id) => tpMap.get(id)).filter(Boolean);
       const semanticEvidence = checkMappingSemanticEvidence({
         label: targetMaterial?.title || suggestedTitle || '',
         atpItems: actionAtpItems,
@@ -803,7 +1055,13 @@ export function sanitizeMappingAnalysisResult(
           atpItems: [item],
           tpItems: canonicalTpIds.map((id) => tpMap.get(id)).filter(Boolean),
         });
-        return evidence.supported ? { item, canonicalTpIds, evidence } : null;
+        const isSupported = evidence.supported || (
+          evidence.reason?.includes('Judul tidak memuat sinyal substansi') &&
+          validLinkedTpIds.length > 0 &&
+          canonicalTpIds.length === validLinkedTpIds.length &&
+          canonicalTpIds.every((id) => validLinkedTpIds.includes(id))
+        );
+        return isSupported ? { item, canonicalTpIds, evidence } : null;
       })
       .filter(Boolean) as Array<{ item: any; canonicalTpIds: string[]; evidence: any }>;
 
@@ -882,7 +1140,9 @@ export function sanitizeMappingAnalysisResult(
     if (!a1 || !a2) return a1 === a2;
     if (a1.type !== a2.type) return false;
     if (a1.targetUnitId !== a2.targetUnitId) return false;
-    if (a1.targetMaterialId !== a2.targetMaterialId) return false;
+    const mat1 = 'targetMaterialId' in a1 ? a1.targetMaterialId : undefined;
+    const mat2 = 'targetMaterialId' in a2 ? a2.targetMaterialId : undefined;
+    if (mat1 !== mat2) return false;
     
     const atp1 = [...(a1.linkedAtpItemIds || [])].sort().join(',');
     const atp2 = [...(a2.linkedAtpItemIds || [])].sort().join(',');
@@ -1033,6 +1293,26 @@ export function sanitizeMappingAnalysisResult(
 
   // Add missing material suggestions back
   materialFindings = [...materialFindings, ...missingMaterialFindings];
+
+  // C8: Ensure EVERY empty Bab (materials: []) has recommendations or a manual review
+  (currentMapping.units || []).forEach((u) => {
+    const isEmptyUnit = !u.materials || u.materials.length === 0;
+    if (!isEmptyUnit) return;
+
+    // Check if there are already material findings for this empty unit
+    const existingUnitFindings = materialFindings.filter((f) => f.unitId === u.id);
+    if (existingUnitFindings.length === 0) {
+      const deterministicFindings = findDeterministicEmptyUnitRecommendations({
+        unit: u,
+        allUnits: currentMapping.units || [],
+        atpItems,
+        tpMap,
+        validAtpIds,
+        validTpIds,
+      });
+      materialFindings.push(...deterministicFindings);
+    }
+  });
 
   // C7: Recompute Summary based on normalized findings
   const totalAtpCount = atpItems.length;

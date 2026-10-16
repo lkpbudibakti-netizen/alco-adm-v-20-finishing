@@ -41,7 +41,8 @@
     "test:b13": "tsx scripts/testB13SelfPeerFoundationRegression.ts",
     "test:v5-shell": "tsx scripts/testMerdekaV5AppShellContract.ts",
     "test:assessment-meeting-linkage": "tsx scripts/testAssessmentMeetingLinkageRegression.ts",
-    "test:ai-learning-plan-assessment-recovery": "tsx scripts/testAILearningPlanAssessmentRecoveryRegression.ts"
+    "test:ai-learning-plan-assessment-recovery": "tsx scripts/testAILearningPlanAssessmentRecoveryRegression.ts",
+    "test:empty-unit-materials": "tsx scripts/testEmptyUnitMaterialsMappingRegression.ts"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
