@@ -1,5 +1,7 @@
 import { TPData, ATPData, ATPUnitMappingData } from '../src/types';
 import { checkMappingSemanticEvidence } from './mappingSemanticEvidence';
+import { applyATPMappingActions, computeMappingFingerprint } from '../src/services/atpMappingActionApplyService';
+import { validateATPUnitMappingCanonical } from '../src/services/atpUnitMappingValidationService';
 
 export interface MappingAnalysisResult {
   summary: {
@@ -281,6 +283,11 @@ export function buildMappingAnalysisPrompt(params: AnalyzeATPUnitMappingServerPa
       order: u.order || idx + 1,
       title: u.title || `Bab ${idx + 1}`,
       assignedAtpItemIds: u.linkedAtpItemIds || [],
+      assignedTpIds: u.linkedTpIds || [],
+      missingMaterialCoverage: {
+        tpIds: (u.linkedTpIds || []).filter(id => !(u.materials || []).some(m => (m.linkedTpIds || []).includes(id))),
+        atpItemIds: (u.linkedAtpItemIds || []).filter(id => !(u.materials || []).some(m => (m.linkedAtpItemIds || []).includes(id))),
+      },
       materials: (u.materials || []).map((m, mIdx) => ({
         materialId: m.id,
         order: m.order || mIdx + 1,
@@ -319,6 +326,7 @@ TUGAS ANDA ADALAH MELAKUKAN ANALISIS PEMETAAN (READ-ONLY ANALYSIS) antara Bab & 
    - Jangan otomatis menandai ATP existing sebagai "ALIGNED" jika tidak ada keselarasan yang cukup jelas.
 
 === KETENTUAN KHUSUS UNTUK LINGKUP MATERI MANUAL (ALIGN_EXISTING_MATERIAL) ===
+AUDIT CAKUPAN PER BAB: seluruh assignedTpIds dan assignedAtpItemIds Bab harus terwakili oleh gabungan lineage Lingkup Materi setelah semua rekomendasi diterapkan. Satu ATP dapat memiliki beberapa TP; jangan hanya memilih TP pertama. Rekomendasikan seluruh subset TP yang relevan secara pedagogis pada materi existing. Pertahankan ID, judul, jumlah dan urutan Bab guru. Jika tidak ada materi yang relevan untuk TP/ATP tertentu, nyatakan ID yang belum tercakup dan alasan MANUAL_REVIEW; jangan menempelkan ID atau mengklaim lengkap.
 WAJIB (C1):
 - materialFindings harus memuat TEPAT SATU finding untuk SETIAP existing Material.
 - Gunakan materialId dan unitId persis dari CURRENT LOCAL DRAFT.
@@ -1328,6 +1336,25 @@ export function sanitizeMappingAnalysisResult(
   });
 
   // C7: Recompute Summary based on normalized findings
+  // Evaluate the proposed transaction without mutating the teacher's draft.
+  const fingerprint = computeMappingFingerprint(currentMapping.units, atpData, tpData);
+  const projected = applyATPMappingActions({ units: currentMapping.units, atp: atpData, tp: tpData,
+    selectedActions: [...atpFindings, ...materialFindings].flatMap(f => f.action ? [{ id: f.id, ...f.action }] : []),
+    expectedFingerprint: fingerprint, currentFingerprint: fingerprint });
+  const projectedValidation = validateATPUnitMappingCanonical(
+    { ...currentMapping, units: projected.nextUnits || currentMapping.units }, atpData, tpData);
+  for (const gap of projectedValidation.materialCoverageGaps) {
+    const reason = `SOURCE_LINEAGE_MISSING: Bab '${gap.unitTitle}' (${gap.unitId}) belum terwakili oleh materi setelah rekomendasi: TP [${gap.tpIds.join(', ')}], ATP [${gap.atpItemIds.join(', ')}]. Selaraskan materi yang relevan; rekomendasi ini belum membuat Bab siap Step 08.${projected.success ? '' : ` Transaksi rekomendasi belum valid: ${projected.issues.join('; ')}`}`;
+    const existingFinding = materialFindings.find(f => f.unitId === gap.unitId);
+    if (existingFinding) {
+      existingFinding.reason = `${existingFinding.reason} ${reason}`;
+      continue;
+    }
+    materialFindings.push({ id: `coverage-${gap.unitId}`, status: 'MANUAL_REVIEW', unitId: gap.unitId,
+      supportingTpIds: gap.tpIds, supportingAtpItemIds: gap.atpItemIds, strength: 'LOW',
+      reason });
+  }
+
   const totalAtpCount = atpItems.length;
   const assignedAtpSet = new Set<string>();
   (currentMapping.units || []).forEach((u) => {

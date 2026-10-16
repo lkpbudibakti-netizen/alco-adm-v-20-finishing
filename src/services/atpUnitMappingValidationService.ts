@@ -14,6 +14,7 @@ export interface ATPUnitMappingValidationResult {
   invalidReferenceCount: number;
   unmappedAtpIds: string[];
   uncoveredTpIds: string[];
+  materialCoverageGaps: Array<{ unitId: string; unitTitle: string; tpIds: string[]; atpItemIds: string[] }>;
 }
 
 function getCanonicalTpsForAtpItem(atpItem: any): string[] {
@@ -41,6 +42,7 @@ export function validateATPUnitMappingCanonical(
     invalidReferenceCount: 0,
     unmappedAtpIds: [],
     uncoveredTpIds: [],
+    materialCoverageGaps: [],
   };
 
   if (!mapping || !atp || !tp) {
@@ -228,6 +230,19 @@ export function validateATPUnitMappingCanonical(
           materialId: m.id,
         });
       }
+    }
+  }
+
+  // A Bab is ready only when its material lineage can support Step 08 meetings.
+  for (const unit of units) {
+    const materialTpIds = new Set((unit.materials || []).flatMap(m => m.linkedTpIds || []));
+    const materialAtpIds = new Set((unit.materials || []).flatMap(m => m.linkedAtpItemIds || []));
+    const tpIds = (unit.linkedTpIds || []).filter(id => !materialTpIds.has(id));
+    const atpItemIds = (unit.linkedAtpItemIds || []).filter(id => !materialAtpIds.has(id));
+    if (tpIds.length || atpItemIds.length) {
+      result.isComplete = false;
+      result.materialCoverageGaps.push({ unitId: unit.id, unitTitle: unit.title, tpIds, atpItemIds });
+      result.issues.push(`SOURCE_LINEAGE_MISSING: Bab '${unit.title || unit.id}' (${unit.id}): gabungan Lingkup Materi belum mencakup TP [${tpIds.join(', ')}] dan ATP [${atpItemIds.join(', ')}]. Selaraskan materi yang relevan sebelum lanjut Step 08.`);
     }
   }
 

@@ -98,7 +98,7 @@ export function resolveATPUnitMappingReadiness(
     blockers.push('Pemetaan Unit/Bab masih kosong.');
   }
 
-  if (!validationResult.isValid) {
+  if (!validationResult.isValid || !validationResult.isComplete) {
     validationResult.issues.forEach((iss) => {
       if (!blockers.includes(iss)) {
         blockers.push(iss);

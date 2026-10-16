@@ -1,4 +1,5 @@
 import express from 'express';
+import { validateATPUnitMappingCanonical } from './src/services/atpUnitMappingValidationService';
 import { assertMeetingSourceLineage, MeetingCoverageError, repairUnitMeetingCoverage } from './server/unitMeetingCoverageRepair';
 import path from 'path';
 import { createServer as createViteServer } from 'vite';
@@ -1615,6 +1616,7 @@ PRINSIP & ATURAN GENERATOR CANONICAL (WAJIB DIPATUHI):
 }
 
 DATA KURIKULUM:
+WAJIB PER BAB: gabungan linkedTpIds dan linkedAtpItemIds seluruh Lingkup Materi harus mencakup SEMUA TP/ATP Bab tersebut. Setiap relasi harus relevan terhadap substansi materi; jangan menempelkan ID hanya untuk memenuhi cakupan. Jika tidak dapat direpresentasikan secara pedagogis, jangan klaim lengkap.
 - Mata Pelajaran: ${subject}
 - Kelas / Fase: ${grade} (${phase})
 ${count ? `- Target Jumlah Bab: ${count} Bab` : '- Target Jumlah Bab: Sesuai keselarasan semantis alami'}
@@ -2003,6 +2005,11 @@ Kembalikan respon JSON dengan skema:
         };
 
         const finalizedResult = enforceCanonicalMappingInvariants(canonicalResult, validTpItems, validAtpItems);
+        const finalValidation = validateATPUnitMappingCanonical(finalizedResult, atpData, tpData);
+        if (!finalValidation.isValid || !finalValidation.isComplete) {
+          return res.status(400).json({ success: false, code: 'SOURCE_LINEAGE_MISSING',
+            error: finalValidation.issues.join(' '), diagnostic: finalValidation });
+        }
 
         return res.json({
           success: true,
@@ -2029,6 +2036,11 @@ Kembalikan respon JSON dengan skema:
     targetMaterialCountPerUnit,
   });
 
+  const fallbackValidation = validateATPUnitMappingCanonical(fallbackResult, atpData, tpData);
+  if (!fallbackValidation.isValid || !fallbackValidation.isComplete) {
+    return res.status(400).json({ success: false, code: 'SOURCE_LINEAGE_MISSING',
+      error: fallbackValidation.issues.join(' '), diagnostic: fallbackValidation });
+  }
   return res.json({
     success: true,
     data: fallbackResult,

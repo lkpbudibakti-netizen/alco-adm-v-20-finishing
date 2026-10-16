@@ -200,7 +200,12 @@ const validMapping: ATPUnitMappingData = {
     ] 
   };
   const res = resolveATPUnitMappingReadiness(mapping, mockATP, mockTP, mockSetting);
-  assert(res.canProceed === true, 'Multi-Bab valid mapping can proceed');
+  assert(res.canSaveDraft === true, 'Multi-Bab with missing material coverage remains saveable as draft');
+  assert(res.canProceed === false, 'Bab without material support cannot proceed');
+  assert(res.blockers.some(b => b.includes('SOURCE_LINEAGE_MISSING')), 'Missing material support is explicit');
+  mapping.units[1].materials = [{ ...validMapping.units[0].materials[0], id: 'mat-2' }];
+  assert(resolveATPUnitMappingReadiness(mapping, mockATP, mockTP, mockSetting).canProceed === true,
+    'Multi-Bab with complete material lineage can proceed');
 }
 
 // 15. Validasi summary/blockers konsisten
