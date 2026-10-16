@@ -1,6 +1,6 @@
 import { ATPUnitMappingData, ATPData, TPData, AcademicSetting } from '../types';
 import { validateATPUnitMappingCanonical, ATPUnitMappingValidationResult } from './atpUnitMappingValidationService';
-import { computeAtpSubstantiveFingerprint, computeTpSubstantiveFingerprint } from './atpMappingActionApplyService';
+import { computeAtpSubstantiveFingerprint, computeTpSubstantiveFingerprint, matchesSubstantiveFingerprint } from './atpMappingActionApplyService';
 import { isUpstreamStale } from './workflowEngine';
 
 export interface MappingReadiness {
@@ -79,7 +79,7 @@ export function resolveATPUnitMappingReadiness(
   let isStale = false;
   const mappingAny = mapping as (ATPUnitMappingData & { basedOnAtpFingerprint?: string; basedOnTpFingerprint?: string }) | undefined;
   if (mapping && atp && mappingAny?.basedOnAtpFingerprint) {
-    if (mappingAny.basedOnAtpFingerprint !== computeAtpSubstantiveFingerprint(atp)) {
+    if (!matchesSubstantiveFingerprint(mappingAny.basedOnAtpFingerprint, computeAtpSubstantiveFingerprint(atp))) {
       isStale = true;
       blockers.push('Substansi ATP berubah sejak pemetaan terakhir disimpan (stale).');
     }
@@ -90,7 +90,7 @@ export function resolveATPUnitMappingReadiness(
     }
   }
   if (mapping && tp && mappingAny?.basedOnTpFingerprint) {
-    if (mappingAny.basedOnTpFingerprint !== computeTpSubstantiveFingerprint(tp)) {
+    if (!matchesSubstantiveFingerprint(mappingAny.basedOnTpFingerprint, computeTpSubstantiveFingerprint(tp))) {
       isStale = true;
       blockers.push('Substansi TP berubah sejak pemetaan terakhir disimpan (stale).');
     }

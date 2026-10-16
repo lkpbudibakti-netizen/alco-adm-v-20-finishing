@@ -49,7 +49,7 @@ import { validateCalendarCompleteness } from './jpEngine';
 import { validateSubjectWeeklySchedule } from './subjectScheduleService';
 import { validateCPDataWorkflow, validateCPAnalysisDataWorkflow, validateTPDataWorkflow, validateATPDataWorkflow } from './cpWorkflowService';
 import { resolveATPUnitMappingReadiness } from './atpMappingReadinessService';
-import { computeAtpSubstantiveFingerprint, computeTpSubstantiveFingerprint } from './atpMappingActionApplyService';
+import { computeAtpSubstantiveFingerprint, computeTpSubstantiveFingerprint, matchesSubstantiveFingerprint } from './atpMappingActionApplyService';
 
 const cloneProject = <T,>(value: T): T => JSON.parse(JSON.stringify(value));
 const externalProjectFields = new Set(['source', 'evidence', 'snapshot', 'regulationSources', 'curriculumLock']);
@@ -288,10 +288,10 @@ export function prepareCompleteAdministrationProjectImport(current: AppStorageSt
   const sourceReadiness = resolveATPUnitMappingReadiness(sourceMapping, sourceAtp, sourceTp);
   // UUID remapping changes sort order inside fingerprints. Rebase only proven-fresh source snapshots.
   if (mapping && sourceMapping) {
-    if (sourceMapping.basedOnTpFingerprint === computeTpSubstantiveFingerprint(sourceTp)) {
+    if (matchesSubstantiveFingerprint(sourceMapping.basedOnTpFingerprint, computeTpSubstantiveFingerprint(sourceTp))) {
       mapping.basedOnTpFingerprint = computeTpSubstantiveFingerprint(tp);
     }
-    if (sourceMapping.basedOnAtpFingerprint === computeAtpSubstantiveFingerprint(sourceAtp)) {
+    if (matchesSubstantiveFingerprint(sourceMapping.basedOnAtpFingerprint, computeAtpSubstantiveFingerprint(sourceAtp))) {
       mapping.basedOnAtpFingerprint = computeAtpSubstantiveFingerprint(atp);
     }
     const before = validateATPUnitMappingCanonical(sourceMapping, sourceAtp, sourceTp);

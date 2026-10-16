@@ -97,6 +97,38 @@ export function computeTpSubstantiveFingerprint(tp: TPData | undefined): string 
   })).sort((a, b) => a.id.localeCompare(b.id)));
 }
 
+// Imported legacy snapshots retain the source ID ordering after IDs are remapped.
+// Only ordering is ignored: IDs, substance, fields and lineage must still match exactly.
+export function matchesSubstantiveFingerprint(snapshot: string | undefined, current: string): boolean {
+  if (!snapshot) return false;
+  if (snapshot === current) return true;
+  try {
+    const normalize = (value: unknown): string | undefined => {
+      if (!Array.isArray(value) || value.length === 0) return undefined;
+      const ids = new Set<string>();
+      const entries = value.map(item => {
+        if (!item || typeof item !== 'object' || typeof item.id !== 'string' || ids.has(item.id)) {
+          throw new Error('Invalid snapshot identity');
+        }
+        ids.add(item.id);
+        const record = { ...item };
+        if ('tps' in record) {
+          if (!Array.isArray(record.tps) || record.tps.some((id: unknown) => typeof id !== 'string')) {
+            throw new Error('Invalid snapshot lineage');
+          }
+          record.tps = [...record.tps].sort();
+        }
+        return Object.fromEntries(Object.entries(record).sort(([a], [b]) => a.localeCompare(b)));
+      });
+      return JSON.stringify(entries.sort((a, b) => a.id.localeCompare(b.id)));
+    };
+    const expected = normalize(JSON.parse(current));
+    return expected !== undefined && normalize(JSON.parse(snapshot)) === expected;
+  } catch {
+    return false;
+  }
+}
+
 export function buildMappingDraftFromUnits(
   units: ATPUnitMapping[],
   mappingId?: string,

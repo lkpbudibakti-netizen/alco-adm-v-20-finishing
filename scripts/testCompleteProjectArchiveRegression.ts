@@ -4,7 +4,7 @@ import { exportCompleteAdministrationProjectFromState } from '../src/services/ad
 import { importCompleteAdministrationProject, prepareCompleteAdministrationProjectImport } from '../src/services/administrationProjectImportService';
 import { createCompleteProjectZip, readCompleteProjectZip } from '../src/services/completeProjectZipService';
 import { computeAtpSubstantiveFingerprint, computeTpSubstantiveFingerprint } from '../src/services/atpMappingActionApplyService';
-import { resolveATPUnitMappingReadiness } from '../src/services/atpMappingReadinessService';
+import { proceedWithATPUnitMapping, resolveATPUnitMappingReadiness } from '../src/services/atpMappingReadinessService';
 import { validateCPDataWorkflow, validateCPAnalysisDataWorkflow, validateTPDataWorkflow, validateATPDataWorkflow } from '../src/services/cpWorkflowService';
 
 const now = '2026-01-01T00:00:00Z';
@@ -94,6 +94,49 @@ const tp = copied.state.annualData.tp.find(e => e.yearPlanId === copied.yearPlan
 const mapping = copied.state.annualData.atpUnitMappings!.find(e => e.yearPlanId === copied.yearPlanId)!.value;
 assert.equal(mapping.basedOnTpFingerprint, computeTpSubstantiveFingerprint(tp));
 assert.equal(mapping.basedOnAtpFingerprint, computeAtpSubstantiveFingerprint(copied.state.annualData.atp.find(e => e.yearPlanId === copied.yearPlanId)!.value));
+const targetAtp = copied.state.annualData.atp.find(e => e.yearPlanId === copied.yearPlanId)!.value;
+const legacyMapping = structuredClone(mapping);
+legacyMapping.basedOnTpFingerprint = JSON.stringify(JSON.parse(mapping.basedOnTpFingerprint!).reverse());
+legacyMapping.basedOnAtpFingerprint = JSON.stringify(JSON.parse(mapping.basedOnAtpFingerprint!).reverse()
+  .map((item: any) => ({ ...item, tps: [...item.tps].reverse() })));
+const legacyBefore = JSON.stringify(legacyMapping);
+const legacyReady = resolveATPUnitMappingReadiness(legacyMapping, targetAtp, tp);
+assert.equal(legacyReady.canProceed, true, legacyReady.blockers.join('; '));
+assert.equal(JSON.stringify(legacyMapping), legacyBefore, 'Readiness must not rewrite existing projects');
+let nextSteps = 0;
+assert.equal(proceedWithATPUnitMapping(legacyReady, () => true, () => { nextSteps++; }).proceeded, true);
+assert.equal(nextSteps, 1);
+for (const field of ['statement', 'competence', 'contentScope'] as const) {
+  const changed = structuredClone(tp);
+  changed.items[0][field] = 'Substansi berubah';
+  const readiness = resolveATPUnitMappingReadiness(legacyMapping, targetAtp, changed);
+  assert.equal(readiness.canProceed, false);
+  assert.ok(readiness.blockers.some(b => b.includes('Substansi TP berubah')));
+  assert.equal(proceedWithATPUnitMapping(readiness, undefined, () => { nextSteps++; }).proceeded, false);
+}
+for (const change of ['focus', 'lineage', 'step'] as const) {
+  const changed = structuredClone(targetAtp);
+  if (change === 'focus') changed.items[0].focus = 'Substansi berubah';
+  if (change === 'lineage') changed.items[0].linkedTpIds = [tp.items[1].id];
+  if (change === 'step') changed.items[0].stepNumber += 1;
+  assert.ok(resolveATPUnitMappingReadiness(legacyMapping, changed, tp).blockers.some(b => b.includes('Substansi ATP berubah')));
+}
+const missingEvidence = { ...legacyMapping, basedOnTpFingerprint: 'unavailable' };
+assert.equal(resolveATPUnitMappingReadiness(missingEvidence, targetAtp, tp).canProceed, false);
+const wrongIdentity = structuredClone(tp);
+wrongIdentity.items[0].id = 'unproven-remap';
+assert.equal(resolveATPUnitMappingReadiness(legacyMapping, targetAtp, wrongIdentity).canProceed, false);
+const incompleteLegacy = structuredClone(legacyMapping);
+incompleteLegacy.units[0].materials[0].linkedTpIds = [tp.items[0].id];
+const incompleteLegacyReady = resolveATPUnitMappingReadiness(incompleteLegacy, targetAtp, tp);
+assert.equal(incompleteLegacyReady.canProceed, false);
+assert.ok(incompleteLegacyReady.blockers.some(b => b.includes('SOURCE_LINEAGE_MISSING')));
+assert.ok(!incompleteLegacyReady.blockers.some(b => b.includes('(stale)')));
+const legacyArchive = structuredClone(archive);
+legacyArchive.project.annualData.atpUnitMappings![0].value.basedOnTpFingerprint = JSON.stringify(JSON.parse(sourceMapping.basedOnTpFingerprint!).reverse());
+legacyArchive.project.annualData.atpUnitMappings![0].value.basedOnAtpFingerprint = JSON.stringify(JSON.parse(sourceMapping.basedOnAtpFingerprint!).reverse());
+const reimport = prepareCompleteAdministrationProjectImport(state, legacyArchive, { mode: 'COPY', targetProfileId: 'p2', targetSchoolId: 's2' });
+assert.equal(reimport.step7.target.canProceed, true, reimport.step7.target.blockers.join('; '));
 assert.notEqual(tp.items[0].id, 't');
 assert.equal(mapping.units[0].materials[0].linkedTpIds[0], tp.items[0].id);
 const execution = copied.state.annualData.unitExecutionPlans!.find(e => e.yearPlanId === copied.yearPlanId)!.value;
