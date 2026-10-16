@@ -1,4 +1,5 @@
 import express from 'express';
+import { repairUnitMeetingCoverage } from './server/unitMeetingCoverageRepair';
 import path from 'path';
 import { createServer as createViteServer } from 'vite';
 import { GoogleGenAI, Type } from '@google/genai';
@@ -2453,6 +2454,8 @@ RULES WAJIB:
 15. Dilarang menciptakan ID baru atau Materi canonical baru yang tidak terdaftar di konteks unit.
 16. Semua missingCoverage yang tertera wajib tercakup sepenuhnya dalam tambahan Pertemuan yang Anda buat.
 17. Judul Pertemuan harus substantif, kreatif, dan berbeda secara pedagogis.
+18. Audit SETIAP Bab sebelum menjawab: union lineage materi pada pertemuan existing dan baru harus mencakup SEMUA TP, ATP, dan materi canonical Bab tersebut. Jumlah slot yang tepat saja tidak cukup.
+19. Untuk setiap TP yang belum tercakup, pilih materi yang benar-benar mendukung TP itu dan susun judul/kegiatan relevan dalam slot yang tersedia. Jangan menempelkan TP tanpa materi pendukung atau menambah slot.
 
 DATA KONTEKS UNIT:
 ${JSON.stringify(unitsContext, null, 2)}
@@ -2516,6 +2519,38 @@ Kembalikan respon JSON dengan skema:
           stage: 'RESPONSE_PARSING',
           code: 'AI_FORMAT_INVALID',
         }),
+      });
+    }
+
+    try {
+      // Keep count/reference validation below authoritative, including after repair.
+      parsed.units = await repairUnitMeetingCoverage({
+        units: sortedMappingUnits,
+        suggestions: parsed.units,
+        existing: currentPlan?.units || [],
+        expectedCounts: new Map(sortedMappingUnits.map(u => [u.id, targetsByUnitId.get(u.id)!.newTargetCount])),
+        repair: async (payload) => {
+          const repaired = await ai.models.generateContent({
+            model: 'gemini-3.8-flash',
+            contents: `Perbaiki HANYA slot pertemuan AI pada Bab berikut untuk ${subject}, ${grade}, ${phase}.
+Pertahankan unitId, urutan Bab, dan jumlah pertemuan EXACT setiap Bab. Semester dan JP tetap diwarisi; jangan output/mengubahnya.
+Pastikan semua TP/ATP/materi canonical tercakup melalui materialIds yang relevan secara pedagogis.
+Ubah judul dan pemilihan materi hanya sesuai kebutuhan cakupan. Jangan sekadar menempelkan ID atau mengubah pertemuan existing guru.
+Gunakan hanya materi canonical Bab terkait. Jika tidak dapat dipenuhi, jangan menciptakan ID.
+Kembalikan JSON {"units":[{"unitId":"...","meetings":[{"title":"...","materialIds":["..."]}]}]}.
+Konteks TP: ${JSON.stringify(tpData.items)}
+Konteks ATP: ${JSON.stringify(atpData.items)}
+Target repair: ${JSON.stringify(payload)}`,
+            config: { responseMimeType: 'application/json' },
+          });
+          return cleanAndParseJSON(repaired.text, null);
+        },
+      });
+    } catch (error) {
+      return res.status(400).json({
+        success: false, code: 'COVERAGE_MISSING',
+        error: error instanceof Error ? error.message : String(error),
+        diagnostic: buildDiagnostic({ stage: 'COVERAGE_VERIFICATION', code: 'COVERAGE_MISSING' }),
       });
     }
 
