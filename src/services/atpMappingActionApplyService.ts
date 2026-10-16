@@ -129,7 +129,7 @@ export function buildMappingDraftFromUnits(
     return {
       id: uId,
       title: uTitle,
-      order: idx + 1,
+      order: typeof u.order === 'number' ? u.order : idx + 1,
       linkedAtpItemIds,
       linkedTpIds,
       materials,
@@ -239,11 +239,28 @@ export function applyATPMappingActions(input: ApplyATPMappingActionsInput): Appl
       if (!title) {
         issues.push('ADD_MATERIAL wajib memiliki judul materi.');
       }
-      const linkedAtps = Array.isArray(action.linkedAtpItemIds) ? action.linkedAtpItemIds : [];
-      const linkedTps = Array.isArray(action.linkedTpIds) ? action.linkedTpIds : [];
+      const rawAtps = Array.isArray(action.linkedAtpItemIds) && action.linkedAtpItemIds.length > 0
+        ? action.linkedAtpItemIds
+        : (action.atpItemId ? [action.atpItemId] : []);
+      const linkedAtps = rawAtps.map((id) => String(id).trim()).filter(Boolean);
+
+      if (linkedAtps.length === 0) {
+        issues.push('ADD_MATERIAL wajib merujuk minimal 1 ATP canonical.');
+      }
+
       for (const aId of linkedAtps) {
         if (!validAtpIds.has(aId)) issues.push(`ADD_MATERIAL merujuk ATP fiktif: ${aId}`);
       }
+
+      const rawTps = Array.isArray(action.linkedTpIds) && action.linkedTpIds.length > 0
+        ? action.linkedTpIds
+        : Array.from(new Set(linkedAtps.flatMap((aId) => getCanonicalTpsForAtpItem(atpMap.get(aId)))));
+      const linkedTps = rawTps.map((id) => String(id).trim()).filter(Boolean);
+
+      if (linkedTps.length === 0) {
+        issues.push('ADD_MATERIAL wajib memiliki silsilah (lineage) TP yang lengkap.');
+      }
+
       for (const tId of linkedTps) {
         if (!validTpIds.has(tId)) issues.push(`ADD_MATERIAL merujuk TP fiktif: ${tId}`);
       }
@@ -251,14 +268,18 @@ export function applyATPMappingActions(input: ApplyATPMappingActionsInput): Appl
         const supported = linkedAtps.some((aId) => getCanonicalTpsForAtpItem(atpMap.get(aId)).includes(tId));
         if (!supported) issues.push(`TP '${tId}' tidak didukung oleh ATP canonical pada ADD_MATERIAL.`);
       }
+
       const unitInfo = unitMap.get(targetUnitId)?.unit;
-      const unitHasLineage = (unitInfo?.linkedAtpItemIds || []).length > 0 || (unitInfo?.linkedTpIds || []).length > 0;
+      const unitHasLineage = (unitInfo?.linkedAtpItemIds || []).length > 0;
       if (unitHasLineage) {
         for (const aId of linkedAtps) {
           if (!(unitInfo?.linkedAtpItemIds || []).includes(aId)) issues.push(`ADD_MATERIAL merujuk ATP '${aId}' yang tidak didukung Bab induk.`);
         }
-        for (const tId of linkedTps) {
-          if (!(unitInfo?.linkedTpIds || []).includes(tId)) issues.push(`ADD_MATERIAL merujuk TP '${tId}' yang tidak didukung Bab induk.`);
+        const unitTps = unitInfo?.linkedTpIds || [];
+        if (unitTps.length > 0) {
+          for (const tId of linkedTps) {
+            if (!unitTps.includes(tId)) issues.push(`ADD_MATERIAL merujuk TP '${tId}' yang tidak didukung Bab induk.`);
+          }
         }
       }
     } else if (action.type === 'ALIGN_EXISTING_MATERIAL' || action.type === 'RECOVER_ATP_LINEAGE') {
@@ -345,32 +366,98 @@ export function applyATPMappingActions(input: ApplyATPMappingActionsInput): Appl
         };
       });
     } else if (action.type === 'ADD_MATERIAL_TO_UNIT') {
-      const currentMats = nextUnits.find((u) => u.id === targetUnitId)?.materials || [];
-      const newMat: ATPUnitMaterial = {
-        id: `mat-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
-        title: action.title!,
-        order: currentMats.length + 1,
-        linkedTpIds: action.linkedTpIds || [],
-        linkedAtpItemIds: action.linkedAtpItemIds || [],
-      };
+      const title = String(action.title || '').trim();
+      const rawAtps = Array.isArray(action.linkedAtpItemIds) && action.linkedAtpItemIds.length > 0
+        ? action.linkedAtpItemIds
+        : (action.atpItemId ? [action.atpItemId] : []);
+      const actionAtps = rawAtps.map((id) => String(id).trim()).filter(Boolean);
+
+      const rawTps = Array.isArray(action.linkedTpIds) && action.linkedTpIds.length > 0
+        ? action.linkedTpIds
+        : Array.from(new Set(actionAtps.flatMap((aId) => getCanonicalTpsForAtpItem(atpMap.get(aId)))));
+      const actionTps = rawTps.map((id) => String(id).trim()).filter(Boolean);
+
+      // Canonical sort for material lineage
+      const sortedMatAtps = [...actionAtps].sort((a, b) => {
+        const indexA = (atp.items || []).findIndex((item) => item.id === a);
+        const indexB = (atp.items || []).findIndex((item) => item.id === b);
+        return indexA - indexB;
+      });
+      const sortedMatTps = [...actionTps].sort((a, b) => {
+        const indexA = (tp.items || []).findIndex((item) => item.id === a);
+        const indexB = (tp.items || []).findIndex((item) => item.id === b);
+        return indexA - indexB;
+      });
+
+      // Canonical TPs for all newly assigned ATPs to ensure Unit covers all canonical TPs
+      const canonicalTpsForNewAtps = actionAtps.flatMap((aId) => getCanonicalTpsForAtpItem(atpMap.get(aId)));
 
       nextUnits = nextUnits.map((u) => {
         if (u.id !== targetUnitId) return u;
-        const nextUnitAtp = Array.from(new Set([...(u.linkedAtpItemIds || []), ...(action.linkedAtpItemIds || [])])).sort((a, b) => {
+
+        const nextUnitAtp = Array.from(new Set([...(u.linkedAtpItemIds || []), ...actionAtps])).sort((a, b) => {
           const indexA = (atp.items || []).findIndex((item) => item.id === a);
           const indexB = (atp.items || []).findIndex((item) => item.id === b);
           return indexA - indexB;
         });
-        const nextUnitTp = Array.from(new Set([...(u.linkedTpIds || []), ...(action.linkedTpIds || [])])).sort((a, b) => {
+
+        const nextUnitTp = Array.from(new Set([...(u.linkedTpIds || []), ...actionTps, ...canonicalTpsForNewAtps])).sort((a, b) => {
           const indexA = (tp.items || []).findIndex((item) => item.id === a);
           const indexB = (tp.items || []).findIndex((item) => item.id === b);
           return indexA - indexB;
         });
+
+        const currentMats = [...(u.materials || [])];
+        const existingMatIdx = currentMats.findIndex(
+          (m) => m.title.trim().toLowerCase() === title.toLowerCase()
+        );
+
+        let nextMaterials: ATPUnitMaterial[];
+        if (existingMatIdx >= 0) {
+          // Re-application or duplicate recommendation: merge lineage without creating duplicate material
+          const existingMat = currentMats[existingMatIdx];
+          const mergedAtps = Array.from(new Set([...(existingMat.linkedAtpItemIds || []), ...sortedMatAtps])).sort((a, b) => {
+            const indexA = (atp.items || []).findIndex((item) => item.id === a);
+            const indexB = (atp.items || []).findIndex((item) => item.id === b);
+            return indexA - indexB;
+          });
+          const mergedTps = Array.from(new Set([...(existingMat.linkedTpIds || []), ...sortedMatTps])).sort((a, b) => {
+            const indexA = (tp.items || []).findIndex((item) => item.id === a);
+            const indexB = (tp.items || []).findIndex((item) => item.id === b);
+            return indexA - indexB;
+          });
+
+          nextMaterials = currentMats.map((m, idx) => {
+            if (idx !== existingMatIdx) return m;
+            return {
+              ...m,
+              linkedAtpItemIds: mergedAtps,
+              linkedTpIds: mergedTps,
+            };
+          });
+        } else {
+          // Append new material in consistent sequential recommendation order
+          const newMat: ATPUnitMaterial = {
+            id: `mat-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+            title,
+            order: currentMats.length + 1,
+            linkedTpIds: sortedMatTps,
+            linkedAtpItemIds: sortedMatAtps,
+          };
+          nextMaterials = [...currentMats, newMat];
+        }
+
+        // Re-index material orders consistently 1..N without altering relative order
+        nextMaterials = nextMaterials.map((m, idx) => ({
+          ...m,
+          order: idx + 1,
+        }));
+
         return {
           ...u,
           linkedAtpItemIds: nextUnitAtp,
           linkedTpIds: nextUnitTp,
-          materials: [...(u.materials || []), newMat],
+          materials: nextMaterials,
         };
       });
     } else if (action.type === 'ALIGN_EXISTING_MATERIAL' || action.type === 'RECOVER_ATP_LINEAGE') {
@@ -441,6 +528,17 @@ export function applyATPMappingActions(input: ApplyATPMappingActionsInput): Appl
     return {
       success: false,
       issues: validation.issues.length > 0 ? validation.issues : ['Validasi canonical gagal pada draf hasil penerapan action.'],
+    };
+  }
+
+  // Strict invariant: unit count, IDs, titles, and order must remain completely identical
+  if (
+    nextUnits.length !== units.length ||
+    nextUnits.some((u, idx) => u.id !== units[idx].id || u.title !== units[idx].title || u.order !== units[idx].order)
+  ) {
+    return {
+      success: false,
+      issues: ['Struktur Bab (jumlah, ID, judul, atau urutan) tidak boleh berubah saat menerapkan rekomendasi.'],
     };
   }
 

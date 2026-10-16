@@ -220,6 +220,7 @@ console.log('Testing Readiness Regression (Cases A, B, C, D)...');
   };
   const mockCPAnalysis = {
     id: 'cpa-001',
+    cpId: 'cp-001',
     academicSettingId: 'acad-001',
     workflowStatus: 'SIAP' as const,
     needsReview: false,
@@ -291,7 +292,7 @@ console.log('Testing Readiness Regression (Cases A, B, C, D)...');
         id: 'atp-item-1',
         stepNumber: 1,
         linkedTpIds: ['tp-001'],
-        focus: 'Penguasaan Bilangan Cacah',
+        focus: 'Memahami konsep bilangan cacah',
         tpCode: 'E1-BLG-01',
         tpStatement: 'Peserta didik memahami bilangan cacah.',
         jp: 4,

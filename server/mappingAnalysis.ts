@@ -759,16 +759,32 @@ export function sanitizeMappingAnalysisResult(
       }
     }
 
-    // Multi-Bab subset validation check
+    // Multi-Bab subset validation check (including prospective assignment via action)
     const mappedUnitsForAtp = (currentMapping.units || []).filter((u) =>
       (u.linkedAtpItemIds || []).includes(atpItemId)
     );
 
-    if (mappedUnitsForAtp.length > 1) {
+    const prospectiveUnitsForAtp = [...mappedUnitsForAtp];
+    if (
+      action &&
+      action.type === 'ASSIGN_ATP_TO_UNIT' &&
+      action.targetUnitId &&
+      !mappedUnitsForAtp.some((u) => u.id === action.targetUnitId)
+    ) {
+      const targetUnit = (currentMapping.units || []).find((u) => u.id === action.targetUnitId);
+      if (targetUnit) {
+        prospectiveUnitsForAtp.push({
+          ...targetUnit,
+          linkedTpIds: action.linkedTpIds || [],
+        });
+      }
+    }
+
+    if (prospectiveUnitsForAtp.length > 1) {
       const atpObj = (atpData.items || []).find((a) => a.id === atpItemId);
       const canonicalTpIds = getCanonicalTpsForAtpItem(atpObj).filter((id) => validTpIds.has(id));
 
-      const unitSubsets = mappedUnitsForAtp.map((u) => {
+      const unitSubsets = prospectiveUnitsForAtp.map((u) => {
         const subset = (u.linkedTpIds || []).filter((id: string) => canonicalTpIds.includes(id));
         return { unit: u, subset, nonEmpty: subset.length > 0 };
       });
@@ -778,26 +794,23 @@ export function sanitizeMappingAnalysisResult(
       unitSubsets.forEach((s) => s.subset.forEach((id) => unionSubset.add(id)));
       const allCanonicalCovered = canonicalTpIds.length > 0 && canonicalTpIds.every((id) => unionSubset.has(id));
 
-      const semanticEvidenceByUnit = unitSubsets.map((s) => unitHasSemanticEvidence(s.unit, atpObj, s.subset));
-      const everyMappedUnitHasSemanticEvidence = semanticEvidenceByUnit.every((ev) => ev.supported);
       const isMultiBabValid = allSubsetsNonEmpty && allCanonicalCovered;
-      const canBeAligned = isMultiBabValid && everyMappedUnitHasSemanticEvidence;
+      const canBeAligned = isMultiBabValid && (proposedStatus === 'ALIGNED' || mappedUnitsForAtp.length > 1);
       atpFindings.push({
         id: f?.id ? String(f.id) : `finding-atp-${idx + 1}`,
         atpItemId,
         status: canBeAligned ? 'ALIGNED' : 'REVIEW',
-        currentUnitId: undefined,
-        suggestedUnitId: undefined,
+        currentUnitId: mappedUnitsForAtp.length === 1 ? mappedUnitsForAtp[0].id : undefined,
+        suggestedUnitId: action?.targetUnitId,
         suggestedMaterialId: undefined,
         supportingTpIds: canonicalTpIds,
         strength: canBeAligned ? 'STRONG' : 'LOW',
         reason: canBeAligned
           ? (f?.reason && typeof f.reason === 'string' && f.reason.trim().length > 0 ? f.reason.trim() : 'Pembagian TP lintas Bab valid dan lengkap.')
-          : `Pembagian TP lintas Bab belum cukup terbukti selaras secara semantik. ${semanticEvidenceByUnit.map((ev) => ev.reason).join(' ')}`,
+          : 'Pembagian TP lintas Bab belum lengkap atau belum terbukti selaras.',
         action: action,
       });
       return;
-
     }
 
     const atpObj = atpMap.get(atpItemId);
