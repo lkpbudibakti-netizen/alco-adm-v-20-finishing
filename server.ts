@@ -30,7 +30,7 @@ import {
 import { validateGraduateProfileDimensions } from './src/constants/graduateProfileDimensions';
 import { checkSemanticCoverage } from './server/cpAnalysisSemanticCoverage';
 import { checkTPSemanticFidelity } from './src/services/tpSemanticFidelity';
-import { validateATPGeneratedItemsSemanticFidelity } from './src/services/atpSemanticFidelity';
+import { checkATPSemanticFidelity, validateATPGeneratedItemsSemanticFidelity } from './src/services/atpSemanticFidelity';
 import {
   getCognitiveAdaptationProfile,
   CognitiveAdaptationProfile,
@@ -758,38 +758,16 @@ CP → Elemen CP → Analisis CP → Rumusan TP.
 
 PRINSIP PEDAGOGIS & KONTRAK ATOMIK TP (WAJIB DIPATUHI - ATOMIC TP CONTRACT):
 1. ATOMIC TP CONTRACT (1 TP = 1 TUJUAN PEMBELAJARAN SPESIFIK):
-   - Setiap butir TP HANYA BOLEH merujuk ke TEPAT 1 BUTIR Analisis CP (CPAnalysisItem).
-   - Properti "cpAnalysisItemIds" WAJIB berupa array yang berisi TEPAT 1 ID valid (panjang array = 1).
-   - JANGAN PERNAH menggabungkan (merge) dua atau lebih butir Analisis CP menjadi satu TP!
-     DILARANG merge meskipun:
-     * Berada pada elemen yang sama
-     * Memiliki competence tier / KKO yang sama
-     * Memiliki lingkup materi yang mirip
-     * Terdapat irisan kata kunci (keyword overlap).
-2. PROSES INDEPENDEN SETIAP BUTIR ANALISIS CP (1..N TP PER ANALISIS ITEM):
-   - Proses setiap butir Analisis CP secara independen.
-   - 1 butir Analisis CP dapat menghasilkan 1 TP atomik.
-   - DEKOMPOSISI (DECOMPOSE): Jika satu butir Analisis CP memuat beberapa kompetensi atau beberapa lingkup materi yang berbeda secara pedagogis (misalnya dipisahkan tanda titik koma atau bermakna ganda), pecah menjadi beberapa butir TP atomik terfokus.
-   - Semua butir TP hasil dekomposisi tersebut WAJIB merujuk ke ID CPAnalysisItem yang sama pada "cpAnalysisItemIds" (masing-masing tetap berupa array dengan tepat 1 ID tersebut).
-   Contoh:
-   Analisis Item A: Kompetensi = Mempraktikkan, Lingkup Materi = Lokomotor; Non-Lokomotor; Manipulatif
-   Maka dihasilkan:
-   * TP 1: Mempraktikkan gerak lokomotor (cpAnalysisItemIds: ["A"])
-   * TP 2: Mempraktikkan gerak non-lokomotor (cpAnalysisItemIds: ["A"])
-   * TP 3: Mempraktikkan gerak manipulatif (cpAnalysisItemIds: ["A"])
-   DILARANG KERAS menggabungkan Analisis A + Analisis B menjadi satu TP!
-3. BUKAN KUOTA:
-   - Jumlah TP adalah hasil murni analisis kurikulum dan dekomposisi atomik, BUKAN berdasarkan target kuota angka.
-4. KUALITAS BUTIR TP:
-   - Setiap TP harus eksplisit memuat: Kompetensi (KKO operasional terukur) dan Lingkup Materi (konten esensial).
-   - Format standar: "Peserta didik mampu [Kompetensi/KKO] [Lingkup Materi] melalui [Konteks/Aktivitas/Kondisi] secara [Karakter/Kriteria]."
-5. PELACAKAN SILSILAH (LINEAGE):
-   - Properti "cpAnalysisItemIds" WAJIB berupa array dengan TEPAT 1 ID rujukan dari daftar HASIL ANALISIS CP di bawah. JANGAN PERNAH mengarang ID fiktif dan JANGAN memasukkan lebih dari 1 ID.
-6. FORMAT KODE TP SEMANTIK:
-   - Kode TP HARUS menggunakan format: [elementCode]-[scopeCode]-[sequence 2 digit]
-   - Contoh: E1-PGD-01, E1-PGD-02, E1-PGD-03, E2-PGD-01.
-   - Urutan sequence dihitung per kombinasi elementCode + scopeCode.
-   - JANGAN menyertakan kelas/fase dalam kode TP (seperti TP 4.1).
+   - 1 butir Analisis CP menghasilkan TP spesifik.
+   - JANGAN menggabungkan (merge) butir Analisis CP secara asal.
+2. FOKUS TP (COMPETENCE-MATERIAL ALIGNMENT):
+   - TP WAJIB memiliki kompetensi yang spesifik (bukan sekadar "Memahami & Menerapkan" global).
+   - Gunakan kompetensi yang benar-benar dituntut oleh substansi materi TP.
+   - JANGAN mengulang kompetensi yang sama dalam satu TP (misalnya: "menerapkan menerapkan").
+   - Jika satu Analisis CP memiliki beberapa kompetensi/materi yang berbeda secara pedagogis, DEKOMPOSISI menjadi beberapa TP atomik terfokus.
+3. FORMAT KODE TP:
+   - Format: [elementCode]-[scopeCode]-[sequence 2 digit] (misal: E1-PGD-01).
+   - JANGAN sertakan kelas/fase dalam kode TP.
 
 DATA PEMBELAJARAN:
 - Mata Pelajaran: ${subject || '-'}
@@ -916,8 +894,14 @@ Kembalikan respon dalam format JSON sesuai schema:`;
 
             const generatedCode = `${elemCode}-${scopeCode}-${String(seq).padStart(2, '0')}`;
 
+            const cleanStmt = (item.statement || item.description || '')
+              .replace(/\b([a-zA-Z]+)\s+\1\b/gi, '$1')
+              .replace(/\s+/g, ' ')
+              .trim();
+
             return {
               ...item,
+              statement: cleanStmt || item.statement,
               code: generatedCode,
               scopeCode,
               cpAnalysisItemIds: singleId ? [singleId] : [],
@@ -1047,7 +1031,7 @@ PRINSIP & INSTRUKSI PENYUSUNAN ATP MULTI-TP (CANONICAL):
          a. Substansi/materi TP yang ditautkan.
          b. Kompetensi atau tindakan pembelajaran yang dapat dikenali untuk setiap TP tertaut.
          c. Kesetaraan makna kompetensi; tidak harus menyalin seluruh kalimat TP, namun tindakan spesifik harus terlihat jelas (misalnya: "Mempraktikkan" harus tampak sebagai praktik/demonstrasi).
-         d. Kata kerja spesifik seperti "Menjaga", "Mengenali", dan "Menerapkan" tidak boleh direduksi menjadi frasa umum (misal: "memahami kesehatan" dilarang).
+         d. Kata kerja spesifik seperti "Menjaga", "Mengenali", "Menerapkan", "Mengeksplorasi", dan "Berpartisipasi" tidak boleh direduksi menjadi frasa umum (misal: "memahami kesehatan" dilarang). JANGAN mengulang kata kerja dalam satu rumusan TP (misalnya: "menerapkan menerapkan").
        - Jika satu langkah menggabungkan beberapa TP:
          a. Semua TP tertaut harus terwakili secara substantif dalam fokus.
          b. Kompetensi berbeda harus tetap terlihat, termasuk tindakan majemuk.
@@ -1186,9 +1170,34 @@ Kembalikan output JSON sesuai schema:`;
 
     const semanticCheck = validateATPGeneratedItemsSemanticFidelity(resolvedItems, tps);
     if (!semanticCheck.isValid) {
-      return res.status(500).json({
-        error: `Respons AI tidak sah secara semantic fidelity ATP: ${semanticCheck.reason || 'Fokus ATP tidak sesuai dengan TP canonical tertaut.'}`
+      // FIX C: Single targeted recovery for steps with semantic mismatch
+      const recoveredItems = resolvedItems.map((item) => {
+        const stepTps = item.linkedTpIds.map((id) => tpMapById.get(id)).filter(Boolean);
+        const check = checkATPSemanticFidelity(item.focus, stepTps);
+        if (check.isValid) return item;
+
+        // Reconstruct coherent focus from the linked canonical TPs
+        const tpScopes = stepTps.map((t) => t.contentScope || t.statement).filter(Boolean);
+        const tpCompetences = stepTps.map((t) => t.competence).filter(Boolean);
+        const primaryComp = tpCompetences[0] || 'Penguasaan';
+        const primaryScope = tpScopes.join(' dan ');
+        const repairedFocus = `${primaryComp} ${primaryScope}`.replace(/\s+/g, ' ').trim();
+
+        return {
+          ...item,
+          focus: repairedFocus,
+        };
       });
+
+      // Strict re-validation of ALL items with production validator
+      const recheck = validateATPGeneratedItemsSemanticFidelity(recoveredItems, tps);
+      if (recheck.isValid) {
+        resolvedItems.splice(0, resolvedItems.length, ...recoveredItems);
+      } else {
+        return res.status(500).json({
+          error: `Respons AI tidak sah secara semantic fidelity ATP: ${semanticCheck.reason || recheck.reason || 'Fokus ATP tidak sesuai dengan TP canonical tertaut.'}`
+        });
+      }
     }
 
     parsed.items = resolvedItems;
@@ -3225,7 +3234,16 @@ function normalizeExperiencePhase(phase: any): 'UNDERSTAND' | 'APPLY' | 'REFLECT
 }
 
 // Runtime validator for AI Learning Plan response
-function validateAILearningPlanPayload(data: any): { isValid: boolean; reason?: string } {
+export function isPedagogicalItemValid(item: any): boolean {
+  return Boolean(
+    item &&
+    typeof item === 'object' &&
+    typeof item.description === 'string' &&
+    item.description.trim().length > 0
+  );
+}
+
+export function validateAILearningPlanPayload(data: any): { isValid: boolean; reason?: string } {
   if (!data || typeof data !== 'object' || Array.isArray(data)) {
     return { isValid: false, reason: 'Payload AI bukan berupa objek valid' };
   }
@@ -3282,14 +3300,6 @@ function validateAILearningPlanPayload(data: any): { isValid: boolean; reason?: 
     return { isValid: false, reason: 'Rencana Asesmen (assessmentPlan) wajib berupa objek' };
   }
 
-  const isPedagogicalItemValid = (item: any) =>
-    item &&
-    typeof item === 'object' &&
-    ((typeof item.description === 'string' && item.description.trim().length > 0) ||
-      (typeof item.technique === 'string' && item.technique.trim().length > 0) ||
-      (typeof item.method === 'string' && item.method.trim().length > 0) ||
-      (typeof item.instrument === 'string' && item.instrument.trim().length > 0));
-
   const initialItems = Array.isArray(data.assessmentPlan.initial)
     ? data.assessmentPlan.initial.filter(isPedagogicalItemValid)
     : [];
@@ -3332,6 +3342,234 @@ function validateAILearningPlanPayload(data: any): { isValid: boolean; reason?: 
 
   return { isValid: true };
 }
+
+export function getFailedAssessmentGroups(data: any): string[] {
+  const failedGroups: string[] = [];
+  if (!data || typeof data !== 'object' || Array.isArray(data)) {
+    failedGroups.push('Format JSON Modul Ajar');
+    return failedGroups;
+  }
+  if (!data.assessmentPlan || typeof data.assessmentPlan !== 'object' || Array.isArray(data.assessmentPlan)) {
+    failedGroups.push('Struktur assessmentPlan (wajib objek dengan initial, formative, summative)');
+    return failedGroups;
+  }
+  const initialItems = Array.isArray(data.assessmentPlan.initial)
+    ? data.assessmentPlan.initial.filter(isPedagogicalItemValid)
+    : [];
+  const formativeItems = Array.isArray(data.assessmentPlan.formative)
+    ? data.assessmentPlan.formative.filter(isPedagogicalItemValid)
+    : [];
+  const summativeItems = Array.isArray(data.assessmentPlan.summative)
+    ? data.assessmentPlan.summative.filter(isPedagogicalItemValid)
+    : [];
+
+  if (initialItems.length === 0) failedGroups.push('initial (Asesmen Diagnostik Awal)');
+  if (formativeItems.length === 0) failedGroups.push('formative (Asesmen Formatif)');
+  if (summativeItems.length === 0) failedGroups.push('summative (Asesmen Sumatif)');
+
+  return failedGroups;
+}
+
+export function buildLearningPlanRepairPrompt(params: {
+  parsed: any;
+  validationReason?: string;
+  failedGroups: string[];
+  topic?: string;
+  tps: any[];
+  meetings?: any[];
+  canonicalAllocatedJP?: number;
+}): string {
+  const { parsed, validationReason, failedGroups, topic, tps, meetings, canonicalAllocatedJP } = params;
+  return `PERINGATAN PERBAIKAN STRUKTUR MODUL AJAR:
+Hasil keluaran sebelumnya tidak memenuhi syarat validasi pedagogis Modul Ajar Kurikulum Merdeka.
+Alasan kegagalan: "${validationReason || 'Rencana Asesmen tidak lengkap'}"
+${failedGroups.length > 0 ? `Kelompok asesmen yang gagal/kosong: ${failedGroups.join(', ')}.` : ''}
+
+INSTRUKSI PERBAIKAN (WAJIB DIPATUHI SECARA MUTLAK):
+1. Perbaiki dan lengkapi bagian Rencana Asesmen (assessmentPlan):
+   - Wajib memiliki 'initial' (minimal 1 butir item dengan description tidak kosong).
+   - Wajib memiliki 'formative' (minimal 1 butir item dengan description tidak kosong).
+   - Wajib memiliki 'summative' (minimal 1 butir item dengan description tidak kosong).
+   - Setiap butir asesmen WAJIB memiliki 'description' yang spesifik, operasional, dan relevan dengan TP/materi, bukan teks generik. Sertakan juga 'technique' dan 'instrument'.
+2. PERTAHANKAN seluruh data asli yang sudah ada:
+   - Judul & Topik Bab: ${topic || tps[0]?.contentScope || tps[0]?.statement || 'Topik Pembelajaran'}
+   - Rujukan TP (${tps.length} butir) dan ATP
+   - Struktur ${meetings && meetings.length > 0 ? `${meetings.length} pertemuan` : 'pertemuan kanonikal'}
+   - Acuan KKTP jika tersedia
+   - Pengalaman Belajar (UNDERSTAND, APPLY, REFLECT)
+   - Alokasi waktu kanonikal: ${canonicalAllocatedJP ? `${canonicalAllocatedJP} JP` : 'tetap sesuai rancangan'}
+3. JANGAN menghasilkan asesmen fiktif, JANGAN mengosongkan kelompok asesmen '${failedGroups.join(', ') || 'apapun'}', dan JANGAN menggunakan placeholder generik.
+
+Draft JSON sebelumnya yang memerlukan perbaikan:
+${JSON.stringify(parsed || {}, null, 2)}
+
+Kembalikan dokumen JSON Modul Ajar lengkap yang telah diperbaiki sesuai schema yang valid.`;
+}
+
+export const learningPlanResponseSchema = {
+  type: Type.OBJECT,
+  required: [
+    'learningExperiences',
+    'initialCompetency',
+    'graduateProfileDimensions',
+    'resources',
+    'learningModel',
+    'assessmentPlan',
+  ],
+  properties: {
+    title: { type: Type.STRING },
+    topic: { type: Type.STRING },
+    initialCompetency: { type: Type.STRING, description: 'Kompetensi awal atau prasyarat pembelajaran' },
+    graduateProfileDimensions: {
+      type: Type.ARRAY,
+      items: { type: Type.STRING },
+      description: '2-4 Dimensi Profil Lulusan kanonikal yang relevan',
+    },
+    learningModel: { type: Type.STRING, description: 'Model atau praktik pembelajaran kontekstual' },
+    resources: {
+      type: Type.ARRAY,
+      items: {
+        type: Type.OBJECT,
+        properties: {
+          title: { type: Type.STRING },
+        },
+        required: ['title'],
+      },
+      description: 'Daftar sarana dan prasarana / sumber belajar',
+    },
+    meaningfulUnderstanding: { type: Type.STRING },
+    triggerQuestions: { type: Type.ARRAY, items: { type: Type.STRING } },
+    learningExperiences: {
+      type: Type.ARRAY,
+      items: {
+        type: Type.OBJECT,
+        properties: {
+          phase: { type: Type.STRING, description: 'MUST be UNDERSTAND, APPLY, or REFLECT' },
+          description: { type: Type.STRING },
+          durationMinutes: { type: Type.NUMBER },
+        },
+        required: ['phase', 'description'],
+      },
+    },
+    deepLearningContext: {
+      type: Type.OBJECT,
+      properties: {
+        principles: { type: Type.ARRAY, items: { type: Type.STRING } },
+        graduateProfileDimensions: { type: Type.ARRAY, items: { type: Type.STRING } },
+      },
+    },
+    learningSteps: {
+      type: Type.OBJECT,
+      properties: {
+        opening: {
+          type: Type.ARRAY,
+          items: {
+            type: Type.OBJECT,
+            properties: {
+              stepName: { type: Type.STRING },
+              description: { type: Type.STRING },
+              durationMinutes: { type: Type.NUMBER },
+            },
+          },
+        },
+        core: {
+          type: Type.ARRAY,
+          items: {
+            type: Type.OBJECT,
+            properties: {
+              stepName: { type: Type.STRING },
+              description: { type: Type.STRING },
+              durationMinutes: { type: Type.NUMBER },
+            },
+          },
+        },
+        closing: {
+          type: Type.ARRAY,
+          items: {
+            type: Type.OBJECT,
+            properties: {
+              stepName: { type: Type.STRING },
+              description: { type: Type.STRING },
+              durationMinutes: { type: Type.NUMBER },
+            },
+          },
+        },
+      },
+    },
+    assessmentPlan: {
+      type: Type.OBJECT,
+      description: 'Rencana Asesmen autentik memuat asesmen awal, formatif, dan sumatif',
+      required: ['initial', 'formative', 'summative'],
+      properties: {
+        initial: {
+          type: Type.ARRAY,
+          minItems: 1,
+          description: 'Minimal 1 butir asesmen diagnostik awal pembelajaran yang relevan dengan TP',
+          items: {
+            type: Type.OBJECT,
+            required: ['description'],
+            properties: {
+              type: { type: Type.STRING },
+              technique: { type: Type.STRING },
+              method: { type: Type.STRING },
+              instrument: { type: Type.STRING },
+              description: { type: Type.STRING, description: 'Deskripsi operasional spesifik asesmen awal' },
+            },
+          },
+        },
+        formative: {
+          type: Type.ARRAY,
+          minItems: 1,
+          description: 'Minimal 1 butir asesmen formatif proses belajar spesifik terhadap aktivitas dan KKTP',
+          items: {
+            type: Type.OBJECT,
+            required: ['description'],
+            properties: {
+              type: { type: Type.STRING },
+              technique: { type: Type.STRING },
+              method: { type: Type.STRING },
+              instrument: { type: Type.STRING },
+              description: { type: Type.STRING, description: 'Deskripsi operasional spesifik asesmen formatif' },
+            },
+          },
+        },
+        summative: {
+          type: Type.ARRAY,
+          minItems: 1,
+          description: 'Minimal 1 butir asesmen sumatif lingkup materi/akhir bab spesifik terhadap capaian TP',
+          items: {
+            type: Type.OBJECT,
+            required: ['description'],
+            properties: {
+              type: { type: Type.STRING },
+              technique: { type: Type.STRING },
+              method: { type: Type.STRING },
+              instrument: { type: Type.STRING },
+              description: { type: Type.STRING, description: 'Deskripsi operasional spesifik asesmen sumatif' },
+            },
+          },
+        },
+      },
+    },
+    differentiation: {
+      type: Type.OBJECT,
+      properties: {
+        content: { type: Type.STRING },
+        process: { type: Type.STRING },
+        product: { type: Type.STRING },
+      },
+    },
+    reflection: {
+      type: Type.OBJECT,
+      properties: {
+        teacherReflection: { type: Type.STRING },
+        studentReflection: { type: Type.STRING },
+      },
+    },
+    enrichmentPlan: { type: Type.STRING },
+    remedialPlan: { type: Type.STRING },
+  },
+};
 
 // Endpoint: AI Generate Learning Plan (Modul Ajar DRAFT)
 app.post('/api/ai/generate-learning-plan', async (req, res) => {
@@ -3455,7 +3693,12 @@ INSTRUKSI KEGIATAN & ASESMEN:
 5. Susun Pengalaman Belajar (learningExperiences) dengan struktur 3 fase utama (UNDERSTAND, APPLY, REFLECT) sesuai panduan 2026. Nilai properti "phase" HARUS salah satu dari: "UNDERSTAND", "APPLY", atau "REFLECT".
 6. Setiap Pengalaman Belajar memuat "description" yang jelas dan operasional, serta "durationMinutes" (dalam menit, opsional).
 7. Gunakan terminologi "Murid" (bukan peserta didik) dan "Dimensi Profil Lulusan".
-8. Sediakan Rencana Asesmen (Asesmen Diagnostik Awal, Formatif, dan Sumatif) dengan memperhatikan acuan KKTP jika tersedia.
+8. Rencana Asesmen (assessmentPlan) WAJIB memuat 3 kelompok asesmen secara lengkap, spesifik, dan non-generik:
+   a. "initial" (Asesmen Diagnostik Awal): Menilai pengetahuan atau keterampilan prasyarat murid sebelum memulai materi ini. Minimal 1 butir item dengan "description" konkret.
+   b. "formative" (Asesmen Formatif Proses Belajar): Memantau dan membimbing proses belajar murid di sepanjang kegiatan/pertemuan, selaras dengan indikator KKTP Bab dan aktivitas Pengalaman Belajar. JANGAN kosong dan JANGAN generik. Minimal 1 butir item dengan "description" konkret.
+   c. "summative" (Asesmen Sumatif Lingkup Materi): Menilai ketercapaian seluruh TP pada akhir Bab/Unit materi. Minimal 1 butir item dengan "description" konkret.
+   - PENTING: DILARANG KERAS membuat deskripsi asesmen generik seperti sekadar "Tes formatif", "Kuis", "Tanya jawab", atau "Penilaian harian". Deskripsi WAJIB menjelaskan secara eksplisit apa yang dinilai, materi apa yang diukur, serta teknik dan instrumen yang digunakan (misal: "Observasi unjuk kerja dan lembar ceklis saat murid menyusun alur flowchart percabangan secara berkelompok").
+   - Setiap butir asesmen WAJIB memiliki properti "description" yang tidak kosong. Lengkapi juga dengan "technique" (misal: Observasi, Kinerja, Tes Tertulis, Portofolio, Jurnal) dan "instrument" (misal: Rubrik Analitik, Lembar Ceklis, Soal Pilihan Ganda & Esai).
 9. Sediakan Rencana Diferensiasi (Konten, Proses, Produk).
 10. Buat kalimat pemahaman bermakna dan pertanyaan pemantik yang relevan.
 ${
@@ -3486,161 +3729,69 @@ Kembalikan output JSON sesuai schema.`;
       contents: prompt,
       config: {
         responseMimeType: 'application/json',
-        responseSchema: {
-          type: Type.OBJECT,
-          required: [
-            'learningExperiences',
-            'initialCompetency',
-            'graduateProfileDimensions',
-            'resources',
-            'learningModel',
-          ],
-          properties: {
-            title: { type: Type.STRING },
-            topic: { type: Type.STRING },
-            initialCompetency: { type: Type.STRING, description: 'Kompetensi awal atau prasyarat pembelajaran' },
-            graduateProfileDimensions: {
-              type: Type.ARRAY,
-              items: { type: Type.STRING },
-              description: '2-4 Dimensi Profil Lulusan kanonikal yang relevan',
-            },
-            learningModel: { type: Type.STRING, description: 'Model atau praktik pembelajaran kontekstual' },
-            resources: {
-              type: Type.ARRAY,
-              items: {
-                type: Type.OBJECT,
-                properties: {
-                  title: { type: Type.STRING },
-                },
-                required: ['title'],
-              },
-              description: 'Daftar sarana dan prasarana / sumber belajar',
-            },
-            meaningfulUnderstanding: { type: Type.STRING },
-            triggerQuestions: { type: Type.ARRAY, items: { type: Type.STRING } },
-            learningExperiences: {
-              type: Type.ARRAY,
-              items: {
-                type: Type.OBJECT,
-                properties: {
-                  phase: { type: Type.STRING, description: 'MUST be UNDERSTAND, APPLY, or REFLECT' },
-                  description: { type: Type.STRING },
-                  durationMinutes: { type: Type.NUMBER },
-                },
-                required: ['phase', 'description'],
-              },
-            },
-            deepLearningContext: {
-              type: Type.OBJECT,
-              properties: {
-                principles: { type: Type.ARRAY, items: { type: Type.STRING } },
-                graduateProfileDimensions: { type: Type.ARRAY, items: { type: Type.STRING } },
-              },
-            },
-            learningSteps: {
-              type: Type.OBJECT,
-              properties: {
-                opening: {
-                  type: Type.ARRAY,
-                  items: {
-                    type: Type.OBJECT,
-                    properties: {
-                      stepName: { type: Type.STRING },
-                      description: { type: Type.STRING },
-                      durationMinutes: { type: Type.NUMBER },
-                    },
-                  },
-                },
-                core: {
-                  type: Type.ARRAY,
-                  items: {
-                    type: Type.OBJECT,
-                    properties: {
-                      stepName: { type: Type.STRING },
-                      description: { type: Type.STRING },
-                      durationMinutes: { type: Type.NUMBER },
-                    },
-                  },
-                },
-                closing: {
-                  type: Type.ARRAY,
-                  items: {
-                    type: Type.OBJECT,
-                    properties: {
-                      stepName: { type: Type.STRING },
-                      description: { type: Type.STRING },
-                      durationMinutes: { type: Type.NUMBER },
-                    },
-                  },
-                },
-              },
-            },
-            assessmentPlan: {
-              type: Type.OBJECT,
-              properties: {
-                initial: {
-                  type: Type.ARRAY,
-                  items: {
-                    type: Type.OBJECT,
-                    properties: {
-                      type: { type: Type.STRING },
-                      technique: { type: Type.STRING },
-                      description: { type: Type.STRING },
-                    },
-                  },
-                },
-                formative: {
-                  type: Type.ARRAY,
-                  items: {
-                    type: Type.OBJECT,
-                    properties: {
-                      type: { type: Type.STRING },
-                      technique: { type: Type.STRING },
-                      description: { type: Type.STRING },
-                    },
-                  },
-                },
-                summative: {
-                  type: Type.ARRAY,
-                  items: {
-                    type: Type.OBJECT,
-                    properties: {
-                      type: { type: Type.STRING },
-                      technique: { type: Type.STRING },
-                      description: { type: Type.STRING },
-                    },
-                  },
-                },
-              },
-            },
-            differentiation: {
-              type: Type.OBJECT,
-              properties: {
-                content: { type: Type.STRING },
-                process: { type: Type.STRING },
-                product: { type: Type.STRING },
-              },
-            },
-            reflection: {
-              type: Type.OBJECT,
-              properties: {
-                teacherReflection: { type: Type.STRING },
-                studentReflection: { type: Type.STRING },
-              },
-            },
-            enrichmentPlan: { type: Type.STRING },
-            remedialPlan: { type: Type.STRING },
-          },
-        },
+        responseSchema: learningPlanResponseSchema,
       },
     });
 
-    const parsed = cleanAndParseJSON(response.text, null);
-    const validation = validateAILearningPlanPayload(parsed);
+    let parsed = cleanAndParseJSON(response.text, null);
+    let validation = validateAILearningPlanPayload(parsed);
 
+    // AI Recovery: Jika validasi asesmen atau struktur gagal, jalankan MAKSIMAL SATU perbaikan AI
     if (!validation.isValid) {
-      console.warn(`[AI Service][learning-plan][${requestId}] Gemini output invalid:`, validation.reason);
-      return res.status(500).json({ error: `Respons AI tidak memenuhi kualifikasi struktur Modul Ajar: ${validation.reason}` });
+      const failedGroups = getFailedAssessmentGroups(parsed);
+      console.warn(
+        `[AI Service][learning-plan][${requestId}] Gemini initial output invalid: "${validation.reason}". Kelompok asesmen gagal: [${failedGroups.join(', ')}]. Menjalankan 1x percobaan perbaikan AI...`
+      );
+
+      const repairPrompt = buildLearningPlanRepairPrompt({
+        parsed,
+        validationReason: validation.reason,
+        failedGroups,
+        topic,
+        tps,
+        meetings,
+        canonicalAllocatedJP,
+      });
+
+      try {
+        const repairResponse = await generateContentWithRetry(ai, {
+          contents: repairPrompt,
+          config: {
+            responseMimeType: 'application/json',
+            responseSchema: learningPlanResponseSchema,
+          },
+        });
+
+        const repairedParsed = cleanAndParseJSON(repairResponse.text, null);
+        const repairedValidation = validateAILearningPlanPayload(repairedParsed);
+
+        if (repairedValidation.isValid) {
+          console.info(`[AI Service][learning-plan][${requestId}] Percobaan perbaikan AI berhasil!`);
+          parsed = repairedParsed;
+          validation = repairedValidation;
+        } else {
+          console.warn(
+            `[AI Service][learning-plan][${requestId}] Percobaan perbaikan AI tetap gagal: "${repairedValidation.reason}"`
+          );
+          return res.status(400).json({
+            error: `Respons AI tidak memenuhi kualifikasi struktur Modul Ajar setelah perbaikan: ${repairedValidation.reason}`,
+            code: 'AI_RESPONSE_VALIDATION_FAILED',
+            reason: repairedValidation.reason,
+            failedGroups,
+          });
+        }
+      } catch (repairErr: any) {
+        console.error(
+          `[AI Service][learning-plan][${requestId}] Panggilan perbaikan AI gagal:`,
+          repairErr?.message || repairErr
+        );
+        return res.status(400).json({
+          error: `Respons AI tidak memenuhi kualifikasi struktur Modul Ajar: ${validation.reason}. Percobaan perbaikan gagal: ${repairErr.message || 'Error AI'}`,
+          code: 'AI_RESPONSE_VALIDATION_FAILED',
+          reason: validation.reason,
+          failedGroups,
+        });
+      }
     }
 
     if (canonicalAllocatedJP) {
@@ -4098,4 +4249,14 @@ async function startServer() {
   });
 }
 
-startServer();
+const isDirectExecution =
+  process.argv[1] &&
+  (process.argv[1].endsWith('server.ts') ||
+    process.argv[1].endsWith('server.cjs') ||
+    process.argv[1].endsWith('server.js') ||
+    process.argv[1].includes('server.ts'));
+
+if (isDirectExecution && process.env.NODE_ENV !== 'test' && !process.env.VITEST) {
+  startServer();
+}
+

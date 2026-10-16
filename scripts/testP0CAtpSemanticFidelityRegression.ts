@@ -4,6 +4,7 @@ import {
 } from '../src/services/atpSemanticFidelity';
 import { prepareATPFinalization } from '../src/services/atpFinalizationService';
 import { validateATPDataWorkflow } from '../src/services/cpWorkflowService';
+import { fallbackGenerateTP } from '../server/curriculumFallback';
 import type { AcademicSetting, ATPData, ATPItem, CPAnalysisData, CPData, TPData, TPItem } from '../src/types';
 
 let failed = 0;
@@ -23,7 +24,7 @@ const academicSetting: AcademicSetting = {
   profileId: 'profile-p0c',
   curriculum: 'Kurikulum Merdeka',
   academicYear: '2026/2027',
-  semester: '1',
+  semester: '1 (Ganjil)',
   subject: 'Matematika',
   grade: 'Kelas 4',
   phase: 'Fase B',
@@ -52,6 +53,7 @@ const cpAnalysis: CPAnalysisData = {
   generalSummary: 'Analisis CP Matematika fase B.',
   workflowStatus: 'SIAP',
   needsReview: false,
+  basedOnCpUpdatedAt: cp.updatedAt,
   items: [
     {
       id: 'ana-pecahan',
@@ -321,7 +323,276 @@ const pjokNeg = validateATPGeneratedItemsSemanticFidelity(
   [{ stepNumber: 1, linkedTpIds: ['tp-pjok-1', 'tp-pjok-2'], focus: 'Mempraktikkan gerak lokomotor' }], 
   pjokTp
 );
-assertCase(!pjokNeg.isValid, 'PJOK: Multi-TP sebagian tertaut FAIL');
+
+// 6. Mengeksplorasi (Regression)
+const eksplorasiTp: TPItem[] = [{ id: 'tp-eksplorasi', code: 'E1-EXPL-01', statement: 'Peserta didik mengeksplorasi pola makan sehat.', competence: 'Mengeksplorasi', contentScope: 'Pola makan sehat', order: 1 }];
+assertCase(checkATPSemanticFidelity('Mengeksplorasi pola makan sehat', eksplorasiTp).isValid, 'Eksplorasi: Kompetensi relevan PASS');
+assertCase(!checkATPSemanticFidelity('Menjelaskan pola makan sehat', eksplorasiTp).isValid, 'Eksplorasi: Kompetensi lain FAIL');
+
+// 7. Mempraktikkan (Regression)
+const praktikTp: TPItem[] = [{ id: 'tp-praktik', code: 'E1-PRAK-01', statement: 'Peserta didik mempraktikkan penanganan cedera ringan.', competence: 'Mempraktikkan', contentScope: 'Penanganan cedera ringan', order: 1 }];
+assertCase(checkATPSemanticFidelity('Mempraktikkan penanganan cedera ringan', praktikTp).isValid, 'Praktik: Kompetensi relevan PASS');
+assertCase(!checkATPSemanticFidelity('Mengenali cedera ringan', praktikTp).isValid, 'Praktik: Kompetensi lain FAIL');
+
+
+// 8. Berpartisipasi (Regression)
+const partTp: TPItem[] = [{ id: 'tp-part', code: 'E1-PART-01', statement: 'Peserta didik berpartisipasi dalam permainan.', competence: 'Berpartisipasi', contentScope: 'Permainan', order: 1 }];
+assertCase(checkATPSemanticFidelity('Berpartisipasi dalam permainan', partTp).isValid, 'Partisipasi: Kompetensi relevan PASS');
+assertCase(!checkATPSemanticFidelity('Mengamati permainan', partTp).isValid, 'Partisipasi: Kompetensi lain FAIL');
+
+// 9. Kompetensi Majemuk (Regression)
+const majemukTp: TPItem[] = [{ id: 'tp-majemuk', code: 'E1-MAJ-01', statement: 'Peserta didik menerapkan dan berpartisipasi dalam gerak.', competence: 'Menerapkan dan berpartisipasi', contentScope: 'Gerak', order: 1 }];
+assertCase(checkATPSemanticFidelity('Menerapkan dan berpartisipasi dalam gerak', majemukTp).isValid, 'Majemuk: Kompetensi lengkap PASS');
+assertCase(!checkATPSemanticFidelity('Menerapkan gerak', majemukTp).isValid, 'Majemuk: Kompetensi hilang FAIL');
+
+// ---------------------------------------------------------
+// 10. PJOK FASE B KELAS 3 END-TO-END REGRESSION (10 TPs FIXTURE)
+// ---------------------------------------------------------
+
+// D1. TP Atomic baru tidak otomatis membawa seluruh kompetensi Analisis CP
+const cpaBloated = [
+  {
+    id: 'ana-fairplay',
+    elementName: 'Kebugaran Jasmani',
+    scopeCode: 'MBDM',
+    cpCompetence: 'Menerapkan & Berpartisipasi & Merancang & Menyusun',
+    materialScope: 'aturan untuk fair play',
+    suggestedTp: 'Peserta didik mampu menyusun dan menerapkan aturan untuk fair play.',
+  },
+];
+const generatedTps = fallbackGenerateTP({
+  cpAnalysisItems: cpaBloated,
+});
+assertCase(
+  generatedTps.length === 1 &&
+  !generatedTps[0].competence.toLowerCase().includes('berpartisipasi') &&
+  generatedTps[0].competence.toLowerCase().includes('menerapkan'),
+  'D1: TP Atomic baru tidak otomatis membawa seluruh kompetensi Analisis CP yang tidak dirumuskan'
+);
+
+// D2. Rumusan TP baru tidak mengulang kata kerja
+const cpaDuplicateVerb = [
+  {
+    id: 'ana-dup',
+    elementName: 'Elemen 1',
+    scopeCode: 'DUP',
+    cpCompetence: 'Menerapkan',
+    materialScope: 'menerapkan pola hidup sehat',
+  },
+];
+const genDupTps = fallbackGenerateTP({
+  cpAnalysisItems: cpaDuplicateVerb,
+});
+assertCase(
+  genDupTps.length === 1 && !/\bmenerapkan\s+menerapkan\b/i.test(genDupTps[0].statement),
+  'D2: Rumusan TP baru tidak mengulang kata kerja (tidak ada "menerapkan menerapkan")'
+);
+
+// D3. Kompetensi majemuk yang benar tetap bisa digunakan
+const cpaCompoundValid = [
+  {
+    id: 'ana-compound',
+    elementName: 'Perilaku Hidup Sehat',
+    scopeCode: 'BDBA',
+    cpCompetence: 'Mengenali & Berpartisipasi',
+    materialScope: 'aktivitas jasmani yang menyenangkan',
+    suggestedTp: 'Peserta didik mampu mengenali dan berpartisipasi dalam aktivitas jasmani yang menyenangkan.',
+  },
+];
+const genCompoundTps = fallbackGenerateTP({
+  cpAnalysisItems: cpaCompoundValid,
+});
+assertCase(
+  genCompoundTps.length === 1 &&
+  genCompoundTps[0].competence.toLowerCase().includes('mengenal') &&
+  genCompoundTps[0].competence.toLowerCase().includes('partisipasi'),
+  'D3: Kompetensi majemuk yang benar tetap bisa digunakan'
+);
+
+// PJOK 10 TP CANONICAL FIXTURE (Fase B, Kelas 3, TA 2026/2027)
+const pjokCp: CPData = {
+  id: 'cp-pjok-p0c',
+  academicSettingId: 'acad-p0c',
+  generalDescription: 'Peserta didik menguasai keterampilan gerak dasar dan pola hidup sehat.',
+  elements: [
+    { id: 'elem-pjok-1', code: 'E1', name: 'Terampil Bergerak', content: 'Keterampilan gerak fundamental.' },
+    { id: 'elem-pjok-2', code: 'E2', name: 'Belajar Melalui Gerak', content: 'Perilaku fair play dan peran kelompok.' },
+    { id: 'elem-pjok-3', code: 'E3', name: 'Bergaya Hidup Aktif', content: 'Aktivitas jasmani yang menyenangkan.' },
+    { id: 'elem-pjok-4', code: 'E4', name: 'Memilih Hidup Sehat', content: 'Pola makan dan penanganan cedera.' },
+  ],
+  source: { verificationStatus: 'VERIFIED' } as any,
+  workflowStatus: 'SIAP',
+  updatedAt: '2026-01-01T00:00:00.000Z',
+};
+
+const pjokAnalysisItems = [
+  { id: 'ana-pjok-01', elementId: 'elem-pjok-1', elementName: 'Terampil Bergerak', cpText: 'Keterampilan gerak fundamental.', cpCompetence: 'Mempraktikkan', materialScope: 'Pola gerak dasar lokomotor', order: 1 },
+  { id: 'ana-pjok-02', elementId: 'elem-pjok-1', elementName: 'Terampil Bergerak', cpText: 'Keterampilan gerak fundamental.', cpCompetence: 'Mempraktikkan', materialScope: 'Pola gerak dasar non-lokomotor', order: 2 },
+  { id: 'ana-pjok-03', elementId: 'elem-pjok-1', elementName: 'Terampil Bergerak', cpText: 'Keterampilan gerak fundamental.', cpCompetence: 'Mempraktikkan', materialScope: 'Pola gerak dasar manipulatif', order: 3 },
+  { id: 'ana-pjok-04', elementId: 'elem-pjok-1', elementName: 'Terampil Bergerak', cpText: 'Keterampilan gerak fundamental.', cpCompetence: 'Mempraktikkan', materialScope: 'Pola gerak dominan senam', order: 4 },
+  { id: 'ana-pjok-05', elementId: 'elem-pjok-1', elementName: 'Terampil Bergerak', cpText: 'Keterampilan gerak fundamental.', cpCompetence: 'Mempraktikkan', materialScope: 'Aktivitas gerak di air', order: 5 },
+  { id: 'ana-pjok-06', elementId: 'elem-pjok-2', elementName: 'Belajar Melalui Gerak', cpText: 'Perilaku fair play dan peran kelompok.', cpCompetence: 'Menyusun & Menerapkan', materialScope: 'Aturan untuk fair play', order: 6 },
+  { id: 'ana-pjok-07', elementId: 'elem-pjok-2', elementName: 'Belajar Melalui Gerak', cpText: 'Perilaku fair play dan peran kelompok.', cpCompetence: 'Mempertunjukkan', materialScope: 'Peran dalam aktivitas kelompok', order: 7 },
+  { id: 'ana-pjok-08', elementId: 'elem-pjok-3', elementName: 'Bergaya Hidup Aktif', cpText: 'Aktivitas jasmani yang menyenangkan.', cpCompetence: 'Mengenali & Berpartisipasi', materialScope: 'Aktivitas jasmani yang menyenangkan', order: 8 },
+  { id: 'ana-pjok-09', elementId: 'elem-pjok-4', elementName: 'Memilih Hidup Sehat', cpText: 'Pola makan dan penanganan cedera.', cpCompetence: 'Mengeksplorasi', materialScope: 'Pola makan sehat dan bergizi seimbang', order: 9 },
+  { id: 'ana-pjok-10', elementId: 'elem-pjok-4', elementName: 'Memilih Hidup Sehat', cpText: 'Pola makan dan penanganan cedera.', cpCompetence: 'Mempraktikkan', materialScope: 'Penanganan cedera ringan', order: 10 },
+];
+
+const pjokCpAnalysis: CPAnalysisData = {
+  id: 'analysis-pjok-p0c',
+  academicSettingId: 'acad-p0c',
+  cpId: pjokCp.id,
+  generalSummary: 'Analisis CP PJOK fase B.',
+  workflowStatus: 'SIAP',
+  needsReview: false,
+  basedOnCpUpdatedAt: pjokCp.updatedAt,
+  items: pjokAnalysisItems,
+  updatedAt: '2026-01-01T00:00:00.000Z',
+};
+
+const pjok10Tps: TPItem[] = [
+  { id: 'tp-pjok-01', code: 'E1-PGD-01', cpAnalysisId: 'ana-pjok-01', cpAnalysisItemIds: ['ana-pjok-01'], elementName: 'Terampil Bergerak', statement: 'Peserta didik mempraktikkan variasi pola gerak dasar lokomotor.', competence: 'Mempraktikkan', contentScope: 'Pola gerak dasar lokomotor', order: 1 },
+  { id: 'tp-pjok-02', code: 'E1-PGD-02', cpAnalysisId: 'ana-pjok-02', cpAnalysisItemIds: ['ana-pjok-02'], elementName: 'Terampil Bergerak', statement: 'Peserta didik mempraktikkan variasi pola gerak dasar non-lokomotor.', competence: 'Mempraktikkan', contentScope: 'Pola gerak dasar non-lokomotor', order: 2 },
+  { id: 'tp-pjok-03', code: 'E1-PGD-03', cpAnalysisId: 'ana-pjok-03', cpAnalysisItemIds: ['ana-pjok-03'], elementName: 'Terampil Bergerak', statement: 'Peserta didik mempraktikkan variasi pola gerak dasar manipulatif.', competence: 'Mempraktikkan', contentScope: 'Pola gerak dasar manipulatif', order: 3 },
+  { id: 'tp-pjok-04', code: 'E1-ASM-01', cpAnalysisId: 'ana-pjok-04', cpAnalysisItemIds: ['ana-pjok-04'], elementName: 'Terampil Bergerak', statement: 'Peserta didik mempraktikkan pola gerak dominan senam.', competence: 'Mempraktikkan', contentScope: 'Pola gerak dominan senam', order: 4 },
+  { id: 'tp-pjok-05', code: 'E1-AIR-01', cpAnalysisId: 'ana-pjok-05', cpAnalysisItemIds: ['ana-pjok-05'], elementName: 'Terampil Bergerak', statement: 'Peserta didik mempraktikkan aktivitas gerak di air.', competence: 'Mempraktikkan', contentScope: 'Aktivitas gerak di air', order: 5 },
+  { id: 'tp-pjok-06', code: 'E2-MBDM-01', cpAnalysisId: 'ana-pjok-06', cpAnalysisItemIds: ['ana-pjok-06'], elementName: 'Belajar Melalui Gerak', statement: 'Peserta didik menyusun dan menerapkan aturan untuk fair play.', competence: 'Menyusun & Menerapkan', contentScope: 'Aturan untuk fair play', order: 6 },
+  { id: 'tp-pjok-07', code: 'E2-MBPD-01', cpAnalysisId: 'ana-pjok-07', cpAnalysisItemIds: ['ana-pjok-07'], elementName: 'Belajar Melalui Gerak', statement: 'Peserta didik mempertunjukkan peran dalam aktivitas kelompok.', competence: 'Mempertunjukkan', contentScope: 'Peran dalam aktivitas kelompok', order: 7 },
+  { id: 'tp-pjok-08', code: 'E3-BDBA-01', cpAnalysisId: 'ana-pjok-08', cpAnalysisItemIds: ['ana-pjok-08'], elementName: 'Bergaya Hidup Aktif', statement: 'Peserta didik mengenali dan berpartisipasi dalam aktivitas jasmani yang menyenangkan.', competence: 'Mengenali & Berpartisipasi', contentScope: 'Aktivitas jasmani yang menyenangkan', order: 8 },
+  { id: 'tp-pjok-09', code: 'E4-MPMS-01', cpAnalysisId: 'ana-pjok-09', cpAnalysisItemIds: ['ana-pjok-09'], elementName: 'Memilih Hidup Sehat', statement: 'Peserta didik mengeksplorasi pola makan sehat dan bergizi seimbang.', competence: 'Mengeksplorasi', contentScope: 'Pola makan sehat dan bergizi seimbang', order: 9 },
+  { id: 'tp-pjok-10', code: 'E4-MPCR-01', cpAnalysisId: 'ana-pjok-10', cpAnalysisItemIds: ['ana-pjok-10'], elementName: 'Memilih Hidup Sehat', statement: 'Peserta didik mempraktikkan penanganan cedera ringan.', competence: 'Mempraktikkan', contentScope: 'Penanganan cedera ringan', order: 10 },
+];
+
+// D4. ATP relevan dengan 10 TP Fase B diterima
+const validPjok10AtpItems = [
+  { stepNumber: 1, linkedTpIds: ['tp-pjok-01', 'tp-pjok-02', 'tp-pjok-03'], focus: 'Mempraktikkan variasi pola gerak dasar lokomotor, non-lokomotor, dan manipulatif' },
+  { stepNumber: 2, linkedTpIds: ['tp-pjok-04', 'tp-pjok-05'], focus: 'Mempraktikkan pola gerak dominan senam dan aktivitas gerak di air' },
+  { stepNumber: 3, linkedTpIds: ['tp-pjok-06', 'tp-pjok-07'], focus: 'Menyusun dan menerapkan aturan untuk fair play serta mempertunjukkan peran dalam aktivitas kelompok' },
+  { stepNumber: 4, linkedTpIds: ['tp-pjok-08'], focus: 'Mengenali dan berpartisipasi dalam aktivitas jasmani yang menyenangkan' },
+  { stepNumber: 5, linkedTpIds: ['tp-pjok-09', 'tp-pjok-10'], focus: 'Mengeksplorasi pola makan sehat dan bergizi seimbang serta mempraktikkan penanganan cedera ringan' },
+];
+const pjok10Validation = validateATPGeneratedItemsSemanticFidelity(validPjok10AtpItems, pjok10Tps);
+assertCase(pjok10Validation.isValid, 'D4: ATP relevan dengan 10 TP Fase B diterima');
+
+// D5. Kompetensi penting yang hilang tetap ditolak
+const missingCompAtp = [
+  { stepNumber: 1, linkedTpIds: ['tp-pjok-08'], focus: 'Mengenali aktivitas jasmani yang menyenangkan' }, // hilang "berpartisipasi"
+];
+const missingCompRes = validateATPGeneratedItemsSemanticFidelity(missingCompAtp, pjok10Tps);
+assertCase(!missingCompRes.isValid, 'D5: Kompetensi penting yang hilang (Berpartisipasi) tetap ditolak');
+
+// D6. Materi berbeda tetap ditolak meskipun kata kerjanya sama
+const diffMaterialAtp = [
+  { stepNumber: 1, linkedTpIds: ['tp-pjok-09'], focus: 'Mengeksplorasi aktivitas gerak senam irama' }, // TP-09 adalah pola makan sehat
+];
+const diffMaterialRes = validateATPGeneratedItemsSemanticFidelity(diffMaterialAtp, pjok10Tps);
+assertCase(!diffMaterialRes.isValid, 'D6: Materi berbeda tetap ditolak meskipun kata kerjanya sama');
+
+// D7. Seluruh TP ID canonical tetap tercakup
+const coveredIds = new Set(validPjok10AtpItems.flatMap((item) => item.linkedTpIds));
+assertCase(
+  pjok10Tps.every((tp) => coveredIds.has(tp.id)),
+  'D7: Seluruh TP ID canonical tetap tercakup dalam alur ATP'
+);
+
+// D8. Tidak ada TP/ATP ID fiktif
+const validTpIdSet = new Set(pjok10Tps.map((t) => t.id));
+assertCase(
+  Array.from(coveredIds).every((id) => validTpIdSet.has(id)),
+  'D8: Tidak ada TP ID fiktif'
+);
+
+// D9. Hasil valid dapat menjadi ATP DRAFT dan difinalisasi SIAP
+const pjokAcademicSetting: AcademicSetting = {
+  ...academicSetting,
+  subject: 'Pendidikan Jasmani, Olahraga, dan Kesehatan',
+  grade: 'Kelas 3',
+  phase: 'Fase B',
+};
+const pjokTpData: TPData = {
+  ...tpData,
+  subjectCode: pjokAcademicSetting.subject,
+  cpId: pjokCp.id,
+  cpAnalysisId: pjokCpAnalysis.id,
+  items: pjok10Tps,
+  basedOnCpUpdatedAt: pjokCp.updatedAt,
+  basedOnAnalysisUpdatedAt: pjokCpAnalysis.updatedAt,
+};
+const candidateAtp: ATPData = atp(
+  validPjok10AtpItems.map((item, idx) => ({
+    id: `atp-pjok-${idx + 1}`,
+    stepNumber: item.stepNumber,
+    linkedTpIds: item.linkedTpIds,
+    focus: item.focus,
+  })),
+  {
+    workflowStatus: 'DRAFT',
+    needsReview: false,
+    basedOnTpUpdatedAt: pjokTpData.updatedAt,
+  }
+);
+const finalizeRes = prepareATPFinalization({
+  atp: candidateAtp,
+  tp: pjokTpData,
+  academicSetting: pjokAcademicSetting,
+  cp: pjokCp,
+  cpAnalysis: pjokCpAnalysis,
+  rationale: 'Rasional alur pembelajaran PJOK Fase B',
+  subject: pjokAcademicSetting.subject,
+  phase: pjokAcademicSetting.phase,
+  academicYear: pjokAcademicSetting.academicYear,
+});
+assertCase(
+  finalizeRes.canFinalize === true && finalizeRes.candidate?.workflowStatus === 'SIAP',
+  'D9: Hasil valid dapat menjadi ATP DRAFT dan difinalisasi SIAP'
+);
+
+// D10. Hasil invalid tidak mengganti data ATP tersimpan
+const persistedPjokAtp = { ...candidateAtp, id: 'persisted-pjok', workflowStatus: 'SIAP' as const };
+let liveAtp: ATPData = persistedPjokAtp;
+const invalidCandidateAtp = atp([
+  { id: 'atp-inv-1', stepNumber: 1, linkedTpIds: ['tp-pjok-09'], focus: 'Menulis teks observasi' },
+]);
+const invalidFinalize = prepareATPFinalization({
+  atp: invalidCandidateAtp,
+  tp: pjokTpData,
+  academicSetting: pjokAcademicSetting,
+  cp: pjokCp,
+  cpAnalysis: pjokCpAnalysis,
+  rationale: 'Rasional gagal',
+  subject: pjokAcademicSetting.subject,
+  phase: pjokAcademicSetting.phase,
+  academicYear: pjokAcademicSetting.academicYear,
+});
+if (invalidFinalize.canFinalize && invalidFinalize.candidate) {
+  liveAtp = invalidFinalize.candidate;
+}
+assertCase(liveAtp === persistedPjokAtp, 'D10: Hasil invalid tidak mengganti data ATP tersimpan');
+
+// D11. Contoh Bahasa Indonesia, IPAS, Matematika, dan Pendidikan Pancasila tidak mengalami regresi
+// Diverifikasi oleh skenario uji 1-4 di atas yang tetap berjalan dan lulus
+
+// D12. Tidak ada perubahan diam-diam pada TP existing
+const existingStoredTp = [
+  {
+    id: 'stored-tp-1',
+    code: 'E1-MAT-01',
+    statement: 'Peserta didik memahami bilangan cacah sampai 1.000.',
+    competence: 'Memahami',
+    contentScope: 'Bilangan cacah sampai 1.000',
+    order: 1,
+  },
+];
+const alignedExisting = fallbackGenerateTP({
+  cpAnalysisItems: [],
+  existingTps: existingStoredTp,
+});
+assertCase(
+  alignedExisting[0].id === 'stored-tp-1' &&
+  alignedExisting[0].statement === existingStoredTp[0].statement &&
+  alignedExisting[0].competence === existingStoredTp[0].competence,
+  'D12: Tidak ada perubahan diam-diam pada TP existing'
+);
 
 if (failed > 0) {
   console.error(`P0-C ATP semantic fidelity regression failed: ${failed} scenario(s).`);

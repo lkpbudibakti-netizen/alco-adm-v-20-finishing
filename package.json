@@ -29,6 +29,8 @@
     "test:audit9c8:export": "tsx scripts/testAuditNo9C8DocumentExportRegression.ts",
     "test:regulatory2026": "tsx scripts/testAudit2026RegulatoryCompatibility.ts",
     "test:p0c-atp-semantic": "tsx scripts/testP0CAtpSemanticFidelityRegression.ts",
+    "test:cp-semantic": "tsx scripts/testCPAnalysisSemanticReviewRegression.ts",
+    "test:step4-final": "tsx scripts/testStep4FinalCheckWorkflow.ts",
     "test:b12l": "tsx scripts/testB12lAssessmentConfirmationGateRegression.ts",
     "test:b12m": "tsx scripts/testB12mAnswerKeyExactItemNumberRegression.ts",
     "test:b12n": "tsx scripts/testB12nCanonicalAnswerKeySsotRegression.ts",
@@ -37,7 +39,9 @@
     "test:b12q": "npx tsx scripts/testB12qExactOrderContractRegression.ts",
     "test:b12r": "tsx scripts/testB12rHistoricalAssessmentSnapshotFidelityRegression.ts",
     "test:b13": "tsx scripts/testB13SelfPeerFoundationRegression.ts",
-    "test:v5-shell": "tsx scripts/testMerdekaV5AppShellContract.ts"
+    "test:v5-shell": "tsx scripts/testMerdekaV5AppShellContract.ts",
+    "test:assessment-meeting-linkage": "tsx scripts/testAssessmentMeetingLinkageRegression.ts",
+    "test:ai-learning-plan-assessment-recovery": "tsx scripts/testAILearningPlanAssessmentRecoveryRegression.ts"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",

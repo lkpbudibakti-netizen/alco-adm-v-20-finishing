@@ -355,6 +355,57 @@ function decomposeCompoundScope(scope: string): string[] {
   return [cleanScope];
 }
 
+function resolveAtomicTPStatementAndCompetence(
+  rawComp: string,
+  rawScope: string,
+  suggestedTp?: string
+): { statement: string; competence: string; contentScope: string } {
+  const contentScope = rawScope.trim();
+  let statement = '';
+
+  if (suggestedTp && suggestedTp.trim().length > 15) {
+    statement = suggestedTp.trim();
+  } else {
+    let cleanScope = contentScope;
+    const compFirstWord = rawComp.trim().split(/\s+/)[0]?.toLowerCase() || '';
+    if (compFirstWord.length > 3 && cleanScope.toLowerCase().startsWith(compFirstWord)) {
+      cleanScope = cleanScope.slice(compFirstWord.length).trim();
+    }
+    statement = `Peserta didik mampu ${rawComp.toLowerCase()} ${cleanScope} secara mandiri dan bernalar kritis.`;
+  }
+
+  // Remove duplicate adjacent words (e.g. "menerapkan menerapkan")
+  statement = statement.replace(/\b([a-zA-Z]+)\s+\1\b/gi, '$1').replace(/\s+/g, ' ').trim();
+
+  // Determine actual competence demanded by this specific statement
+  const commonKKOList = [
+    'Mempraktikkan', 'Menerapkan', 'Mengidentifikasi', 'Mengenali', 'Menaati',
+    'Mengeksplorasi', 'Menyimpulkan', 'Berpartisipasi', 'Memahami', 'Menunjukkan',
+    'Menjaga', 'Menjelaskan', 'Menganalisis', 'Mengevaluasi', 'Merancang',
+    'Menyajikan', 'Mengomunikasikan', 'Menciptakan', 'Membandingkan', 'Mendeskripsikan',
+    'Menyusun', 'Mempertunjukkan'
+  ];
+
+  const matchedInStatement = commonKKOList.filter((kko) =>
+    new RegExp(`\\b${kko}\\b`, 'i').test(statement)
+  );
+
+  let competence = rawComp;
+  if (matchedInStatement.length > 0) {
+    const rawParts = rawComp.split(/[\s&,;+]+dan\s+|[\s&,;+]+/).map((s) => s.trim()).filter((s) => s.length > 2);
+    const intersected = rawParts.filter((rp) =>
+      matchedInStatement.some((mis) => mis.toLowerCase() === rp.toLowerCase())
+    );
+    if (intersected.length > 0 && intersected.length < rawParts.length) {
+      competence = intersected.join(' & ');
+    } else if (intersected.length === 0) {
+      competence = matchedInStatement.slice(0, 2).join(' & ');
+    }
+  }
+
+  return { statement, competence, contentScope };
+}
+
 export function fallbackGenerateTP(params: FallbackGenerateTPParams) {
   const cpGeneralText = (params.cpGeneral || '').trim();
   const validElements = (params.cpElements || []).filter((e) => e && e.content && e.content.trim().length > 0);
@@ -411,14 +462,15 @@ export function fallbackGenerateTP(params: FallbackGenerateTPParams) {
       if (compoundParts.length > 1) {
         // Decompose into focused atomic TPs, each referencing this single CPAnalysisItem
         compoundParts.forEach((part) => {
-          const { code, scopeCode } = getSemanticCode(elemName, part, undefined, cpa.scopeCode);
+          const { statement, competence, contentScope } = resolveAtomicTPStatementAndCompetence(comp, part);
+          const { code, scopeCode } = getSemanticCode(elemName, contentScope, undefined, cpa.scopeCode);
           rawGeneratedItems.push({
             code,
             scopeCode,
             elementName: elemName,
-            statement: `Peserta didik mampu ${comp.toLowerCase()} ${part} secara mandiri dan bernalar kritis.`,
-            competence: comp,
-            contentScope: part,
+            statement,
+            competence,
+            contentScope,
             p3Dimensions: ['Bernalar Kritis', 'Mandiri'],
             graduateProfileDimensions: ['Bernalar Kritis', 'Mandiri'],
             cpAnalysisItemIds: [analysisId],
@@ -433,14 +485,15 @@ export function fallbackGenerateTP(params: FallbackGenerateTPParams) {
         if (compParts.length > 1) {
           const finalScope = compoundParts[0] || scope || 'Materi Pokok';
           compParts.forEach((cPart) => {
-            const { code, scopeCode } = getSemanticCode(elemName, finalScope, undefined, cpa.scopeCode);
+            const { statement, competence, contentScope } = resolveAtomicTPStatementAndCompetence(cPart, finalScope);
+            const { code, scopeCode } = getSemanticCode(elemName, contentScope, undefined, cpa.scopeCode);
             rawGeneratedItems.push({
               code,
               scopeCode,
               elementName: elemName,
-              statement: `Peserta didik mampu ${cPart.toLowerCase()} ${finalScope} secara mandiri dan bernalar kritis.`,
-              competence: cPart,
-              contentScope: finalScope,
+              statement,
+              competence,
+              contentScope,
               p3Dimensions: ['Bernalar Kritis', 'Mandiri'],
               graduateProfileDimensions: ['Bernalar Kritis', 'Mandiri'],
               cpAnalysisItemIds: [analysisId],
@@ -449,18 +502,15 @@ export function fallbackGenerateTP(params: FallbackGenerateTPParams) {
         } else {
           // Single atomic TP
           const finalScope = compoundParts[0] || scope || 'Materi Pokok';
-          const statement = cpa.suggestedTp && cpa.suggestedTp.length > 15
-            ? cpa.suggestedTp
-            : `Peserta didik mampu ${comp.toLowerCase()} ${finalScope} secara mandiri dan bernalar kritis.`;
-
-          const { code, scopeCode } = getSemanticCode(elemName, finalScope, undefined, cpa.scopeCode);
+          const { statement, competence, contentScope } = resolveAtomicTPStatementAndCompetence(comp, finalScope, cpa.suggestedTp);
+          const { code, scopeCode } = getSemanticCode(elemName, contentScope, undefined, cpa.scopeCode);
           rawGeneratedItems.push({
             code,
             scopeCode,
             elementName: elemName,
             statement,
-            competence: comp,
-            contentScope: finalScope,
+            competence,
+            contentScope,
             p3Dimensions: ['Bernalar Kritis', 'Mandiri'],
             graduateProfileDimensions: ['Bernalar Kritis', 'Mandiri'],
             cpAnalysisItemIds: [analysisId],

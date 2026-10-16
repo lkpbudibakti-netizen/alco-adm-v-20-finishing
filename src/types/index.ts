@@ -908,6 +908,7 @@ export interface AssessmentPlanItem {
   instrument?: string;
   linkedTpIds: string[];
   description?: string;
+  learningMeetingId?: string;
 }
 
 export interface LearningResource {

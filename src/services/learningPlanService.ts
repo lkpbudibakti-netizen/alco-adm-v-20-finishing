@@ -835,7 +835,7 @@ function normalizeAIAssessmentItems(rawItems: any, type: AssessmentPlanItem['typ
     const technique = typeof item.technique === 'string' ? item.technique.trim() : undefined;
     const method = typeof item.method === 'string' ? item.method.trim() : undefined;
     const instrument = typeof item.instrument === 'string' ? item.instrument.trim() : undefined;
-    if (!description && !technique && !method && !instrument) continue;
+    if (!description) continue;
     results.push({
       id: `asm-${type.toLowerCase()}-${results.length + 1}-${Date.now().toString(36)}`,
       type,
@@ -843,7 +843,8 @@ function normalizeAIAssessmentItems(rawItems: any, type: AssessmentPlanItem['typ
       method,
       technique,
       instrument,
-      description: description || technique || method || instrument,
+      learningMeetingId: typeof item.learningMeetingId === 'string' && item.learningMeetingId.trim() ? item.learningMeetingId.trim() : undefined,
+      description,
     });
   }
   return results;
@@ -1060,45 +1061,55 @@ export function validateLearningPlan(
     }
   }
 
-  // 3b. Canonical lineage validation (unitId & learningMeetingIds)
+  // 3b. Canonical schedule & lineage validation (unitId & learningMeetingIds)
   const isCanonicalPlan = Boolean(
     plan.unitId || (plan.learningMeetingIds && plan.learningMeetingIds.length > 0)
   );
 
-  if (isCanonicalPlan) {
-    let projectionRows: ScheduledLearningMeetingProjection[] = [];
+  let projectionRows: ScheduledLearningMeetingProjection[] = [];
+  let projectionAvailable = false;
+  let projectionErrors: string[] = [];
 
-    if (context.scheduledMeetings) {
-      projectionRows = context.scheduledMeetings;
-    } else if (
-      context.atpUnitMapping &&
-      context.unitExecutionPlan &&
-      context.learningMeetingSchedules &&
-      context.learningMeetingSchedules.length > 0
-    ) {
-      const proj = resolveScheduledLearningMeetings({
-        mapping: context.atpUnitMapping,
-        unitExecutionPlan: context.unitExecutionPlan,
-        schedules: context.learningMeetingSchedules,
-        tp: context.tp || undefined,
-        atp: context.atp || undefined,
-      });
-      if (proj.isValid) {
-        projectionRows = proj.rows;
-      } else {
-        errors.push(...proj.errors);
-      }
+  if (context.scheduledMeetings) {
+    projectionRows = context.scheduledMeetings;
+    projectionAvailable = true;
+  } else if (
+    context.atpUnitMapping &&
+    context.unitExecutionPlan &&
+    context.learningMeetingSchedules &&
+    context.learningMeetingSchedules.length > 0
+  ) {
+    const proj = resolveScheduledLearningMeetings({
+      mapping: context.atpUnitMapping,
+      unitExecutionPlan: context.unitExecutionPlan,
+      schedules: context.learningMeetingSchedules,
+      tp: context.tp || undefined,
+      atp: context.atp || undefined,
+    });
+    if (proj.isValid) {
+      projectionRows = proj.rows;
+      projectionAvailable = true;
     } else {
-      errors.push('Proyeksi jadwal pertemuan canonical tidak tersedia untuk memvalidasi lineage rencana pembelajaran.');
+      projectionErrors = proj.errors;
     }
+  }
 
-    const activeSettingId = context.academicSetting?.id || plan.academicSettingId;
-    const semesterRows = activeSettingId
-      ? projectionRows.filter((r) => r.semesterPlanId === activeSettingId)
-      : projectionRows;
+  const activeSettingId = context.academicSetting?.id || plan.academicSettingId;
+  const semesterRows = activeSettingId
+    ? projectionRows.filter((r) => r.semesterPlanId === activeSettingId)
+    : projectionRows;
 
-    const semesterMeetingMap = new Map(semesterRows.map((r) => [r.meetingId, r]));
-    let targetUnitId: string | null = plan.unitId || null;
+  const semesterMeetingMap = new Map(semesterRows.map((r) => [r.meetingId, r]));
+  let targetUnitId: string | null = plan.unitId || null;
+
+  if (isCanonicalPlan) {
+    if (!projectionAvailable) {
+      if (projectionErrors.length > 0) {
+        errors.push(...projectionErrors);
+      } else {
+        errors.push('Proyeksi jadwal pertemuan canonical tidak tersedia untuk memvalidasi lineage rencana pembelajaran.');
+      }
+    }
 
     if (plan.unitId) {
       if (context.atpUnitMapping) {
@@ -1433,6 +1444,64 @@ export function validateLearningPlan(
         for (const linkedId of item.linkedTpIds) {
           if (!plan.tpIds.includes(linkedId)) {
             errors.push(`Rencana asesmen '${item.type}' merujuk TP ID '${linkedId}' yang tidak terdaftar dalam perencanaan ini.`);
+          }
+        }
+      }
+
+      // Validasi asesmen per pertemuan jika learningMeetingId ditentukan
+      if (item.learningMeetingId !== undefined && item.learningMeetingId !== null) {
+        const mId = typeof item.learningMeetingId === 'string' ? item.learningMeetingId.trim() : '';
+        if (!mId) {
+          errors.push(`Rencana asesmen '${item.type}' (ID: '${item.id}') memiliki learningMeetingId tidak valid (string kosong).`);
+        } else if (!projectionAvailable) {
+          // 6. Jika sumber canonical tidak tersedia, jangan menganggap referensi pertemuan valid
+          errors.push(
+            `Jadwal pertemuan canonical tidak tersedia untuk memvalidasi asesmen '${item.type}' (ID: '${item.id}') yang merujuk pertemuan '${mId}'.`
+          );
+        } else {
+          // 3a. Tolak ID pertemuan yang tidak ditemukan pada jadwal pertemuan canonical semester aktif
+          const meetingRow = semesterMeetingMap.get(mId);
+          if (!meetingRow) {
+            errors.push(
+              `Pertemuan dengan ID '${mId}' pada rencana asesmen '${item.type}' (ID: '${item.id}') tidak ditemukan pada jadwal pertemuan canonical semester aktif.`
+            );
+          } else {
+            // 3b. Tolak ID pertemuan yang tidak tercantum dalam plan.learningMeetingIds
+            const planMeetingIdSet = new Set(plan.learningMeetingIds || []);
+            if (!planMeetingIdSet.has(mId)) {
+              errors.push(
+                `Pertemuan '${mId}' pada rencana asesmen '${item.type}' (ID: '${item.id}') tidak tercantum dalam daftar pertemuan rencana pembelajaran (plan.learningMeetingIds).`
+              );
+            }
+
+            // 3c. Tolak ID pertemuan lintas Bab/Unit
+            const effectiveUnitId =
+              targetUnitId ||
+              plan.unitId ||
+              (plan.learningMeetingIds && plan.learningMeetingIds.length > 0
+                ? semesterMeetingMap.get(plan.learningMeetingIds[0])?.unitId
+                : null);
+            if (effectiveUnitId && meetingRow.unitId !== effectiveUnitId) {
+              errors.push(
+                `Pertemuan '${mId}' pada rencana asesmen '${item.type}' (ID: '${item.id}') berasal dari Bab/Unit '${meetingRow.unitId}', berbeda dengan Bab/Unit rencana pembelajaran ('${effectiveUnitId}'). Asesmen pertemuan tidak boleh lintas Bab.`
+              );
+            }
+
+            // 4. Periksa kesesuaian linkedTpIds asesmen dengan TP canonical yang terhubung pada pertemuan tersebut
+            const canonicalMeetingTpIds = meetingRow.linkedTpIds || [];
+            if (!item.linkedTpIds || !Array.isArray(item.linkedTpIds) || item.linkedTpIds.length === 0) {
+              errors.push(
+                `Rencana asesmen '${item.type}' (ID: '${item.id}') pada pertemuan '${mId}' wajib menghubungkan minimal satu Tujuan Pembelajaran (linkedTpIds).`
+              );
+            } else {
+              for (const tpId of item.linkedTpIds) {
+                if (!canonicalMeetingTpIds.includes(tpId)) {
+                  errors.push(
+                    `Tujuan Pembelajaran '${tpId}' pada rencana asesmen '${item.type}' (ID: '${item.id}') tidak sesuai dengan TP canonical yang terhubung pada pertemuan '${mId}' (TP canonical pertemuan: ${canonicalMeetingTpIds.length > 0 ? canonicalMeetingTpIds.join(', ') : 'tidak ada'}).`
+                  );
+                }
+              }
+            }
           }
         }
       }
@@ -1953,6 +2022,7 @@ export function migrateLegacyLearningPlan(
         technique: a.technique,
         instrument: a.instrument,
         linkedTpIds: Array.isArray(a.linkedTpIds) ? a.linkedTpIds : [],
+        learningMeetingId: typeof a.learningMeetingId === 'string' && a.learningMeetingId.trim() ? a.learningMeetingId.trim() : undefined,
         description: a.description || a.instrument || a.technique,
       };
       if (item.type === 'INITIAL') initialAssessments.push(item);
