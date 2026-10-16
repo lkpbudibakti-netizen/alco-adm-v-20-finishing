@@ -1,5 +1,5 @@
 import express from 'express';
-import { repairUnitMeetingCoverage } from './server/unitMeetingCoverageRepair';
+import { assertMeetingSourceLineage, MeetingCoverageError, repairUnitMeetingCoverage } from './server/unitMeetingCoverageRepair';
 import path from 'path';
 import { createServer as createViteServer } from 'vite';
 import { GoogleGenAI, Type } from '@google/genai';
@@ -2060,6 +2060,16 @@ app.post('/api/ai/generate-unit-meetings', async (req, res) => {
     return res.status(400).json({ success: false, code: 'INVALID_PAYLOAD', error: 'Data ATP canonical diperlukan.' });
   }
 
+  try {
+    assertMeetingSourceLineage(mapping.units, tpData.items, atpData.items);
+  } catch (error) {
+    if (error instanceof MeetingCoverageError) {
+      return res.status(400).json({ success: false, code: error.code, error: error.message,
+        diagnostic: { ...error.diagnostic, code: error.code, mappingId: mapping.id, planId: currentPlan?.id } });
+    }
+    throw error;
+  }
+
   const validTpMap = new Map<string, any>(tpData.items.map((tp: any) => [tp.id, tp]));
   const validAtpMap = new Map<string, any>(atpData.items.map((atp: any) => [atp.id, atp]));
 
@@ -2529,6 +2539,7 @@ Kembalikan respon JSON dengan skema:
         suggestions: parsed.units,
         existing: currentPlan?.units || [],
         expectedCounts: new Map(sortedMappingUnits.map(u => [u.id, targetsByUnitId.get(u.id)!.newTargetCount])),
+        semesterByUnit: new Map(sortedMappingUnits.map(u => [u.id, s1UnitsSet.has(u.id) ? 1 : 2])),
         repair: async (payload) => {
           const repaired = await ai.models.generateContent({
             model: 'gemini-3.8-flash',
@@ -2547,10 +2558,14 @@ Target repair: ${JSON.stringify(payload)}`,
         },
       });
     } catch (error) {
+      const code = error instanceof MeetingCoverageError ? error.code : 'AI_REPAIR_FAILED';
       return res.status(400).json({
-        success: false, code: 'COVERAGE_MISSING',
+        success: false, code,
         error: error instanceof Error ? error.message : String(error),
-        diagnostic: buildDiagnostic({ stage: 'COVERAGE_VERIFICATION', code: 'COVERAGE_MISSING' }),
+        diagnostic: {
+          ...buildDiagnostic({ stage: 'COVERAGE_VERIFICATION', code }),
+          ...(error instanceof MeetingCoverageError ? error.diagnostic : {}),
+        },
       });
     }
 
@@ -2985,11 +3000,11 @@ Target repair: ${JSON.stringify(payload)}`,
 
       return res.status(400).json({
         success: false,
-        code: 'COVERAGE_MISSING',
+        code: 'AI_COVERAGE_MISSING',
         error: firstMsg,
         diagnostic: buildDiagnostic({
           stage: 'COVERAGE_VERIFICATION',
-          code: 'COVERAGE_MISSING',
+          code: 'AI_COVERAGE_MISSING',
           suggS1Count,
           suggS2Count,
           perUnitMap: perUnitDiagnosticMap,
