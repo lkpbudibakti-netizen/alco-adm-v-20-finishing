@@ -1,5 +1,6 @@
 import type { ATPData, TPData, ATPUnitMapping, ATPUnitMaterial, ATPUnitMappingData } from '../types';
 import { validateATPUnitMappingCanonical } from './atpUnitMappingValidationService';
+import { checkMappingSemanticEvidence } from '../../server/mappingSemanticEvidence';
 
 export interface MappingActionItem {
   id: string;
@@ -193,6 +194,8 @@ export function applyATPMappingActions(input: ApplyATPMappingActionsInput): Appl
     const matSet = new Set((u.materials || []).map((m) => m.id));
     unitMap.set(u.id, { unit: u, materialIds: matSet });
   });
+  const explicitAssignments = (unitId: string) => selectedActions.filter(a =>
+    a?.type === 'ASSIGN_ATP_TO_UNIT' && a.targetUnitId === unitId);
 
   // Pre-validate all actions atomically (no silent continue/skip)
   for (const action of selectedActions) {
@@ -272,13 +275,14 @@ export function applyATPMappingActions(input: ApplyATPMappingActionsInput): Appl
       const unitInfo = unitMap.get(targetUnitId)?.unit;
       const unitHasLineage = (unitInfo?.linkedAtpItemIds || []).length > 0;
       if (unitHasLineage) {
+        const assignments = explicitAssignments(targetUnitId);
         for (const aId of linkedAtps) {
-          if (!(unitInfo?.linkedAtpItemIds || []).includes(aId)) issues.push(`ADD_MATERIAL merujuk ATP '${aId}' yang tidak didukung Bab induk.`);
+          if (!(unitInfo?.linkedAtpItemIds || []).includes(aId) && !assignments.some(a => a.atpItemId === aId)) issues.push(`ADD_MATERIAL merujuk ATP '${aId}' yang tidak didukung Bab induk.`);
         }
         const unitTps = unitInfo?.linkedTpIds || [];
         if (unitTps.length > 0) {
           for (const tId of linkedTps) {
-            if (!unitTps.includes(tId)) issues.push(`ADD_MATERIAL merujuk TP '${tId}' yang tidak didukung Bab induk.`);
+            if (!unitTps.includes(tId) && !assignments.some(a => a.linkedTpIds?.includes(tId))) issues.push(`ADD_MATERIAL merujuk TP '${tId}' yang tidak didukung Bab induk.`);
           }
         }
       }
@@ -309,11 +313,12 @@ export function applyATPMappingActions(input: ApplyATPMappingActionsInput): Appl
       const unit = unitInfo?.unit;
       const unitHasLineage = (unit?.linkedAtpItemIds || []).length > 0 || (unit?.linkedTpIds || []).length > 0;
       if (action.type === 'ALIGN_EXISTING_MATERIAL' && unitHasLineage) {
+        const assignments = explicitAssignments(targetUnitId);
         for (const aId of linkedAtps) {
-          if (!(unit?.linkedAtpItemIds || []).includes(aId)) issues.push(`ALIGN_EXISTING_MATERIAL merujuk ATP '${aId}' yang tidak didukung Bab induk.`);
+          if (!(unit?.linkedAtpItemIds || []).includes(aId) && !assignments.some(a => a.atpItemId === aId)) issues.push(`ALIGN_EXISTING_MATERIAL merujuk ATP '${aId}' yang tidak didukung Bab induk.`);
         }
         for (const tId of linkedTps) {
-          if (!(unit?.linkedTpIds || []).includes(tId)) issues.push(`ALIGN_EXISTING_MATERIAL merujuk TP '${tId}' yang tidak didukung Bab induk.`);
+          if (!(unit?.linkedTpIds || []).includes(tId) && !assignments.some(a => a.linkedTpIds?.includes(tId))) issues.push(`ALIGN_EXISTING_MATERIAL merujuk TP '${tId}' yang tidak didukung Bab induk.`);
         }
       }
       if (action.type === 'RECOVER_ATP_LINEAGE') {
@@ -389,9 +394,6 @@ export function applyATPMappingActions(input: ApplyATPMappingActionsInput): Appl
         return indexA - indexB;
       });
 
-      // Canonical TPs for all newly assigned ATPs to ensure Unit covers all canonical TPs
-      const canonicalTpsForNewAtps = actionAtps.flatMap((aId) => getCanonicalTpsForAtpItem(atpMap.get(aId)));
-
       nextUnits = nextUnits.map((u) => {
         if (u.id !== targetUnitId) return u;
 
@@ -401,7 +403,7 @@ export function applyATPMappingActions(input: ApplyATPMappingActionsInput): Appl
           return indexA - indexB;
         });
 
-        const nextUnitTp = Array.from(new Set([...(u.linkedTpIds || []), ...actionTps, ...canonicalTpsForNewAtps])).sort((a, b) => {
+        const nextUnitTp = Array.from(new Set([...(u.linkedTpIds || []), ...actionTps])).sort((a, b) => {
           const indexA = (tp.items || []).findIndex((item) => item.id === a);
           const indexB = (tp.items || []).findIndex((item) => item.id === b);
           return indexA - indexB;
@@ -523,6 +525,31 @@ export function applyATPMappingActions(input: ApplyATPMappingActionsInput): Appl
   );
 
   const validation = validateATPUnitMappingCanonical(candidateMapping, atp, tp);
+  const beforeValidation = validateATPUnitMappingCanonical({ ...candidateMapping, units }, atp, tp);
+  for (const gap of validation.materialCoverageGaps) {
+    const before = beforeValidation.materialCoverageGaps.find(g => g.unitId === gap.unitId);
+    const introducedTp = gap.tpIds.filter(id => !before?.tpIds.includes(id));
+    const introducedAtp = gap.atpItemIds.filter(id => !before?.atpItemIds.includes(id));
+    if (introducedTp.length || introducedAtp.length) {
+      issues.push(`SOURCE_LINEAGE_MISSING: rekomendasi memperluas Bab '${gap.unitTitle}' tanpa dukungan materi: TP [${introducedTp}], ATP [${introducedAtp}]. Pilih penyelarasan materi yang relevan dalam transaksi yang sama.`);
+    }
+  }
+  for (const action of selectedActions.filter(a => a.type === 'ASSIGN_ATP_TO_UNIT')) {
+    const unit = nextUnits.find(u => u.id === action.targetUnitId)!;
+    const original = units.find(u => u.id === unit.id)!;
+    const supported = (unit.materials || []).filter(m => m.linkedAtpItemIds.includes(action.atpItemId!));
+    if (!supported.length || (action.linkedTpIds || []).some(id => !supported.some(m => m.linkedTpIds.includes(id)))) {
+      issues.push(`ASSIGN_ATP_TO_UNIT: Bab '${unit.title}' memerlukan materi pendukung untuk ATP '${action.atpItemId}' dan TP [${action.linkedTpIds}]. Terapkan penyelarasan materi terkait bersama penugasan ATP.`);
+    }
+    for (const tpId of action.linkedTpIds || []) {
+      if (original.linkedAtpItemIds.includes(action.atpItemId!) && original.linkedTpIds.includes(tpId)) continue;
+      const relevant = supported.some(m => m.linkedTpIds.includes(tpId) && checkMappingSemanticEvidence({
+        label: m.title, tpItems: (tp.items || []).filter(item => item.id === tpId),
+      }).supported);
+      if (!relevant) issues.push(`ASSIGN_ATP_TO_UNIT: Bab '${unit.title}', TP '${tpId}': kesesuaian dengan materi pendukung belum dapat dipastikan. Tinjau substansi materi sebelum memperluas relasi Bab.`);
+    }
+  }
+  if (issues.length) return { success: false, issues };
 
   if (!validation.isValid) {
     return {

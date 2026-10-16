@@ -10,6 +10,14 @@ export interface MappingReadiness {
   validationResult?: ATPUnitMappingValidationResult;
 }
 
+export function proceedWithATPUnitMapping(readiness: MappingReadiness,
+  saveDraft: (() => boolean) | undefined, onNextStep: () => void): { proceeded: boolean; issues: string[] } {
+  if (!readiness.canProceed) return { proceeded: false, issues: readiness.blockers };
+  if (saveDraft && !saveDraft()) return { proceeded: false, issues: ['Pemetaan belum tersimpan. Periksa kesalahan penyimpanan sebelum lanjut Step 08.'] };
+  onNextStep();
+  return { proceeded: true, issues: [] };
+}
+
 /**
  * Resolves readiness and blockers for ATP Unit Mapping (Step 07 -> Step 08 transition).
  * Implements shared production readiness resolver for Step 07 and Step 08:

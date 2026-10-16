@@ -48,6 +48,8 @@ import { validateLearningMeetingScheduleData } from './learningMeetingScheduleSe
 import { validateCalendarCompleteness } from './jpEngine';
 import { validateSubjectWeeklySchedule } from './subjectScheduleService';
 import { validateCPDataWorkflow, validateCPAnalysisDataWorkflow, validateTPDataWorkflow, validateATPDataWorkflow } from './cpWorkflowService';
+import { resolveATPUnitMappingReadiness } from './atpMappingReadinessService';
+import { computeAtpSubstantiveFingerprint, computeTpSubstantiveFingerprint } from './atpMappingActionApplyService';
 
 const cloneProject = <T,>(value: T): T => JSON.parse(JSON.stringify(value));
 const externalProjectFields = new Set(['source', 'evidence', 'snapshot', 'regulationSources', 'curriculumLock']);
@@ -219,13 +221,14 @@ export function prepareCompleteAdministrationProjectImport(current: AppStorageSt
   const remap = (node: any, key = ''): any => {
     if (externalProjectFields.has(key)) return cloneProject(node);
     if (typeof node === 'string') {
-      if (idMap.has(node)) return idMap.get(node);
+      const isReference = key === 'id' || /Ids?$/.test(key) || ['tps', 'atp', 'tp'].includes(key);
+      if (isReference && idMap.has(node)) return idMap.get(node);
       if (/Fingerprint$/i.test(key)) {
         try { return JSON.stringify(remap(JSON.parse(node))); } catch { return node; }
       }
       return node;
     }
-    if (Array.isArray(node)) return node.map(v => remap(v));
+    if (Array.isArray(node)) return node.map(v => remap(v, key));
     if (node && typeof node === 'object') return Object.fromEntries(Object.entries(node).map(([k, v]) => [k, remap(v, k)]));
     return node;
   };
@@ -279,9 +282,32 @@ export function prepareCompleteAdministrationProjectImport(current: AppStorageSt
   const analysis = imported.annualData.cpAnalysis[0]?.value;
   const tp = imported.annualData.tp[0]?.value;
   const atp = imported.annualData.atp[0]?.value;
+  const sourceMapping = source.annualData.atpUnitMappings?.[0]?.value;
+  const sourceTp = source.annualData.tp[0]?.value;
+  const sourceAtp = source.annualData.atp[0]?.value;
+  const sourceReadiness = resolveATPUnitMappingReadiness(sourceMapping, sourceAtp, sourceTp);
+  // UUID remapping changes sort order inside fingerprints. Rebase only proven-fresh source snapshots.
+  if (mapping && sourceMapping) {
+    if (sourceMapping.basedOnTpFingerprint === computeTpSubstantiveFingerprint(sourceTp)) {
+      mapping.basedOnTpFingerprint = computeTpSubstantiveFingerprint(tp);
+    }
+    if (sourceMapping.basedOnAtpFingerprint === computeAtpSubstantiveFingerprint(sourceAtp)) {
+      mapping.basedOnAtpFingerprint = computeAtpSubstantiveFingerprint(atp);
+    }
+    const before = validateATPUnitMappingCanonical(sourceMapping, sourceAtp, sourceTp);
+    const after = validateATPUnitMappingCanonical(mapping, atp, tp);
+    if (before.isValid !== after.isValid || before.isComplete !== after.isComplete) {
+      throw new Error('IMPORT_LINEAGE_CHANGED: kesiapan struktural Bab/Materi berubah saat remap. Import dibatalkan.');
+    }
+  }
   if (cp) { const check = validateCPDataWorkflow(cp, year); cp.workflowStatus = check.status; warnings.push(...check.issues); }
   if (analysis) { const check = validateCPAnalysisDataWorkflow(analysis, cp); analysis.workflowStatus = check.status; warnings.push(...check.issues); }
-  if (tp) { const check = validateTPDataWorkflow(tp, cp, analysis); tp.workflowStatus = check.status; warnings.push(...check.issues); }
+  if (tp) {
+    const check = validateTPDataWorkflow(tp, cp, analysis);
+    tp.workflowStatus = check.status === 'SIAP' && sourceTp?.workflowStatus !== 'SIAP'
+      ? sourceTp?.workflowStatus || 'DRAFT' : check.status;
+    warnings.push(...check.issues);
+  }
   if (atp) { const check = validateATPDataWorkflow(atp, tp, undefined, cp, analysis); atp.workflowStatus = check.status; warnings.push(...check.issues); }
   if (mapping) warnings.push(...validateATPUnitMappingCanonical(mapping, imported.annualData.atp[0]?.value, imported.annualData.tp[0]?.value).issues);
   if (mapping && execution) warnings.push(...validateUnitExecutionPlan(execution, mapping, imported.annualData.atp[0]?.value, imported.annualData.tp[0]?.value).errors);
@@ -307,7 +333,17 @@ export function prepareCompleteAdministrationProjectImport(current: AppStorageSt
       if (!checked.isValid || checked.isStale) schedule.status = 'DRAFT';
     }
   }
-  return { state: next, yearPlanId: year.id, warnings: Array.from(new Set(warnings)) };
+  const targetReadiness = resolveATPUnitMappingReadiness(mapping, atp, tp);
+  const origin = !sourceReadiness.validationResult?.isComplete ? 'SOURCE_INCOMPLETE'
+    : targetReadiness.canProceed ? 'READY' : 'UPSTREAM_REVIEW';
+  if (!targetReadiness.canProceed) {
+    warnings.push(origin === 'SOURCE_INCOMPLETE'
+      ? 'Step 07 sudah belum lengkap pada proyek asal; import mempertahankan relasinya tanpa menambah TP/ATP.'
+      : 'Cakupan Bab/Materi tetap sama; Step 07 memerlukan peninjauan status/freshness TP/ATP.');
+    warnings.push(...targetReadiness.blockers);
+  }
+  return { state: next, yearPlanId: year.id, warnings: Array.from(new Set(warnings)),
+    step7: { origin, source: sourceReadiness, target: targetReadiness } };
 }
 
 export function importCompleteAdministrationProject(value: unknown, options: CompleteProjectImportOptions,

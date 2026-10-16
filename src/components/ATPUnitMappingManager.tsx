@@ -37,7 +37,7 @@ import {
   MappingAnalysisResult,
 } from '../services/aiService';
 import { validateATPUnitMappingCanonical } from '../services/atpUnitMappingValidationService';
-import { resolveATPUnitMappingReadiness } from '../services/atpMappingReadinessService';
+import { proceedWithATPUnitMapping, resolveATPUnitMappingReadiness } from '../services/atpMappingReadinessService';
 import {
   applyATPMappingActions,
   computeAtpSubstantiveFingerprint,
@@ -430,8 +430,6 @@ export const ATPUnitMappingManager: React.FC<ATPUnitMappingManagerProps> = ({
       atpId: atp.id,
       tpDataId: tp.id || atp.tpDataId,
       units,
-      basedOnTpFingerprint: computeTpSubstantiveFingerprint(tp),
-      basedOnAtpFingerprint: computeAtpSubstantiveFingerprint(atp),
       updatedAt: mapping?.updatedAt || new Date().toISOString(),
     } as ATPUnitMappingData;
 
@@ -1189,21 +1187,8 @@ export const ATPUnitMappingManager: React.FC<ATPUnitMappingManagerProps> = ({
   const handleProceedNext = () => {
     setLocalValidationNotice(null);
 
-    // If there are changes or an unsaved meaningful draft, save first
-    if (canSave) {
-      const saved = handleSave();
-      if (!saved) return;
-    }
-
-    // Strict check: proceed only if structurally complete
-    if (!localValidation.isComplete) {
-      setLocalValidationNotice(
-        `Tidak dapat melanjutkan ke Rencana Tahunan: ${localValidation.summaryMessage}`
-      );
-      return;
-    }
-
-    onNextStep();
+    const result = proceedWithATPUnitMapping(mappingReadiness, canSave ? handleSave : undefined, onNextStep);
+    if (!result.proceeded) setLocalValidationNotice(`Belum dapat lanjut Step 08: ${result.issues.join(' ')}`);
   };
 
   // Button state logic for 4 conditions
@@ -2697,11 +2682,24 @@ export const ATPUnitMappingManager: React.FC<ATPUnitMappingManagerProps> = ({
           <span>Kembali ke Alur Tujuan Pembelajaran (06)</span>
         </button>
 
-        <div className="flex items-center gap-2 w-full sm:w-auto">
+        <div className="flex flex-col items-stretch gap-2 w-full sm:max-w-xl" aria-live="polite">
+          {!mappingReadiness.canProceed && <div id="mapping-proceed-blockers" role="status"
+            className="border border-amber-300 bg-amber-50 text-amber-900 rounded-lg p-3 text-sm space-y-2">
+            <p className="font-semibold">Belum dapat lanjut Step 08</p>
+            <ul className="list-disc pl-5 space-y-1">{mappingReadiness.blockers.map((issue, index) => <li key={index}>{issue}</li>)}</ul>
+            <p>Lengkapi relasi pada Lingkup Materi yang sesuai dengan TP/ATP Bab. Gunakan Analisis &amp; Selaraskan untuk meninjau saran, lalu simpan draf.</p>
+            <button type="button" className="font-semibold text-blue-800 underline" onClick={() => {
+              const unitId = mappingReadiness.validationResult?.materialCoverageGaps[0]?.unitId || units[0]?.id;
+              const input = document.getElementById(`bab-title-input-${unitId}`);
+              input?.scrollIntoView({ behavior: 'smooth', block: 'center' }); input?.focus();
+            }}>Tinjau Bab dan Lingkup Materi</button>
+          </div>}
+          {(saveErrorNotice || localValidationNotice) && <p role="alert" className="text-sm text-red-700">{saveErrorNotice || localValidationNotice}</p>}
           <button
             id="btn-next-to-annual-planning"
             type="button"
             onClick={handleProceedNext}
+            aria-describedby={!mappingReadiness.canProceed ? 'mapping-proceed-blockers' : undefined}
             className="w-full sm:w-auto flex items-center justify-center gap-2 bg-blue-900 hover:bg-blue-950 text-white py-2.5 px-6 rounded-xl text-sm font-semibold shadow-sm transition cursor-pointer"
           >
             <span>Lanjut ke Perencanaan Tahunan (08)</span>

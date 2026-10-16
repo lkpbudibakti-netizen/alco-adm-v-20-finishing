@@ -2024,9 +2024,12 @@ export function App() {
 
       {/* Backup / Restore JSON Modal */}
       {isCompleteProjectImportOpen && <CompleteProjectImportModal state={v5State}
-        onClose={() => setIsCompleteProjectImportOpen(false)} onSuccess={() => {
+        onClose={() => setIsCompleteProjectImportOpen(false)} onSuccess={(result) => {
           refreshV5(); setIsCompleteProjectImportOpen(false); setCurrentStep('academic');
-          setAppNotice({ type: 'info', message: 'Proyek lengkap berhasil diimpor. Tinjau kesiapan dan waktu pada profil tujuan.' });
+          setAppNotice({ type: result.step7.target.canProceed ? 'info' : 'warning',
+            message: result.step7.target.canProceed
+              ? 'Proyek berhasil diimpor. Step 07 siap lanjut Step 08 tanpa Analisis ulang. Tinjau waktu pada profil tujuan.'
+              : `Proyek berhasil diimpor. ${result.step7.origin === 'SOURCE_INCOMPLETE' ? 'Step 07 sudah belum lengkap di proyek asal.' : 'Step 07 perlu peninjauan status/freshness upstream.'} ${result.step7.target.blockers.join(' ')}` });
         }} />}
       <BackupModal
         isOpen={isBackupModalOpen}

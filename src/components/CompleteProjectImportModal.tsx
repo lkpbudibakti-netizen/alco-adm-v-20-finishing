@@ -6,7 +6,8 @@ import { readCompleteProjectZip } from '../services/completeProjectZipService';
 import { importCompleteAdministrationProject, prepareCompleteAdministrationProjectImport } from '../services/administrationProjectImportService';
 
 export function CompleteProjectImportModal({ state, onClose, onSuccess }: {
-  state: AppStorageStateV5; onClose: () => void; onSuccess: () => void;
+  state: AppStorageStateV5; onClose: () => void;
+  onSuccess: (result: ReturnType<typeof importCompleteAdministrationProject>) => void;
 }) {
   const [archive, setArchive] = useState<CompleteProjectArchive>();
   const [profileId, setProfileId] = useState(state.activeProfileId || state.profiles[0]?.id || '');
@@ -65,6 +66,12 @@ export function CompleteProjectImportModal({ state, onClose, onSuccess }: {
           <option value={profile?.schoolId || ''}>{state.schools.find(s => s.id === profile?.schoolId)?.name || 'Sekolah belum terhubung'}</option>
         </select></label>
       {source && <>
+        {preview?.result && <div role="status" className="text-sm border rounded-lg p-3 space-y-1">
+          <p className="font-semibold">Kesiapan Step 07</p>
+          <p>Proyek asal: {preview.result.step7.source.canProceed ? 'Siap lanjut Step 08' : 'Perlu dilengkapi / ditinjau'}.</p>
+          <p>Hasil import: {preview.result.step7.target.canProceed ? 'Siap lanjut Step 08 tanpa Analisis ulang' : 'Belum siap lanjut Step 08'}.</p>
+          {preview.result.step7.origin === 'SOURCE_INCOMPLETE' && <p>Ketidaklengkapan sudah ada pada proyek asal. Relasi Bab/Materi dipertahankan saat import.</p>}
+        </div>}
         <div className="border-t pt-3"><p className="font-semibold flex items-center gap-2"><FileArchive size={18}/>{sourceYear?.subject} / {sourceYear?.grade} / {sourceYear?.academicYear}</p>
           <p className="text-sm text-gray-600">Asal: {source.profiles[0]?.name} · {source.schools[0]?.name} · Versi {archive?.schemaVersion}</p>
           <dl className="grid grid-cols-2 gap-x-6 gap-y-1 text-sm mt-3">{progress.map(([label, count]) => <div className="flex justify-between" key={label}><dt>{label}</dt><dd>{count}</dd></div>)}</dl>
@@ -81,7 +88,7 @@ export function CompleteProjectImportModal({ state, onClose, onSuccess }: {
       <button type="button" className="flex gap-2 items-center bg-blue-800 text-white px-4 py-2 rounded disabled:opacity-40"
         disabled={busy || !confirmed || !preview?.result} onClick={() => {
           if (!archive) return; setBusy(true); setError('');
-          try { importCompleteAdministrationProject(archive, options); onSuccess(); }
+          try { const result = importCompleteAdministrationProject(archive, options); onSuccess(result); }
           catch (err) { setError(err instanceof Error ? err.message : String(err)); setBusy(false); }
         }}><Upload size={16} />{busy ? 'Memproses...' : 'Konfirmasi Import'}</button>
     </div>
