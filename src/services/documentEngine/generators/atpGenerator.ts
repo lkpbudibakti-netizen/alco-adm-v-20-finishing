@@ -12,7 +12,7 @@ import {
 } from 'docx';
 import saveAs from 'file-saver';
 import { DocumentGenerationContext, GeneratedDocumentResult } from '../types';
-import { ATP_DOCUMENT_COLUMNS, buildATPDocumentProjection } from '../atpDocumentProjection';
+import { ATP_DOCUMENT_COLUMNS, buildATPDocumentProjection, getATPDocumentRowCells } from '../atpDocumentProjection';
 import {
   createDocumentHeader,
   createIdentityMetadataTable,
@@ -60,7 +60,7 @@ export async function generateATP(context: DocumentGenerationContext): Promise<G
     createSectionHeading('C. Matriks Alur Tujuan Pembelajaran', 1)
   );
 
-  const widths = [30, 35, 35];
+  const widths = [10, 50, 40];
   const tableHeaderRow = new TableRow({
     tableHeader: true,
     children: ATP_DOCUMENT_COLUMNS.map((title, index) => createTableHeaderCell(title, widths[index], AlignmentType.CENTER)),
@@ -76,7 +76,7 @@ export async function generateATP(context: DocumentGenerationContext): Promise<G
   });
   const tableDataRows = projection.rows.map(row => new TableRow({
     cantSplit: false,
-    children: [createProjectionCell(row.cpLines, widths[0]), createProjectionCell(row.tpLines, widths[1]), createProjectionCell(row.flowLines, widths[2], true)],
+    children: getATPDocumentRowCells(row).map((lines, index) => createProjectionCell(lines, widths[index], index === 2)),
   }));
   const atpTable = new Table({
     layout: TableLayoutType.FIXED,

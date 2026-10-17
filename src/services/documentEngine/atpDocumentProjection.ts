@@ -1,15 +1,12 @@
 import type { DocumentGenerationContext } from './types';
 
 export const ATP_DOCUMENT_COLUMNS = [
-  'CP / Elemen Rujukan', 'Tujuan Pembelajaran', 'Alur Tujuan Pembelajaran',
+  'Tahap', 'Tujuan Pembelajaran', 'Alur Tujuan Pembelajaran',
 ] as const;
 export interface ATPDocumentRow {
-  id: string;
   stepNumber: number | null;
   focus: string;
   resolvedTPs: Array<{ id: string; code: string; statement: string }>;
-  cpLines: string[];
-  tpLines: string[];
   flowLines: string[];
 }
 export interface ATPDocumentProjection {
@@ -24,10 +21,9 @@ export function buildATPDocumentProjection(context: DocumentGenerationContext): 
   const invalid = (error: string): ATPDocumentProjection => ({ isReady: false, error, rationale: '', cpReferenceLines: [], rows: [] });
   if (context.documentMode === 'blank') return {
     isReady: true, rationale: '', cpReferenceLines: [],
-    rows: Array.from({ length: 15 }, (_, index) => ({
-      id: 'blank-' + index, stepNumber: null, focus: '', resolvedTPs: [],
-      cpLines: ['................................................'], tpLines: ['................................................'],
-      flowLines: ['Tahap ....: ................................................', 'TP terkait: ................................................'],
+    rows: Array.from({ length: 15 }, () => ({
+      stepNumber: null, focus: '', resolvedTPs: [],
+      flowLines: ['................................................'],
     })),
   };
   const { cp, tp, atp } = context;
@@ -62,13 +58,22 @@ export function buildATPDocumentProjection(context: DocumentGenerationContext): 
       resolvedTPs.push({ id: objective.id, code: objective.code.trim(), statement: objective.statement.trim() });
     }
     rows.push({
-      id: item.id, stepNumber: item.stepNumber, focus: item.focus.trim(), resolvedTPs,
-      cpLines: [...cpReferenceLines],
-      tpLines: resolvedTPs.map(objective => '[' + objective.code + '] ' + objective.statement),
-      flowLines: ['Tahap ' + item.stepNumber + '. ' + item.focus.trim(),
-        'TP terkait:', ...resolvedTPs.map(objective => '• [' + objective.code + '] ' + objective.statement)],
+      stepNumber: item.stepNumber, focus: item.focus.trim(), resolvedTPs,
+      flowLines: [item.focus.trim(),
+        'TP terkait: ' + resolvedTPs.map(objective => '[' + objective.code + ']').join(', ')],
     });
   }
   rows.sort((a,b) => a.stepNumber! - b.stepNumber!);
   return { isReady: true, rationale: atp.rationale?.trim() || '', cpReferenceLines, rows };
+}
+
+// Keep cell content identical across DOCX and PDF without repeating CP or TP statements.
+export function getATPDocumentRowCells(row: ATPDocumentRow): string[][] {
+  return [
+    [row.stepNumber === null ? 'Tahap ....' : 'Tahap ' + row.stepNumber],
+    row.resolvedTPs.length
+      ? row.resolvedTPs.map(objective => '[' + objective.code + '] ' + objective.statement)
+      : ['................................................'],
+    row.flowLines,
+  ];
 }

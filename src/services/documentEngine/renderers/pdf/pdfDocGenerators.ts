@@ -1,4 +1,4 @@
-import { ATP_DOCUMENT_COLUMNS, buildATPDocumentProjection } from '../../atpDocumentProjection';
+import { ATP_DOCUMENT_COLUMNS, buildATPDocumentProjection, getATPDocumentRowCells } from '../../atpDocumentProjection';
 import { recordModulAjarExportDiagnostic } from '../../modulAjarExportDiagnostics';
 import {
   DocumentType,
@@ -324,8 +324,8 @@ export async function generatePdfDocument(
       const contentWidth = 297 - PDF_THEME.margins.landscape.left - PDF_THEME.margins.landscape.right;
       sections.push({
         type: 'table',
-        columns: ATP_DOCUMENT_COLUMNS.map((header, index) => ({ header, dataKey: ['cp', 'tp', 'atp'][index], width: contentWidth * [0.30, 0.35, 0.35][index] })),
-        rows: projection.rows.map(row => [row.cpLines.join('\n'), row.tpLines.join('\n'), row.flowLines.join('\n')]),
+        columns: ATP_DOCUMENT_COLUMNS.map((header, index) => ({ header, dataKey: ['stage', 'tp', 'atp'][index], width: contentWidth * [0.10, 0.50, 0.40][index] })),
+        rows: projection.rows.map(row => getATPDocumentRowCells(row).map(lines => lines.join('\n'))),
       });
       break;
     }

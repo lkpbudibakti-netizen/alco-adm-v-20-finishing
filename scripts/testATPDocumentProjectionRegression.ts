@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import JSZip from 'jszip';
-import { ATP_DOCUMENT_COLUMNS, buildATPDocumentProjection } from '../src/services/documentEngine/atpDocumentProjection';
+import { ATP_DOCUMENT_COLUMNS, buildATPDocumentProjection, getATPDocumentRowCells } from '../src/services/documentEngine/atpDocumentProjection';
 import { generateATP } from '../src/services/documentEngine/generators/atpGenerator';
 import { generatePdfDocument } from '../src/services/documentEngine/renderers/pdf/pdfDocGenerators';
 import { validateDocumentRequirements } from '../src/services/documentEngine';
@@ -22,9 +22,13 @@ const projection=buildATPDocumentProjection(context);
 assert(projection.isReady,projection.error);
 assert.deepEqual(projection.rows.map(row=>row.stepNumber),[1,2]);
 assert.deepEqual(projection.rows[0].resolvedTPs.map(tp=>tp.id),['t2','t1']);
-assert.deepEqual(projection.rows[0].tpLines,['[TP-B] Pernyataan canonical kedua.','[TP-A] Pernyataan canonical pertama.']);
-assert.equal(projection.rows[0].flowLines[0],'Tahap 1. Fokus eksplorasi awal');
+assert.deepEqual(getATPDocumentRowCells(projection.rows[0])[1],['[TP-B] Pernyataan canonical kedua.','[TP-A] Pernyataan canonical pertama.']);
+assert.equal(projection.rows[0].flowLines[0],'Fokus eksplorasi awal');
 assert(projection.rows[0].flowLines.some(line=>line.includes('TP-A')) && projection.rows[0].flowLines.some(line=>line.includes('TP-B')));
+assert.deepEqual(ATP_DOCUMENT_COLUMNS,['Tahap','Tujuan Pembelajaran','Alur Tujuan Pembelajaran']);
+assert.deepEqual(Object.keys(projection.rows[0]).sort(),['stepNumber','focus','resolvedTPs','flowLines'].sort());
+assert.deepEqual(getATPDocumentRowCells(projection.rows[0])[0],['Tahap 1']);
+assert.deepEqual(projection.rows[0].flowLines,['Fokus eksplorasi awal','TP terkait: [TP-B], [TP-A]']);
 assert(validateDocumentRequirements('ATP',context).isValid);
 const poisoned=structuredClone(context);
 for(const row of poisoned.atp.items) Object.assign(row,{tpId:'wrong',tpCode:'LEGACY_CODE_POISON',tpStatement:'LEGACY_STATEMENT_POISON',materialScope:'LEGACY_MATERIAL_POISON',unitTitle:'LEGACY_UNIT_POISON',p3Dimensions:['LEGACY_PROFILE_POISON']});
@@ -46,9 +50,15 @@ for(const mutate of [
 const docx=await generateATP(poisoned);
 const xml=await (await JSZip.loadAsync(await docx.blob!.arrayBuffer())).file('word/document.xml')!.async('string');
 for(const header of ATP_DOCUMENT_COLUMNS) assert(xml.includes(header));
-for(const row of projection.rows) for(const line of [...row.cpLines,...row.tpLines,...row.flowLines]) assert(xml.includes(line),line);
+for(const row of projection.rows) for(const line of getATPDocumentRowCells(row).flat()) assert(xml.includes(line),line);
 assert(xml.includes('w:orient="landscape"'));assert(xml.includes('w:jc w:val="both"'));
-const table=xml.match(/<w:tbl>.*?<\/w:tbl>/gs)!.find(table=>table.includes('CP / Elemen Rujukan'))!;
+const table=xml.match(/<w:tbl>.*?<\/w:tbl>/gs)!.find(table=>table.includes('Alur Tujuan Pembelajaran'))!;
+for(const line of projection.cpReferenceLines) {
+ assert.equal(xml.split(line).length-1,1,'CP appears once in DOCX');
+ assert(!table.includes(line),'CP excluded from matrix');
+ assert(xml.indexOf(line)>xml.indexOf('B. Capaian Pembelajaran Rujukan'));
+ assert(xml.indexOf(line)<xml.indexOf('C. Matriks Alur Tujuan Pembelajaran'));
+}
 assert(table.includes('<w:tblHeader'));
 assert(table.includes('w:type="fixed"'));
 assert(!table.includes('<w:cantSplit/>'));
@@ -62,9 +72,15 @@ const parsed=await task.promise;let pdfText='';
 for(let index=1;index<=parsed.numPages;index++) {const content=await (await parsed.getPage(index)).getTextContent();pdfText+=' '+content.items.map((item:any)=>item.str||'').join(' ');}
 const normalized=pdfText.replace(/\s+/g,' ');
 for(const header of ATP_DOCUMENT_COLUMNS) assert(normalized.includes(header),header);
-for(const row of projection.rows) for(const line of [...row.cpLines,...row.tpLines,...row.flowLines]) assert(normalized.includes(line.replace(/\s+/g,' ')),line);
+for(const row of projection.rows) for(const line of getATPDocumentRowCells(row).flat()) assert(normalized.includes(line.replace(/\s+/g,' ')),line);
+for(const line of projection.cpReferenceLines) {
+ assert.equal(normalized.split(line).length-1,1,'CP appears once in PDF');
+ assert(normalized.indexOf(line)>normalized.indexOf('B. Capaian Pembelajaran Rujukan'));
+ assert(normalized.indexOf(line)<normalized.indexOf('C. Matriks Alur Tujuan Pembelajaran'));
+}
 assert(normalized.includes(context.atp.rationale));assert(normalized.includes(context.school.principalName));
-assert(!normalized.includes('LEGACY_'));await task.destroy();
+assert(!normalized.includes('LEGACY_'));
+const page=await parsed.getPage(1);assert(page.view[2]>page.view[3]);await task.destroy();
 assert.equal(JSON.stringify(context),original);
 for(const path of ['src/services/documentEngine/generators/atpGenerator.ts','src/services/documentEngine/renderers/pdf/pdfDocGenerators.ts']) {
  const source=readFileSync(path,'utf8');assert(source.includes('buildATPDocumentProjection(context)'));
