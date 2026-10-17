@@ -22,7 +22,7 @@ import {
   UnitExecutionPlanData,
   LearningMeetingScheduleData,
 } from '../types';
-import { validateATPReferences } from './cpWorkflowService';
+import { resolveATPItemTPReferences } from './cpWorkflowService';
 import {
   resolveScheduledLearningMeetings,
   ScheduledLearningMeetingProjection,
@@ -1018,9 +1018,25 @@ export function validateLearningPlan(
       if (!context.atp || context.atp.workflowStatus !== 'SIAP' || context.atp.needsReview) {
         errors.push('ATP acuan belum SIAP atau masih memerlukan peninjauan ulang.');
       } else {
-        const atpRuntime = validateATPReferences(context.atp, context.tp || undefined);
-        if (!atpRuntime.isSiap) {
-          errors.push('ATP acuan tidak lolos validasi runtime terhadap TP kanonikal.');
+        const availableAtpItems: ATPItem[] = context.atp.items || [];
+        const tpItems: TPItem[] = context.tp?.items || [];
+        for (const atpItemId of plan.atpItemIds) {
+          const atpItem = availableAtpItems.find((item) => item.id === atpItemId);
+          if (!atpItem) {
+            const orphanMsg = `Langkah ATP dengan ID '${atpItemId}' tidak ditemukan dalam alur ATP aktif (Orphan ATP ID).`;
+            if (!errors.includes(orphanMsg)) {
+              errors.push(orphanMsg);
+            }
+            continue;
+          }
+          const refRes = resolveATPItemTPReferences(atpItem, tpItems);
+          if (!refRes.isValid) {
+            refRes.issues.forEach((issue) => {
+              if (!errors.includes(issue)) {
+                errors.push(issue);
+              }
+            });
+          }
         }
       }
     }
@@ -1056,7 +1072,10 @@ export function validateLearningPlan(
           jp: typeof foundAtp.jp === 'number' ? foundAtp.jp : undefined,
         });
       } else {
-        errors.push(`Langkah ATP dengan ID '${atpItemId}' tidak ditemukan dalam alur ATP aktif (Orphan ATP ID).`);
+        const orphanMsg = `Langkah ATP dengan ID '${atpItemId}' tidak ditemukan dalam alur ATP aktif (Orphan ATP ID).`;
+        if (!errors.includes(orphanMsg)) {
+          errors.push(orphanMsg);
+        }
       }
     }
   }
