@@ -230,12 +230,11 @@ function getLevelDesc(levels: KKTPLevel[] = [], target: string): string {
  * - Header: PERTEMUAN N — Judul — X JP with light shading (DOCX_BG_TABLE_HEADER)
  * - keepNext on header paragraph to prevent orphan headers
  * - Strict omission of meeting date
- * - Bold labels: Materi, Tujuan Pembelajaran, Asesmen, KKTP
- * - Structured KKTP per TP: Kriteria, Indikator, Perlu Bimbingan, Cukup, Baik, Sangat Baik
+ * - Bold labels: Materi, Tujuan Pembelajaran, Kegiatan Pembelajaran, Asesmen, KKTP
+ * - Compact KKTP per TP; full rubric levels stay in the unit assessment section
  */
 function createModulAjarMeetingTable(
-  meeting: ModulAjarMeeting,
-  allTPs: Array<{ id: string; code?: string; statement: string; materialScope?: string }>
+  meeting: ModulAjarMeeting
 ): Table {
   const tableBorder = { style: BorderStyle.SINGLE, size: 4, color: 'CBD5E1' };
   const cellMargin = { top: 100, bottom: 100, left: 140, right: 140 };
@@ -417,94 +416,19 @@ function createModulAjarMeetingTable(
     ],
   });
 
-  // 4. KKTP
-  const kktpParagraphs: Paragraph[] = [];
-  if (meeting.KKTP && meeting.KKTP.length > 0) {
-    meeting.KKTP.forEach((c, idx) => {
-      const tp = meeting.resolvedTPs.find((t) => t.id === c.tpId) || allTPs.find((t) => t.id === c.tpId);
-      if (idx > 0) {
-        kktpParagraphs.push(new Paragraph({ spacing: { line: 276, before: 60, after: 20 } }));
-      }
-      if (tp) {
-        kktpParagraphs.push(
-          new Paragraph({
-            alignment: AlignmentType.JUSTIFIED,
-            spacing: { line: 276, after: 40 },
-            children: [
-              new TextRun({
-                text: `TP: ${tp.code ? `[${tp.code}] ` : ''}${cleanText(tp.statement)}`,
-                bold: true,
-                size: 22,
-                font: 'Times New Roman',
-              }),
-            ],
-          })
-        );
-      }
-      kktpParagraphs.push(
-        new Paragraph({
-          alignment: AlignmentType.JUSTIFIED,
-          spacing: { line: 276, after: 20 },
-          children: [
-            new TextRun({ text: 'Kriteria: ', bold: true, size: 22, font: 'Times New Roman' }),
-            new TextRun({ text: cleanText(c.description) || '-', size: 22, font: 'Times New Roman' }),
-          ],
-        }),
-        new Paragraph({
-          alignment: AlignmentType.JUSTIFIED,
-          spacing: { line: 276, after: 40 },
-          children: [
-            new TextRun({ text: 'Indikator: ', bold: true, size: 22, font: 'Times New Roman' }),
-            new TextRun({
-              text: c.indicators && c.indicators.length > 0 ? c.indicators.map(cleanText).filter(Boolean).join('; ') : '-',
-              size: 22,
-              font: 'Times New Roman',
-            }),
-          ],
-        }),
-        new Paragraph({
-          alignment: AlignmentType.JUSTIFIED,
-          spacing: { line: 276, after: 20 },
-          children: [
-            new TextRun({ text: '• Perlu Bimbingan: ', bold: true, size: 22, font: 'Times New Roman' }),
-            new TextRun({ text: getLevelDesc(c.levels, 'Perlu Bimbingan'), size: 22, font: 'Times New Roman' }),
-          ],
-        }),
-        new Paragraph({
-          alignment: AlignmentType.JUSTIFIED,
-          spacing: { line: 276, after: 20 },
-          children: [
-            new TextRun({ text: '• Cukup: ', bold: true, size: 22, font: 'Times New Roman' }),
-            new TextRun({ text: getLevelDesc(c.levels, 'Cukup'), size: 22, font: 'Times New Roman' }),
-          ],
-        }),
-        new Paragraph({
-          alignment: AlignmentType.JUSTIFIED,
-          spacing: { line: 276, after: 20 },
-          children: [
-            new TextRun({ text: '• Baik: ', bold: true, size: 22, font: 'Times New Roman' }),
-            new TextRun({ text: getLevelDesc(c.levels, 'Baik'), size: 22, font: 'Times New Roman' }),
-          ],
-        }),
-        new Paragraph({
-          alignment: AlignmentType.JUSTIFIED,
-          spacing: { line: 276, after: 40 },
-          children: [
-            new TextRun({ text: '• Sangat Baik: ', bold: true, size: 22, font: 'Times New Roman' }),
-            new TextRun({ text: getLevelDesc(c.levels, 'Sangat Baik'), size: 22, font: 'Times New Roman' }),
-          ],
-        })
-      );
-    });
-  }
-  if (kktpParagraphs.length === 0) {
-    kktpParagraphs.push(
-      new Paragraph({
-        spacing: { line: 276, after: 40 },
-        children: [new TextRun({ text: '-', size: 22, font: 'Times New Roman' })],
-      })
-    );
-  }
+  // Meeting summaries come from the same projection used by PDF.
+  const kktpParagraphs = (meeting.kktpSummaryLines.length ? meeting.kktpSummaryLines : ['-']).map(text =>
+    new Paragraph({ alignment: AlignmentType.JUSTIFIED, spacing: { line: 276, after: 40 },
+      children: [new TextRun({ text: cleanText(text), size: 22, font: 'Times New Roman' })] }));
+  const activityRow = new TableRow({
+    children: [createLabelCell('Kegiatan Pembelajaran'), new TableCell({
+      width: { size: 75, type: WidthType.PERCENTAGE }, margins: cellMargin,
+      children: meeting.activityLines.map(text => new Paragraph({
+        alignment: AlignmentType.JUSTIFIED, spacing: { line: 276, after: 40 },
+        children: [new TextRun({ text: cleanText(text), size: 22, font: 'Times New Roman' })],
+      })),
+    })],
+  });
 
   const kktpRow = new TableRow({
     cantSplit: true,
@@ -528,7 +452,7 @@ function createModulAjarMeetingTable(
       insideHorizontal: tableBorder,
       insideVertical: tableBorder,
     },
-    rows: [headerRow, materiRow, tpRow, assessmentRow, kktpRow],
+    rows: [headerRow, materiRow, tpRow, activityRow, assessmentRow, kktpRow],
   });
 }
 
@@ -794,10 +718,10 @@ export async function generateModulAjar(context: DocumentGenerationContext): Pro
 
     // III. PENGALAMAN BELAJAR UNIT
     addSectionTitle('III. PENGALAMAN BELAJAR UNIT');
-    const experiences = plan.learningExperiences || [];
-    const openingSteps = plan.learningSteps?.opening || [];
-    const coreSteps = plan.learningSteps?.core || [];
-    const closingSteps = plan.learningSteps?.closing || [];
+    const experiences = (plan.learningExperiences || []).filter(e => e.learningMeetingId === undefined);
+    const openingSteps = (plan.learningSteps?.opening || []).filter(a => a.learningMeetingId === undefined);
+    const coreSteps = (plan.learningSteps?.core || []).filter(a => a.learningMeetingId === undefined);
+    const closingSteps = (plan.learningSteps?.closing || []).filter(a => a.learningMeetingId === undefined);
 
     if (experiences.length > 0) {
       const renderExpPhase = (subLetter: string, phase: 'UNDERSTAND' | 'APPLY' | 'REFLECT', label: string) => {
@@ -849,7 +773,7 @@ export async function generateModulAjar(context: DocumentGenerationContext): Pro
     const sortedMeetings = (sharedProjection.meetings || []).slice().sort((a, b) => a.order - b.order);
     if (sortedMeetings.length > 0) {
       sortedMeetings.forEach((m) => {
-        docChildren.push(createModulAjarMeetingTable(m, resolvedTPs));
+        docChildren.push(createModulAjarMeetingTable(m));
         docChildren.push(new Paragraph({ spacing: { after: 180 } }));
       });
     } else {

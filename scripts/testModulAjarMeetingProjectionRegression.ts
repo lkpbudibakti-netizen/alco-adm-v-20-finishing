@@ -25,6 +25,7 @@ const plan: any = { id:'lp', curriculumType:'KURIKULUM_MERDEKA', academicSetting
   objectives:tp.items.map((t:any)=>({ ...t, tpId:t.id })), topic:'Topik', allocatedJP:6,
   initialCompetency:'Kompetensi awal', graduateProfileDimensions:['Kemandirian'], resources:[{id:'r',title:'Buku'}], learningModel:'Praktik',
   learningExperiences:['UNDERSTAND','APPLY','REFLECT'].map((phase,i)=>({id:'e'+i,phase,description:'Kegiatan '+phase})),
+  learningSteps: { core: [3,1,2].map(order => ({ id:'activity'+order, learningMeetingId:'m'+order, description:'Aktivitas khusus '+order, durationMinutes:15 })) },
   assessmentPlan:{ initial:[assessment('INITIAL')], formative:[{...assessment('FORMATIVE'), learningMeetingId:'m1'}], summative:[assessment('SUMMATIVE')] },
   differentiation:{content:'Konten'}, enrichmentPlan:'Pengayaan', remedialPlan:'Remedial', reflection:{teacherReflection:'Guru',studentReflection:'Murid'} };
 const context: any = { school:{name:'Sekolah'},profile:{name:'Guru'}, academicSetting:setting,tp,atp, atpUnitMapping:mapping, unitExecutionPlan:execution, learningMeetingSchedules:schedules, learningPlans:[plan],activeLearningPlanId:'lp',assessmentCriteria:criteria };
@@ -34,12 +35,34 @@ assert.deepEqual(projection.meetings?.map(m=>m.id),['m1','m2','m3']);
 assert.deepEqual(projection.meetings?.map(m=>m.KKTP.map(c=>c.tpId)),[['t1'],['t2'],['t1']]);
 assert.deepEqual(projection.meetings?.map(m=>m.assessments.length),[1,0,0]);
 assert.equal(projection.sections?.length,8);
+assert.deepEqual(projection.meetings!.map(m => m.activities.map(a => a.description)),
+  [['Aktivitas khusus 1'], ['Aktivitas khusus 2'], ['Aktivitas khusus 3']]);
+assert(projection.meetings!.every(m => m.activitiesStatus === 'COMPLETE'));
+assert(projection.meetings!.every(m => m.KKTP.every(c => !('levels' in c))));
+const missingActivities = structuredClone(context);
+delete missingActivities.learningPlans[0].learningSteps;
+const incomplete = buildModulAjarProjection(missingActivities);
+assert(incomplete.isReady, incomplete.error);
+assert(incomplete.meetings!.every(m => m.activitiesStatus === 'INCOMPLETE' &&
+  m.activityLines.some(line => line.includes('Belum lengkap')) && m.activities.length === 0));
+const blankActivity = structuredClone(context);
+blankActivity.learningPlans[0].learningSteps.core[0].description = ' ';
+assert.equal(buildModulAjarProjection(blankActivity).meetings!.find(m => m.id === 'm3')!.activitiesStatus, 'INCOMPLETE');
+const scopedExperience = structuredClone(context);
+scopedExperience.learningPlans[0].learningExperiences.push({id:'meeting-exp', phase:'APPLY', description:'Pengalaman khusus m2', learningMeetingId:'m2'});
+const withScopedExperience = buildModulAjarProjection(scopedExperience);
+assert.equal(withScopedExperience.meetings!.find(m=>m.id==='m2')!.activities.at(-1)!.description, 'Pengalaman khusus m2');
+assert(!withScopedExperience.sections!.find(s=>s.title.includes('PENGALAMAN BELAJAR UNIT'))!.lines.includes('Pengalaman khusus m2'));
 assert(!JSON.stringify(projection.sections).includes('unrelated'));
 for (const mutation of [
   (c:any)=>c.learningPlans[0].learningMeetingIds.push('dangling'),
   (c:any)=>c.learningMeetingSchedules[0].schedule.entries[0].unitId='other',
   (c:any)=>c.unitExecutionPlan.units[0].meetings[0].linkedTpIds=['missing'],
   (c:any)=>c.learningPlans[0].unitId=undefined,
+  (c:any)=>c.learningPlans[0].learningSteps.core[0].learningMeetingId='dangling',
+  (c:any)=>c.learningPlans[0].learningSteps.core[0].learningMeetingId=' m3 ',
+  (c:any)=>c.learningPlans[0].learningSteps.core[0].learningMeetingId='',
+  (c:any)=>c.learningPlans[0].learningExperiences[0].learningMeetingId='other-unit-meeting',
 ]) {
   const changed=structuredClone(context); mutation(changed);
   assert.equal(buildModulAjarProjection(changed).isReady,false);
@@ -60,6 +83,11 @@ assert(unitExperiences);
 assert.deepEqual(unitExperiences.lines, ['Memahami:', 'Kegiatan UNDERSTAND', 'Mengaplikasi:', 'Kegiatan APPLY', 'Merefleksi:', 'Kegiatan REFLECT']);
 assert(!projection.sections!.some(s => s.title.includes('PENGESAHAN')));
 const meetingSection = projection.sections!.find(s => s.title.includes('RENCANA PERTEMUAN'))!;
+assert(!meetingSection.lines.some(line => line.includes('Mandiri')));
+assert(projection.sections!.find(s=>s.title.includes('ASESMEN + KKTP'))!.lines.some(line=>line.includes('Mandiri')));
+for (const label of ['Materi:', 'TP:', 'Kegiatan Pembelajaran:', 'Asesmen:', 'KKTP ringkas:']) {
+  assert.equal(meetingSection.lines.filter(line=>label === 'Materi:' ? line.startsWith(label) : line === label).length, 3, label);
+}
 for (const experience of plan.learningExperiences) {
   assert(!meetingSection.lines.some(line => line.includes(experience.description)));
   assert.equal(projection.sections!.flatMap(s => s.lines).filter(line => line.includes(experience.description)).length, 1);
@@ -72,8 +100,14 @@ assert.equal(buildModulAjarProjection({...context,snapshot:{...snap,sourceVersio
 for(const path of ['src/services/documentEngine/generators/modulAjarGenerator.ts','src/services/documentEngine/renderers/pdf/pdfDocGenerators.ts']) {
   const source=readFileSync(path,'utf8');
   assert(source.includes('buildModulAjarProjection(context)'));
-  assert(source.includes('Projection.sections') || source.includes('projection.sections'));
-  assert(source.includes('section.lines'));
+  if (path.includes('modulAjarGenerator')) {
+    assert(source.includes('sharedProjection.meetings'));
+    assert(source.includes('meeting.activityLines'));
+    assert(source.includes('meeting.kktpSummaryLines'));
+  } else {
+    assert(source.includes('projection.sections'));
+    assert(source.includes('section.lines'));
+  }
 }
 console.log('PASS: ordered 3 meetings, invalid lineage, scoped KKTP, shared DOCX/PDF sections, snapshot LearningPlan lineage.');
 
@@ -102,6 +136,18 @@ assert(xml.includes('w:jc w:val="both"'), 'narrative paragraph justified');
 // 6. identity/signoff tetap rapi
 assert(xml.includes('Satuan Pendidikan') && xml.includes('Mengetahui'), 'identity/signoff tetap rapi');
 for(const section of projection.sections || []) assert(xml.includes(section.title.replace('&','&amp;')));
+// Only the unit assessment section contains full rubric levels.
+const wordMeetings = xml.slice(xml.indexOf('IV. RENCANA PERTEMUAN'), xml.indexOf('V. ASESMEN + KKTP'));
+assert(wordMeetings.includes('Kegiatan Pembelajaran'));
+assert(!wordMeetings.includes('Perlu Bimbingan'));
+assert(!wordMeetings.includes('Mandiri'));
+for (const order of [1,2,3]) {
+  const start=wordMeetings.indexOf('PERTEMUAN '+order+' —');
+  const next=wordMeetings.indexOf('PERTEMUAN '+(order+1)+' —');
+  const block=wordMeetings.slice(start,next < 0 ? undefined : next);
+  assert(block.includes('Aktivitas khusus '+order));
+  for(const other of [1,2,3].filter(n=>n!==order)) assert(!block.includes('Aktivitas khusus '+other));
+}
 const pdf = await generatePdfDocument('MODUL_AJAR',{...context,skipDownload:true});
 assert(pdf.blob.size > 0);
 assert.equal(pdf.snapshot.learningPlanId,'lp');
@@ -127,6 +173,15 @@ assert.equal(pdfText.split('Kegiatan UNDERSTAND').length - 1, 1);
 assert(!pdfText.includes('VIII. PENGESAHAN'));
 assert(xml.includes('Kepala Sekolah'));
 assert(pdfText.includes('Kepala Sekolah'));
+const pdfMeetings=pdfText.slice(pdfText.indexOf('IV. RENCANA PERTEMUAN'),pdfText.indexOf('V. ASESMEN + KKTP'));
+assert(!pdfMeetings.includes('Mandiri'));
+for(const order of [1,2,3]) {
+  const start=pdfMeetings.indexOf('Pertemuan '+order+':');
+  const next=pdfMeetings.indexOf('Pertemuan '+(order+1)+':');
+  const block=pdfMeetings.slice(start,next<0 ? undefined : next);
+  assert(block.includes('Aktivitas khusus '+order));
+  for(const other of [1,2,3].filter(n=>n!==order)) assert(!block.includes('Aktivitas khusus '+other));
+}
 await pdfTask.destroy();
 console.log('PASS: extracted PDF text contains all 8 sections and the same 3 ordered meetings.');
-
+console.log('PASS: exact meeting activities, dangling ID rejection, incomplete activities marker, no unit duplication, compact meeting KKTP and DOCX/PDF parity.');

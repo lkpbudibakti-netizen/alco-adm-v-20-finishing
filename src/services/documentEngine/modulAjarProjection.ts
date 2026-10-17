@@ -3,13 +3,25 @@ import { resolveScheduledLearningMeetings, ScheduledLearningMeetingProjection } 
 import { LearningPlan, DocumentGenerationContext } from './types';
 import { validateLearningPlanForModulAjar, LearningPlanValidationResult } from '../learningPlanService';
 
+export interface ModulAjarMeetingActivity {
+  id: string;
+  learningMeetingId: string;
+  phase: string;
+  title?: string;
+  description: string;
+  durationMinutes?: number;
+}
 export interface ModulAjarMeeting {
   id: string; order: number; title: string; date: string; jp: number;
   materials: ScheduledLearningMeetingProjection['materials'];
   linkedTpIds: string[]; linkedAtpItemIds: string[];
   resolvedTPs: ModulAjarProjection['resolvedTPs'];
   assessments: AssessmentPlanItem[];
-  KKTP: AssessmentCriterion[];
+  activities: ModulAjarMeetingActivity[];
+  activitiesStatus: 'COMPLETE' | 'INCOMPLETE';
+  activityLines: string[];
+  KKTP: Pick<AssessmentCriterion, 'id' | 'tpId' | 'description' | 'indicators'>[];
+  kktpSummaryLines: string[];
 }
 export interface ModulAjarSection { title: string; lines: string[] }
 export interface ModulAjarProjection {
@@ -152,6 +164,17 @@ export function buildModulAjarProjection(context: DocumentGenerationContext): Mo
         r.linkedAtpItemIds.some(id => !selectedPlan.atpItemIds.includes(id)))) {
     return invalid('Pertemuan atau lineage TP/ATP/Unit tidak valid.');
   }
+  // Unlinked activities stay at unit level. Never infer a meeting from text, TP, or order.
+  const activities = [
+    ...Object.entries(selectedPlan.learningSteps || {}).flatMap(([phase, steps]) =>
+      (steps || []).map(activity => ({ ...activity, phase }))),
+    ...(selectedPlan.learningExperiences || []),
+  ];
+  const linkedActivities = activities.filter(a => a.learningMeetingId !== undefined);
+  if (linkedActivities.some(a => typeof a.learningMeetingId !== 'string' ||
+      !ids.includes(a.learningMeetingId) || !rows.some(r => r.meetingId === a.learningMeetingId))) {
+    return invalid('Kegiatan pembelajaran memiliki learningMeetingId yang tidak valid pada Unit/LearningPlan aktif.');
+  }
   const assessments = Object.values(selectedPlan.assessmentPlan).flatMap(items => items || []);
   const criteria = (context.assessmentCriteria || []).filter(c =>
     c.academicSettingId === context.academicSetting.id && selectedPlan.tpIds.includes(c.tpId) &&
@@ -159,14 +182,31 @@ export function buildModulAjarProjection(context: DocumentGenerationContext): Mo
   if ((selectedPlan.kktpCriterionIds || []).some(id => !criteria.some(c => c.id === id))) {
     return invalid('Referensi KKTP tidak ditemukan pada TP dan semester LearningPlan.');
   }
-  const meetings: ModulAjarMeeting[] = rows.sort((a,b) => a.meetingOrder - b.meetingOrder).map(r => ({
-    id: r.meetingId, order: r.meetingOrder, title: r.meetingTitle, date: r.date, jp: r.jp,
-    materials: r.materials, linkedTpIds: r.linkedTpIds, linkedAtpItemIds: r.linkedAtpItemIds,
-    resolvedTPs: validation.resolvedTPs.filter(t => r.linkedTpIds.includes(t.id)),
-    assessments: assessments.filter(a => a.learningMeetingId === r.meetingId &&
-      a.linkedTpIds.every(id => r.linkedTpIds.includes(id))),
-    KKTP: criteria.filter(c => r.linkedTpIds.includes(c.tpId)),
-  }));
+  const meetings: ModulAjarMeeting[] = rows.sort((a,b) => a.meetingOrder - b.meetingOrder).map(r => {
+    const meetingActivities: ModulAjarMeetingActivity[] = linkedActivities
+      .filter(a => a.learningMeetingId === r.meetingId)
+      .map(a => ({ ...a, learningMeetingId: r.meetingId }));
+    const complete = meetingActivities.length > 0 && meetingActivities.every(a => a.description?.trim());
+    const activityLines = meetingActivities.filter(a => a.description?.trim()).map(a => {
+      const labels: Record<string, string> = { opening: 'Pendahuluan', core: 'Kegiatan Inti', closing: 'Penutup', UNDERSTAND: 'Memahami', APPLY: 'Mengaplikasi', REFLECT: 'Merefleksi' };
+      return (labels[a.phase] || a.phase) + ': ' + (a.title ? a.title + ' — ' : '') + a.description +
+        (a.durationMinutes ? ' (' + a.durationMinutes + ' Menit)' : '');
+    });
+    if (!complete) activityLines.push('Belum lengkap: kegiatan pembelajaran pertemuan belum tersedia atau deskripsinya belum diisi.');
+    const KKTP = criteria.filter(c => r.linkedTpIds.includes(c.tpId))
+      .map(c => ({ id: c.id, tpId: c.tpId, description: c.description, indicators: c.indicators }));
+    return {
+      id: r.meetingId, order: r.meetingOrder, title: r.meetingTitle, date: r.date, jp: r.jp,
+      materials: r.materials, linkedTpIds: r.linkedTpIds, linkedAtpItemIds: r.linkedAtpItemIds,
+      resolvedTPs: validation.resolvedTPs.filter(t => r.linkedTpIds.includes(t.id)),
+      assessments: assessments.filter(a => a.learningMeetingId === r.meetingId &&
+        a.linkedTpIds.every(id => r.linkedTpIds.includes(id))),
+      activities: meetingActivities, activitiesStatus: complete ? 'COMPLETE' : 'INCOMPLETE', activityLines,
+      KKTP,
+      kktpSummaryLines: KKTP.map(c => 'TP: ' + (validation.resolvedTPs.find(t => t.id === c.tpId)?.code || c.tpId) +
+        ' | Kriteria: ' + c.description + ' | Indikator: ' + c.indicators.join('; ')),
+    };
+  });
   const sections = buildSections(selectedPlan, meetings, validation.resolvedTPs, assessments, criteria);
 
   const jpResolutionSource = validation.jpResolutionSource === 'CANONICAL_ATP'
@@ -202,17 +242,18 @@ function buildSections(plan: LearningPlan, meetings: ModulAjarMeeting[], tps: Mo
     { title: 'II. KOMPONEN INTI', lines: [...tps.map(t => (t.code || t.id) + ': ' + t.statement + (t.materialScope ? ' (Materi: ' + t.materialScope + ')' : '')),
       'Pemahaman Bermakna: ' + (plan.meaningfulUnderstanding || '-'),
       'Pertanyaan Pemantik: ' + (plan.triggerQuestions || []).join('; '),
-      ...Object.entries(plan.learningSteps || {}).flatMap(([phase, steps]) => (steps || []).map(step => phase + ': ' + (step.title || '') + ' ' + step.description + (step.durationMinutes ? ' (' + step.durationMinutes + ' Menit)' : '')))] },
+      ...Object.entries(plan.learningSteps || {}).flatMap(([phase, steps]) => (steps || []).filter(step => step.learningMeetingId === undefined).map(step => phase + ': ' + (step.title || '') + ' ' + step.description + (step.durationMinutes ? ' (' + step.durationMinutes + ' Menit)' : '')))] },
     { title: 'III. PENGALAMAN BELAJAR UNIT', lines: [
       ['UNDERSTAND', 'Memahami'], ['APPLY', 'Mengaplikasi'], ['REFLECT', 'Merefleksi'],
     ].flatMap(([phase, label]) => [label + ':',
-      ...(plan.learningExperiences || []).filter(e => e.phase === phase)
+      ...(plan.learningExperiences || []).filter(e => e.phase === phase && e.learningMeetingId === undefined)
         .map(e => e.description + (e.durationMinutes ? ' (' + e.durationMinutes + ' Menit)' : ''))]) },
     { title: 'IV. RENCANA PERTEMUAN', lines: meetings.flatMap(m => [
       'Pertemuan ' + m.order + ': ' + m.title + ' | ' + m.date + ' | ' + m.jp + ' JP',
       'Materi: ' + m.materials.map(x => x.title).join('; '),
-      ...m.resolvedTPs.map(t => (t.code || t.id) + ': ' + t.statement),
-      ...assessmentLines(m.assessments), ...criterionLines(m.KKTP)]) },
+      'TP:', ...m.resolvedTPs.map(t => (t.code || t.id) + ': ' + t.statement),
+      'Kegiatan Pembelajaran:', ...m.activityLines,
+      'Asesmen:', ...assessmentLines(m.assessments), 'KKTP ringkas:', ...m.kktpSummaryLines]) },
     { title: 'V. ASESMEN + KKTP', lines: [...assessmentLines(assessments), ...criterionLines(criteria)] },
     { title: 'VI. DIFERENSIASI', lines: Object.entries(plan.differentiation || {}).map(([key,value]) => key + ': ' + value) },
     { title: 'VII. PENGAYAAN/REMEDIAL', lines: ['Pengayaan: ' + (plan.enrichmentPlan || '-'), 'Remedial: ' + (plan.remedialPlan || '-')] },

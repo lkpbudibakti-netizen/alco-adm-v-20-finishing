@@ -893,6 +893,7 @@ export interface LearningObjectiveReference {
 
 export interface LearningActivity {
   id: string;
+  learningMeetingId?: string;
   stepName?: 'Pendahuluan' | 'Kegiatan Inti' | 'Penutup' | string;
   title?: string;
   description: string;
@@ -941,6 +942,7 @@ export type LearningExperiencePhase =
 
 export interface LearningExperience {
   id: string;
+  learningMeetingId?: string;
   phase: LearningExperiencePhase;
   description: string;
   linkedTpIds?: string[];
