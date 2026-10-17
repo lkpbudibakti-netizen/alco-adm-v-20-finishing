@@ -1628,12 +1628,14 @@ export interface DocumentSnapshot {
   format?: 'docx' | 'pdf' | 'all';
   documentDate?: string;
   formattedDocumentDate?: string;
+  learningPlanId?: string;
   assessmentPackageId?: string;
   assessmentPackageRevision?: number;
   sourceVersions?: {
     cpUpdatedAt?: string;
     tpUpdatedAt?: string;
     atpUpdatedAt?: string;
+    learningPlanUpdatedAt?: string;
   };
 }
 

@@ -1,5 +1,6 @@
 import { DocumentSnapshot, DocumentMode, CurriculumType } from '../../types';
 import { DocumentGenerationContext } from './types';
+import { buildModulAjarProjection } from './modulAjarProjection';
 import { getCurriculumType } from '../curriculumRules';
 import { resolveDocumentDate, formatDocumentDate } from '../documentDateService';
 
@@ -30,7 +31,10 @@ export function createDocumentSnapshot(
       ? formatDocumentDate(rawDate)
       : undefined;
 
+  const projection = docMode !== 'blank' && (context.activeLearningPlanId || context.learningPlans?.length)
+    ? buildModulAjarProjection(context) : undefined;
   return {
+    learningPlanId: projection?.isReady ? projection.plan?.id : undefined,
     schoolName: (school?.name || '').trim(),
     npsn: (school?.npsn || '').trim(),
     schoolNpsn: (school?.npsn || '').trim(),
@@ -62,6 +66,7 @@ export function createDocumentSnapshot(
       cpUpdatedAt: cp?.updatedAt,
       tpUpdatedAt: tp?.updatedAt,
       atpUpdatedAt: atp?.updatedAt,
+      learningPlanUpdatedAt: projection?.isReady ? projection.plan?.updatedAt : undefined,
     },
   };
 }

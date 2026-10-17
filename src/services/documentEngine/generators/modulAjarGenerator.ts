@@ -196,6 +196,7 @@ export async function generateModulAjar(context: DocumentGenerationContext): Pro
   const { school, profile, academicSetting, tp, atp } = context;
   const isBlankMode = context.documentMode === 'blank';
 
+  const sharedProjection = buildModulAjarProjection(context);
   let plan: LearningPlan | undefined = undefined;
   let resolvedTPs: any[] = [];
   let resolvedAllocatedJP: number | undefined;
@@ -209,7 +210,7 @@ export async function generateModulAjar(context: DocumentGenerationContext): Pro
       context: { tp, atp },
     });
   } else {
-    const projection = buildModulAjarProjection(context);
+    const projection = sharedProjection;
     if (!projection.isReady || !projection.plan) {
       throw new Error(projection.error || 'Modul Ajar belum siap.');
     }
@@ -361,6 +362,12 @@ export async function generateModulAjar(context: DocumentGenerationContext): Pro
       : [];
   const dimensionsText = explicitDimensions.length > 0 ? explicitDimensions.join(', ') : '-';
 
+  if (!isBlankMode) {
+    for (const section of sharedProjection.sections || []) {
+      addSectionTitle(section.title);
+      section.lines.forEach(addListParagraph);
+    }
+  } else {
   // I. INFORMASI UMUM
   addSectionTitle('I. INFORMASI UMUM');
 
@@ -521,6 +528,8 @@ export async function generateModulAjar(context: DocumentGenerationContext): Pro
       addSubSectionTitle('B. Refleksi Murid');
       addProseParagraph(isBlankMode ? '........................................................................................................................' : (plan.reflection?.studentReflection || '-'));
     }
+  }
+
   }
 
   // Signoff Block in Times New Roman

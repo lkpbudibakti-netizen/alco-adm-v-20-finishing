@@ -1829,43 +1829,14 @@ export const AdminDocsExport: React.FC<AdminDocsExportProps> = ({
                   </div>
 
                   <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-1">
-                    <div className="font-bold text-slate-900 uppercase text-[11px]">III. Langkah Kegiatan Pembelajaran</div>
+                    <div className="font-bold text-slate-900 uppercase text-[11px]">Rencana Modul Ajar</div>
                     <div className="text-[11px] text-slate-600 leading-relaxed">
-                      {plan.learningExperiences && plan.learningExperiences.length > 0 ? (
-                        <div className="space-y-1 mt-1">
-                          <div>
-                            <span className="font-semibold">Memahami:</span>{' '}
-                            {plan.learningExperiences.filter((e) => e.phase === 'UNDERSTAND').map((e) => e.description).join('; ') || '-'}
-                          </div>
-                          <div>
-                            <span className="font-semibold">Mengaplikasi:</span>{' '}
-                            {plan.learningExperiences.filter((e) => e.phase === 'APPLY').map((e) => e.description).join('; ') || '-'}
-                          </div>
-                          <div>
-                            <span className="font-semibold">Merefleksi:</span>{' '}
-                            {plan.learningExperiences.filter((e) => e.phase === 'REFLECT').map((e) => e.description).join('; ') || '-'}
-                          </div>
+                      {(projection.sections || []).map(section => (
+                        <div key={section.title} className="mt-2 whitespace-pre-wrap">
+                          <strong>{section.title}</strong>
+                          {section.lines.map((line, index) => <p key={index}>{line}</p>)}
                         </div>
-                      ) : plan.learningSteps ? (
-                        <div className="space-y-1 mt-1">
-                          <div>
-                            <span className="font-semibold">Pendahuluan:</span>{' '}
-                            {plan.learningSteps.opening?.map((s) => s.description).join('; ') || '-'}
-                          </div>
-                          <div>
-                            <span className="font-semibold">Inti:</span>{' '}
-                            {plan.learningSteps.core?.map((s) => s.description).join('; ') || '-'}
-                          </div>
-                          <div>
-                            <span className="font-semibold">Penutup:</span>{' '}
-                            {plan.learningSteps.closing?.map((s) => s.description).join('; ') || '-'}
-                          </div>
-                        </div>
-                      ) : (
-                        <p className="italic text-slate-400">
-                          Buka tab <strong>Rencana Pembelajaran</strong> untuk menyusun atau mengonfirmasi langkah-langkah kegiatan secara terstruktur.
-                        </p>
-                      )}
+                      ))}
                     </div>
                   </div>
                 </div>

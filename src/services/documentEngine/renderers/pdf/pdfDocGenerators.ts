@@ -765,6 +765,20 @@ export async function generatePdfDocument(
       subTitle = `${subject} — ${grade} (${academicSetting?.phase || '-'}) — Semester ${semester}`;
       fileName = `Modul_Ajar_${cleanSubject}_${cleanGrade}.pdf`;
 
+      if (!isBlankMode) {
+        sections.push({ type: 'paragraph', text: [
+          'Satuan Pendidikan: ' + (school.name || '-'), 'NPSN: ' + (school.npsn || '-'),
+          'Guru Mata Pelajaran: ' + (profile.name || '-'), 'NIP: ' + (profile.nip || '-'),
+          'Tahun Ajaran: ' + academicYear, 'Topik / Materi: ' + (matchedPlan?.topic || matchedPlan?.title || '-'),
+          'Alokasi Waktu: ' + projection.resolvedAllocatedJP + ' JP',
+        ].join('\n') });
+        for (const section of projection.sections || []) {
+          sections.push({ type: 'heading', text: section.title, level: 1 });
+          if (section.lines.length) sections.push({ type: 'paragraph', text: section.lines.join('\n') });
+        }
+        break;
+      }
+
       // Compile TP string strictly from canonical resolved TPs
       const tpStatements =
         projection.resolvedTPs.length > 0
