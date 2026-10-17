@@ -1,3 +1,4 @@
+import { updateLearningPlanActivityMeeting } from '../../services/learningPlanActivityMeetingService';
 import React, { useState, useMemo } from 'react';
 import {
   BookOpen,
@@ -959,6 +960,45 @@ export const LearningPlanManager: React.FC<LearningPlanManagerProps> = ({
     onSavePlan(candidate);
   };
 
+  // Unit identity or complete meeting-set equality only; never title/TP/overlap matching.
+  const activityScopes = activePlan ? semesterScopes.filter(scope => activePlan.unitId
+    ? scope.unitId === activePlan.unitId
+    : Boolean(activePlan.learningMeetingIds?.length) &&
+      scope.learningMeetingIds?.length === activePlan.learningMeetingIds?.length &&
+      scope.learningMeetingIds!.every(id => activePlan.learningMeetingIds!.includes(id))) : [];
+  const activityMeetingOptions = activityScopes.length === 1
+    ? (activityScopes[0].meetings || []).filter(m => activePlan?.learningMeetingIds?.includes(m.meetingId))
+    : [];
+  const renderActivityMeetingSelector = (
+    collection: 'experience' | 'opening' | 'core' | 'closing',
+    activity: { id: string; learningMeetingId?: string },
+  ) => (
+    <select
+      aria-label="Pertemuan kegiatan pembelajaran"
+      value={activity.learningMeetingId ?? ''}
+      onChange={e => {
+        if (!activePlan) return;
+        try {
+          handleUpdateActivePlan(updateLearningPlanActivityMeeting(
+            activePlan, collection, activity.id, e.target.value === '' ? undefined : e.target.value,
+            activityMeetingOptions.map(m => m.meetingId),
+          ));
+        } catch (error) {
+          showNotification('error', error instanceof Error ? error.message : 'Pilihan meeting tidak valid.');
+        }
+      }}
+      className="px-2 py-1.5 text-xs border border-slate-300 rounded-md bg-white max-w-56"
+    >
+      <option value="">Global / Unit (tanpa pertemuan)</option>
+      {activity.learningMeetingId !== undefined && !activityMeetingOptions.some(m => m.meetingId === activity.learningMeetingId) && (
+        <option value={activity.learningMeetingId}>Pertemuan tidak tersedia: {activity.learningMeetingId}</option>
+      )}
+      {activityMeetingOptions.map(m => <option key={m.meetingId} value={m.meetingId}>
+        Pertemuan {m.order}: {m.title}
+      </option>)}
+    </select>
+  );
+
   const resolveSingleAtpForTp = (tpId: string): string[] => {
     const matches = activeSemesterAtpItems.filter((entry) => entry.atpItem.tpId === tpId);
     return matches.length === 1 ? [matches[0].atpItem.id] : [];
@@ -1710,7 +1750,7 @@ export const LearningPlanManager: React.FC<LearningPlanManagerProps> = ({
                         </div>
 
                         {(activePlan.learningExperiences || []).map((exp, idx) => (
-                          <div key={exp.id || idx} className="grid grid-cols-1 md:grid-cols-[160px_1fr_90px_32px] gap-2 items-center">
+                          <div key={exp.id || idx} className="grid grid-cols-1 md:grid-cols-[160px_200px_1fr_90px_32px] gap-2 items-center">
                             <select
                               value={exp.phase}
                               onChange={(e) => {
@@ -1724,6 +1764,7 @@ export const LearningPlanManager: React.FC<LearningPlanManagerProps> = ({
                               <option value="APPLY">Mengaplikasi</option>
                               <option value="REFLECT">Merefleksi</option>
                             </select>
+                            {renderActivityMeetingSelector('experience', exp)}
                             <input
                               type="text"
                               value={exp.description}
@@ -1788,6 +1829,7 @@ export const LearningPlanManager: React.FC<LearningPlanManagerProps> = ({
 
                         {(activePlan.learningSteps?.opening || []).map((step, idx) => (
                           <div key={step.id || idx} className="flex gap-2 items-center">
+                            {renderActivityMeetingSelector('opening', step)}
                             <input
                               type="text"
                               value={step.description}
@@ -1855,6 +1897,7 @@ export const LearningPlanManager: React.FC<LearningPlanManagerProps> = ({
 
                         {(activePlan.learningSteps?.core || []).map((step, idx) => (
                           <div key={step.id || idx} className="flex gap-2 items-center">
+                            {renderActivityMeetingSelector('core', step)}
                             <input
                               type="text"
                               value={step.description}
@@ -1922,6 +1965,7 @@ export const LearningPlanManager: React.FC<LearningPlanManagerProps> = ({
 
                         {(activePlan.learningSteps?.closing || []).map((step, idx) => (
                           <div key={step.id || idx} className="flex gap-2 items-center">
+                            {renderActivityMeetingSelector('closing', step)}
                             <input
                               type="text"
                               value={step.description}

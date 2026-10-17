@@ -1,3 +1,4 @@
+import { validateLearningPlanActivityMeetings } from './learningPlanActivityMeetingService';
 import {
   CPElem,
   TPItem,
@@ -830,6 +831,10 @@ export async function generateLearningPlanWithAI(params: GenerateLearningPlanPar
     if (!data.data || typeof data.data !== 'object' || Array.isArray(data.data)) {
       throw new Error('Hasil respon AI Modul Ajar tidak berbentuk objek valid.');
     }
+
+    const meetingIds = (params.meetings || []).map(m => m.meetingId);
+    const activityValidation = validateLearningPlanActivityMeetings(data.data, meetingIds, meetingIds.length > 0);
+    if (!activityValidation.isValid) throw new Error(activityValidation.reason);
 
     // Runtime validation and normalization for critical structure
     if (typeof data.data.initialCompetency !== 'string' || data.data.initialCompetency.trim() === '') {

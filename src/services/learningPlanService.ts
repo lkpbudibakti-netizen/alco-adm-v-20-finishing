@@ -1,3 +1,4 @@
+import { validateLearningPlanActivityMeetings } from './learningPlanActivityMeetingService';
 import {
   LearningPlan,
   LearningPlanStatus,
@@ -1080,6 +1081,9 @@ export function validateLearningPlan(
     }
   }
 
+  const activityMeetingValidation = validateLearningPlanActivityMeetings(plan, plan.learningMeetingIds || []);
+  if (!activityMeetingValidation.isValid) errors.push(activityMeetingValidation.reason!);
+
   // 3b. Canonical schedule & lineage validation (unitId & learningMeetingIds)
   const isCanonicalPlan = Boolean(
     plan.unitId || (plan.learningMeetingIds && plan.learningMeetingIds.length > 0)
@@ -1779,6 +1783,8 @@ export function createAIDraftLearningPlan(params: {
     aiDraft,
     context,
   } = params;
+  const activityValidation = validateLearningPlanActivityMeetings(aiDraft, learningMeetingIds || [], Boolean(learningMeetingIds?.length));
+  if (!activityValidation.isValid) throw new Error(activityValidation.reason);
   const now = new Date().toISOString();
 
   const canonicalAllocatedJP =
@@ -1813,6 +1819,7 @@ export function createAIDraftLearningPlan(params: {
             id: `exp-ai-${idx + 1}-${Date.now().toString(36)}`,
             phase: normPhase as LearningExperiencePhase,
             description: exp.description || '',
+            ...(exp.learningMeetingId !== undefined ? { learningMeetingId: exp.learningMeetingId } : {}),
             durationMinutes:
               typeof exp.durationMinutes === 'number' &&
               Number.isFinite(exp.durationMinutes) &&
@@ -1827,9 +1834,9 @@ export function createAIDraftLearningPlan(params: {
     deepLearningContext: normalizedDeepLearningContext,
     graduateProfileDimensions: Array.isArray(aiDraft.graduateProfileDimensions) ? aiDraft.graduateProfileDimensions : undefined,
     learningSteps: {
-      opening: aiDraft.learningSteps?.opening || [],
-      core: aiDraft.learningSteps?.core || [],
-      closing: aiDraft.learningSteps?.closing || [],
+      opening: (aiDraft.learningSteps?.opening || []).map((step, index) => ({ ...step, id: step.id || `step-ai-opening-${index + 1}-${now}` })),
+      core: (aiDraft.learningSteps?.core || []).map((step, index) => ({ ...step, id: step.id || `step-ai-core-${index + 1}-${now}` })),
+      closing: (aiDraft.learningSteps?.closing || []).map((step, index) => ({ ...step, id: step.id || `step-ai-closing-${index + 1}-${now}` })),
     },
     assessmentPlan: {
       initial: normalizedAssessmentPlan.initial,
