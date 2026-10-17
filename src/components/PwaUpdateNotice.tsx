@@ -1,6 +1,4 @@
-/// <reference types="vite-plugin-pwa/client" />
 import React, { useEffect, useRef, useState } from 'react';
-import { registerSW } from 'virtual:pwa-register';
 import { APP_BUILD_ID, APP_BUILD_SHA } from '../config/buildInfo';
 import { createRuntimeUpdateMonitor, RuntimeUpdateState } from '../services/runtimeUpdateService';
 
@@ -16,13 +14,36 @@ export function PwaUpdateNotice() {
       reload: () => window.location.reload(),
       isBusy: () => Boolean(document.querySelector('[data-export-busy="true"]')),
     });
-    const update = registerSW({
-      immediate: true,
-      onNeedRefresh: () => { if (!disposed) monitor.waiting(); },
-      // Another tab activating a worker never forces this tab to reload without consent.
-      onNeedReload: () => { if (!disposed) monitor.controllerChanged(); },
-      onRegisteredSW: (_url, result) => { if (!disposed) { registration = result; void check(); } },
-    });
+    // Native registration avoids helper-owned reload handlers bypassing consent/busy checks.
+    const workerCleanups: Array<() => void> = [];
+    let hadController = Boolean(navigator.serviceWorker?.controller);
+    const watchInstallingWorker = () => {
+      const worker = registration?.installing;
+      if (!worker) return;
+      const onStateChange = () => {
+        if (!disposed && worker.state === 'installed' && (hadController || registration?.waiting)) monitor.waiting();
+      };
+      worker.addEventListener('statechange', onStateChange);
+      workerCleanups.push(() => worker.removeEventListener('statechange', onStateChange));
+      onStateChange();
+    };
+    if (import.meta.env.PROD && 'serviceWorker' in navigator) {
+      void navigator.serviceWorker.register(import.meta.env.BASE_URL + 'sw.js',
+        { scope: import.meta.env.BASE_URL, updateViaCache: 'none' },
+      ).then(result => {
+        if (disposed) return;
+        registration = result;
+        result.addEventListener('updatefound', watchInstallingWorker);
+        workerCleanups.push(() => result.removeEventListener('updatefound', watchInstallingWorker));
+        watchInstallingWorker();
+        if (result.waiting) monitor.waiting();
+        void check();
+      }).catch(() => { /* Deployment identity can still be checked if registration fails. */ });
+    }
+    const update = async () => {
+      if (!registration?.waiting) throw new Error('Service worker baru belum siap.');
+      registration.waiting.postMessage({ type: 'SKIP_WAITING' });
+    };
     async function check() {
       let workerChecked = false;
       try {
@@ -35,8 +56,7 @@ export function PwaUpdateNotice() {
       } catch { /* Offline is not evidence of an old build. */ }
       return workerChecked && !registration?.installing && !registration?.waiting;
     }
-    apply.current = async () => monitor.apply(() => update(true), Boolean(navigator.serviceWorker?.controller), await check());
-    let hadController = Boolean(navigator.serviceWorker?.controller);
+    apply.current = async () => monitor.apply(update, Boolean(navigator.serviceWorker?.controller), await check());
     const onControllerChange = () => {
       if (!disposed && hadController) monitor.controllerChanged();
       hadController = true;
@@ -47,7 +67,7 @@ export function PwaUpdateNotice() {
     window.addEventListener('online', check);
     const interval = window.setInterval(check, 60_000);
     void check();
-    return () => { disposed = true; navigator.serviceWorker?.removeEventListener('controllerchange', onControllerChange); document.removeEventListener('visibilitychange', onVisible); window.removeEventListener('online', check); window.clearInterval(interval); };
+    return () => { disposed = true; workerCleanups.forEach(cleanup => cleanup()); navigator.serviceWorker?.removeEventListener('controllerchange', onControllerChange); document.removeEventListener('visibilitychange', onVisible); window.removeEventListener('online', check); window.clearInterval(interval); };
   }, []);
   if (!state.newerBuildId && !state.waiting && !state.needsReload && APP_BUILD_SHA) return null;
   return <aside role="status" className="bg-amber-50 border-b border-amber-200 px-4 py-3 text-sm text-amber-950">

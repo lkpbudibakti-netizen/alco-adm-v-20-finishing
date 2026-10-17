@@ -75,9 +75,26 @@ assert.equal(getLastModulAjarExportDiagnostic()!.totalMeetingActivities,3);
 assert.equal(JSON.stringify(context),original);
 assert.throws(()=>prepareModulAjarExportContext(context,'docx','snapshot'),/belum tersedia/);
 assert.throws(()=>prepareModulAjarExportContext(context,'docx','snapshot',{...historical,learningPlanId:undefined}),/lineage LearningPlan/);
-await assert.rejects(()=>generateModulAjar({...prepareModulAjarExportContext(context,'docx','snapshot',{
+assert.throws(()=>prepareModulAjarExportContext(context,'docx','snapshot',{
   ...historical, sourceVersions:{...historical.sourceVersions,learningPlanUpdatedAt:'changed'},
-}),skipDownload:true}),/snapshot/);
+}),/LearningPlan historis exact.*tidak tersedia/);
+const sameIdSnapshot = {...historical,learningPlanId:'lp'};
+assert.throws(()=>prepareModulAjarExportContext(context,'docx','snapshot',sameIdSnapshot),/LearningPlan historis exact.*tidak tersedia/);
+assert.throws(()=>prepareModulAjarExportContext({...context,learningPlans:[]},'docx','snapshot',historical),/LearningPlan historis exact.*tidak tersedia/);
+// Synthetic test fixture supplies both existing revisions with the same ID.
+const exactRevision = {...oldPlan,id:'lp'};
+const revisions = {...context,learningPlans:[context.learningPlans[0],exactRevision]};
+const exactContext = prepareModulAjarExportContext(revisions,'docx','snapshot',sameIdSnapshot);
+assert.equal(exactContext.learningPlans!.length,1);
+assert.equal(exactContext.learningPlans![0],exactRevision); // Existing reference, no reconstructed historical state.
+const exactFile = await generateModulAjar({...exactContext,skipDownload:true});
+const exactXml = await (await JSZip.loadAsync(await exactFile.blob!.arrayBuffer())).file('word/document.xml')!.async('string');
+assert(exactXml.includes('Sekolah Lama') && !exactXml.includes('Aktivitas live terbaru'));
+const sameIdLive = prepareModulAjarExportContext(revisions,'docx');
+assert.equal(sameIdLive.snapshot!.learningPlanId,'lp');
+assert.equal(sameIdLive.snapshot!.sourceVersions!.learningPlanUpdatedAt,context.learningPlans[0].updatedAt);
+assert.equal(sameIdLive.school.name,'Sekolah Terbaru');
+assert.throws(()=>prepareModulAjarExportContext({...context,learningPlans:[exactRevision,exactRevision]},'docx','snapshot',sameIdSnapshot),/ambigu/);
 
 // Execute the real download action with actual DOCX generation; historical mode must not overwrite the record.
 const ui=readFileSync('src/components/AdminDocsExport.tsx','utf8');
