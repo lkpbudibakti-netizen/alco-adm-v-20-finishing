@@ -1,3 +1,4 @@
+import { buildATPDocumentProjection } from './atpDocumentProjection';
 import JSZip from 'jszip';
 import saveAs from 'file-saver';
 import { DocumentType, DocumentGenerationContext, DocumentValidationResult, GeneratedDocumentResult, DocumentCatalogItem } from './types';
@@ -36,6 +37,7 @@ export * from './types';
 export * from './promesProjection';
 export * from './protaProjection';
 export * from './modulAjarProjection';
+export * from './atpDocumentProjection';
 export * from './k13AlokasiWaktuHelper';
 export * from './snapshot';
 export * from './docxStyles';
@@ -426,6 +428,10 @@ export function validateDocumentRequirements(
         }
         if (atpCount === 0) {
           missingFields.push('Matriks Alur Tujuan Pembelajaran (ATP) masih kosong');
+        }
+        {
+          const projection = buildATPDocumentProjection(context as DocumentGenerationContext);
+          if (!projection.isReady) missingFields.push(projection.error || 'Lineage ATP tidak valid.');
         }
         break;
 

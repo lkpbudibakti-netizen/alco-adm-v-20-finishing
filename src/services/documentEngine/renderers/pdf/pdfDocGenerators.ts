@@ -1,3 +1,4 @@
+import { ATP_DOCUMENT_COLUMNS, buildATPDocumentProjection } from '../../atpDocumentProjection';
 import { recordModulAjarExportDiagnostic } from '../../modulAjarExportDiagnostics';
 import {
   DocumentType,
@@ -10,7 +11,7 @@ import {
   PdfDocumentSection,
   buildPdfFromOptions,
 } from './pdfRenderer';
-import { formatOfficialDate, PdfStyleProfile } from './pdfTheme';
+import { formatOfficialDate, PdfStyleProfile, PDF_THEME } from './pdfTheme';
 import { resolveEffectiveContext, createDocumentSnapshot } from '../../snapshot';
 import { exportAssessmentPdf } from '../../assessmentExportService';
 import { normalizeSemester } from '../../../academicScope';
@@ -18,7 +19,6 @@ import { buildPromesProjection, buildAlokasiWaktuProjection } from '../../promes
 import { buildProtaProjection, buildK13ProtaProjection } from '../../protaProjection';
 import { buildModulAjarProjection } from '../../modulAjarProjection';
 import { buildK13AlokasiWaktuRows } from '../../k13AlokasiWaktuHelper';
-import { resolveAtpItemAnnualJP } from '../../../learningPlanService';
 import { resolveMerdekaCanonicalTimeProjection } from '../../meetingTimeProjection';
 
 function formatDateIndonesian(dateStr: string): string {
@@ -306,98 +306,26 @@ export async function generatePdfDocument(
     }
 
     case 'ATP': {
+      const projection = buildATPDocumentProjection(context);
+      if (!projection.isReady) throw new Error(projection.error || 'ATP belum siap diekspor.');
       title = 'Alur Tujuan Pembelajaran (ATP)';
-      const atpItemsList = atp?.items || [];
-      const allocationSource = context.protaSemesterAllocations?.length
-        ? context.protaSemesterAllocations
-        : context.timeAllocations;
-
-      const resolvedItems = atpItemsList.map((item) => ({
-        item,
-        resolvedJp: resolveAtpItemAnnualJP(item, allocationSource),
-      }));
-      const knownJPItems = resolvedItems.filter(
-        (r) => r.resolvedJp != null
-      );
-      const unknownJPCount = atpItemsList.length - knownJPItems.length;
-      const knownTotalJP = knownJPItems.reduce(
-        (sum, r) => sum + (r.resolvedJp ?? 0),
-        0
-      );
-
-      let totalAllocationStatus = 'Total Alokasi: Belum ditetapkan';
-      if (atpItemsList.length === 0) {
-        totalAllocationStatus = 'Total Alokasi: —';
-      } else if (unknownJPCount === 0) {
-        totalAllocationStatus = `Total Alokasi: ${knownTotalJP} JP`;
-      } else if (unknownJPCount > 0 && knownTotalJP > 0) {
-        totalAllocationStatus = `JP Teralokasi Sementara: ${knownTotalJP} JP — Alokasi belum lengkap`;
-      } else {
-        totalAllocationStatus = 'Total Alokasi: Belum ditetapkan';
-      }
-
-      subTitle = `${subject} — ${grade} (${academicSetting?.phase || 'Fase A'}) — ${totalAllocationStatus}`;
-      fileName = `ATP_${cleanSubject}_${cleanGrade}.pdf`;
+      subTitle = subject + ' — ' + grade + ' (' + (academicSetting?.phase || '-') + ')';
+      fileName = 'ATP_' + cleanSubject + '_' + cleanGrade + '.pdf';
       orientation = 'landscape';
-
-      if (atp?.rationale && !isBlankMode) {
-        sections.push({
-          type: 'heading',
-          text: 'Rasional Alur Pembelajaran',
-          level: 1,
-        });
-        sections.push({
-          type: 'paragraph',
-          text: atp.rationale,
-          align: 'justify',
-        });
+      if (projection.rationale) {
+        sections.push({ type: 'heading', text: 'A. Rasionalisasi Alur Pembelajaran', level: 1 });
+        sections.push({ type: 'paragraph', text: projection.rationale, align: 'justify' });
       }
-
-      sections.push({
-        type: 'heading',
-        text: 'Matriks Alur Tujuan Pembelajaran',
-        level: 1,
-      });
-
-      const rows = isBlankMode
-        ? Array.from({ length: 15 }, (_, idx) => [
-            idx + 1,
-            `TP ${idx + 1}`,
-            '..........................................................................................',
-            '....................',
-            '..... JP',
-            '....................',
-            '....................',
-            '....................',
-          ])
-        : atpItemsList.map((it, idx) => {
-            const resolvedJp = resolveAtpItemAnnualJP(it, allocationSource);
-            const itJpDisplay = resolvedJp != null ? `${resolvedJp} JP` : '—';
-            return [
-              it.stepNumber || idx + 1,
-              it.tpCode || `TP ${idx + 1}`,
-              it.tpStatement || '-',
-              it.materialScope || '-',
-              itJpDisplay,
-              (it.p3Dimensions || []).join(', ') || '-',
-              it.assessmentPlan || '-',
-              it.glossary || '-',
-            ];
-          });
-
+      if (projection.cpReferenceLines.length) {
+        sections.push({ type: 'heading', text: 'B. Capaian Pembelajaran Rujukan', level: 1 });
+        sections.push({ type: 'paragraph', text: projection.cpReferenceLines.join('\n'), align: 'justify' });
+      }
+      sections.push({ type: 'heading', text: 'C. Matriks Alur Tujuan Pembelajaran', level: 1 });
+      const contentWidth = 297 - PDF_THEME.margins.landscape.left - PDF_THEME.margins.landscape.right;
       sections.push({
         type: 'table',
-        columns: [
-          { header: 'Alur', dataKey: 'step', width: 14, align: 'center' },
-          { header: 'Kode', dataKey: 'code', width: 20, align: 'center' },
-          { header: 'Capaian & Tujuan Pembelajaran', dataKey: 'tp', width: 68 },
-          { header: 'Lingkup Materi Inti', dataKey: 'mat', width: 45 },
-          { header: 'JP', dataKey: 'jp', width: 16, align: 'center' },
-          { header: 'Profil Pancasila', dataKey: 'p3', width: 38 },
-          { header: 'Rencana Asesmen', dataKey: 'asm', width: 40 },
-          { header: 'Kata Kunci / Glosarium', dataKey: 'gls', width: 26 },
-        ],
-        rows,
+        columns: ATP_DOCUMENT_COLUMNS.map((header, index) => ({ header, dataKey: ['cp', 'tp', 'atp'][index], width: contentWidth * [0.30, 0.35, 0.35][index] })),
+        rows: projection.rows.map(row => [row.cpLines.join('\n'), row.tpLines.join('\n'), row.flowLines.join('\n')]),
       });
       break;
     }

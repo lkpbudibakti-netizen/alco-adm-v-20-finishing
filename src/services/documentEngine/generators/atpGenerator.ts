@@ -8,15 +8,15 @@ import {
   TextRun,
   AlignmentType,
   WidthType,
+  TableLayoutType,
 } from 'docx';
 import saveAs from 'file-saver';
 import { DocumentGenerationContext, GeneratedDocumentResult } from '../types';
-import { resolveAtpItemAnnualJP } from '../../learningPlanService';
+import { ATP_DOCUMENT_COLUMNS, buildATPDocumentProjection } from '../atpDocumentProjection';
 import {
   createDocumentHeader,
   createIdentityMetadataTable,
   createTableHeaderCell,
-  createTableDataCell,
   createSignoffBlock,
   createSectionHeading,
   createProseParagraph,
@@ -26,7 +26,9 @@ import {
 } from '../docxStyles';
 
 export async function generateATP(context: DocumentGenerationContext): Promise<GeneratedDocumentResult> {
-  const { school, profile, academicSetting, atp, cp } = context;
+  const { school, profile, academicSetting } = context;
+  const projection = buildATPDocumentProjection(context);
+  if (!projection.isReady) throw new Error(projection.error || 'ATP belum siap diekspor.');
 
   const docChildren: (Paragraph | Table)[] = [];
 
@@ -38,18 +40,18 @@ export async function generateATP(context: DocumentGenerationContext): Promise<G
   docChildren.push(new Paragraph({ spacing: { after: 180 } }));
 
   // Rasionalisasi Alur Pembelajaran
-  if (atp.rationale) {
+  if (projection.rationale) {
     docChildren.push(
       createSectionHeading('A. Rasionalisasi Alur Pembelajaran', 1),
-      createProseParagraph(atp.rationale)
+      createProseParagraph(projection.rationale)
     );
   }
 
   // CP Ringkas
-  if (cp?.generalDescription) {
+  if (projection.cpReferenceLines.length) {
     docChildren.push(
       createSectionHeading('B. Capaian Pembelajaran Rujukan', 1),
-      createProseParagraph(cp.generalDescription, { italics: true })
+      createProseParagraph(projection.cpReferenceLines.join('\n'), { italics: true })
     );
   }
 
@@ -58,144 +60,28 @@ export async function generateATP(context: DocumentGenerationContext): Promise<G
     createSectionHeading('C. Matriks Alur Tujuan Pembelajaran', 1)
   );
 
-  // Table Headers
+  const widths = [30, 35, 35];
   const tableHeaderRow = new TableRow({
     tableHeader: true,
-    children: [
-      createTableHeaderCell('No', 6),
-      createTableHeaderCell('Tujuan Pembelajaran (TP)', 28, AlignmentType.LEFT),
-      createTableHeaderCell('Lingkup Materi', 20, AlignmentType.LEFT),
-      createTableHeaderCell('Alokasi JP', 10),
-      createTableHeaderCell('Dimensi Profil Lulusan', 18, AlignmentType.LEFT),
-      createTableHeaderCell('Rencana Asesmen & Glosarium', 18, AlignmentType.LEFT),
-    ],
+    children: ATP_DOCUMENT_COLUMNS.map((title, index) => createTableHeaderCell(title, widths[index], AlignmentType.CENTER)),
   });
-
-  const allocationSource = context.protaSemesterAllocations?.length
-    ? context.protaSemesterAllocations
-    : context.timeAllocations;
-
-  // Table Data Rows
-  const tableDataRows = (atp?.items || []).map((item, index) => {
-    const p3List = item.p3Dimensions && item.p3Dimensions.length > 0 ? item.p3Dimensions.join(', ') : '-';
-    const assessAndGloss = [
-      item.assessmentPlan ? `Asesmen: ${item.assessmentPlan}` : '',
-      item.glossary ? `Glosarium: ${item.glossary}` : '',
-    ]
-      .filter(Boolean)
-      .join('\n');
-
-    const resolvedJp = resolveAtpItemAnnualJP(item, allocationSource);
-    const itJpDisplay = resolvedJp != null ? `${resolvedJp} JP` : '—';
-
-    return new TableRow({
-      children: [
-        createTableDataCell(`${item.stepNumber || index + 1}`, 6, AlignmentType.CENTER),
-        new TableCell({
-          width: { size: 28, type: WidthType.PERCENTAGE },
-          margins: { top: 100, bottom: 100, left: 120, right: 120 },
-          children: [
-            new Paragraph({
-              spacing: { line: 240, after: 0 },
-              children: [
-                new TextRun({ text: `[${item.tpCode || 'TP'}] `, bold: true, size: 20, font: DOCX_FONT, color: DOCX_COLOR_BLACK }),
-                new TextRun({ text: item.tpStatement || '', size: 20, font: DOCX_FONT, color: DOCX_COLOR_BLACK }),
-              ],
-            }),
-          ],
-        }),
-        createTableDataCell(item.materialScope || '-', 20),
-        createTableDataCell(itJpDisplay, 10, AlignmentType.CENTER, true),
-        createTableDataCell(p3List, 18),
-        createTableDataCell(assessAndGloss || '-', 18),
-      ],
-    });
+  const createProjectionCell = (lines: string[], width: number, emphasizeFirst = false) => new TableCell({
+    width: { size: width, type: WidthType.PERCENTAGE },
+    margins: { top: 120, bottom: 120, left: 140, right: 140 },
+    children: lines.map((text, index) => new Paragraph({
+      alignment: AlignmentType.JUSTIFIED,
+      spacing: { line: 276, after: 80 },
+      children: [new TextRun({ text, bold: emphasizeFirst && index === 0, size: 22, font: DOCX_FONT, color: DOCX_COLOR_BLACK })],
+    })),
   });
-
-  // Total JP Row
-  const items = atp?.items || [];
-  const resolvedItems = items.map((item) => ({
-    item,
-    resolvedJp: resolveAtpItemAnnualJP(item, allocationSource),
+  const tableDataRows = projection.rows.map(row => new TableRow({
+    cantSplit: false,
+    children: [createProjectionCell(row.cpLines, widths[0]), createProjectionCell(row.tpLines, widths[1]), createProjectionCell(row.flowLines, widths[2], true)],
   }));
-  const knownJPItems = resolvedItems.filter(
-    (r) => r.resolvedJp != null
-  );
-  const unknownJPCount = items.length - knownJPItems.length;
-  const knownTotalJP = knownJPItems.reduce(
-    (sum, r) => sum + (r.resolvedJp ?? 0),
-    0
-  );
-
-  let totalLabel = 'TOTAL ALOKASI WAKTU: ';
-  let totalValue = '—';
-  let totalStatusNote = '';
-
-  if (items.length === 0) {
-    totalLabel = 'TOTAL ALOKASI WAKTU: ';
-    totalValue = '—';
-  } else if (unknownJPCount === 0) {
-    totalLabel = 'TOTAL ALOKASI WAKTU: ';
-    totalValue = `${knownTotalJP} JP`;
-  } else if (unknownJPCount > 0 && knownTotalJP > 0) {
-    totalLabel = 'JP TERALOKASI SEMENTARA: ';
-    totalValue = `${knownTotalJP} JP`;
-    totalStatusNote = 'Alokasi belum lengkap';
-  } else {
-    totalLabel = 'TOTAL ALOKASI WAKTU: ';
-    totalValue = 'Belum ditetapkan';
-  }
-
-  const totalRow = new TableRow({
-    children: [
-      new TableCell({
-        width: { size: 54, type: WidthType.PERCENTAGE },
-        columnSpan: 3,
-        margins: { top: 100, bottom: 100, left: 120, right: 120 },
-        children: [
-          new Paragraph({
-            alignment: AlignmentType.RIGHT,
-            spacing: { line: 240, after: 0 },
-            children: [
-              new TextRun({
-                text: totalLabel,
-                bold: true,
-                size: 20,
-                font: DOCX_FONT,
-                color: DOCX_COLOR_BLACK,
-              }),
-            ],
-          }),
-        ],
-      }),
-      createTableDataCell(totalValue, 10, AlignmentType.CENTER, true),
-      new TableCell({
-        width: { size: 36, type: WidthType.PERCENTAGE },
-        columnSpan: 2,
-        margins: { top: 100, bottom: 100, left: 120, right: 120 },
-        children: [
-          new Paragraph({
-            spacing: { line: 240, after: 0 },
-            children: totalStatusNote
-              ? [
-                  new TextRun({
-                    text: totalStatusNote,
-                    italics: true,
-                    size: 18,
-                    font: DOCX_FONT,
-                    color: '718096',
-                  }),
-                ]
-              : [],
-          }),
-        ],
-      }),
-    ],
-  });
-
   const atpTable = new Table({
+    layout: TableLayoutType.FIXED,
     width: { size: 100, type: WidthType.PERCENTAGE },
-    rows: [tableHeaderRow, ...tableDataRows, totalRow],
+    rows: [tableHeaderRow, ...tableDataRows],
   });
 
   docChildren.push(atpTable);
