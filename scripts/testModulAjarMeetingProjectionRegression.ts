@@ -86,8 +86,21 @@ const docx = await generateModulAjar({...context,skipDownload:true});
 assert(docx.blob);
 const zip = await JSZip.loadAsync(await docx.blob!.arrayBuffer());
 const xml = await zip.file('word/document.xml')!.async('string');
-assert(xml.indexOf('Pertemuan 1: Judul 1') < xml.indexOf('Pertemuan 2: Judul 2'));
-assert(xml.indexOf('Pertemuan 2: Judul 2') < xml.indexOf('Pertemuan 3: Judul 3'));
+assert(xml.indexOf('PERTEMUAN 1 — Judul 1 — 2 JP') < xml.indexOf('PERTEMUAN 2 — Judul 2 — 2 JP'));
+assert(xml.indexOf('PERTEMUAN 2 — Judul 2 — 2 JP') < xml.indexOf('PERTEMUAN 3 — Judul 3 — 2 JP'));
+// Regression Target Assertions:
+// 1. DOCX tidak memuat tanggal meeting
+assert(!xml.includes('2026-10-19') && !xml.includes('2026-10-20') && !xml.includes('2026-10-21'), 'DOCX tidak memuat tanggal meeting');
+// 2. tidak ada undefined
+assert(!xml.includes('undefined'), 'tidak ada undefined');
+// 3. setiap meeting punya header jelas + Materi + TP + KKTP
+assert(xml.includes('Materi') && xml.includes('Tujuan Pembelajaran') && xml.includes('Asesmen') && xml.includes('KKTP'), 'setiap meeting punya header jelas + label tebal');
+// 4. KKTP terstruktur per TP
+assert(xml.includes('Kriteria') && xml.includes('Indikator') && xml.includes('Perlu Bimbingan') && xml.includes('Cukup') && xml.includes('Baik') && xml.includes('Sangat Baik'), 'KKTP terstruktur per TP');
+// 5. narrative paragraph justified
+assert(xml.includes('w:jc w:val="both"'), 'narrative paragraph justified');
+// 6. identity/signoff tetap rapi
+assert(xml.includes('Satuan Pendidikan') && xml.includes('Mengetahui'), 'identity/signoff tetap rapi');
 for(const section of projection.sections || []) assert(xml.includes(section.title.replace('&','&amp;')));
 const pdf = await generatePdfDocument('MODUL_AJAR',{...context,skipDownload:true});
 assert(pdf.blob.size > 0);

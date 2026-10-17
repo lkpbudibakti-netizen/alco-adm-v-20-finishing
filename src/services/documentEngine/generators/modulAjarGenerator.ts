@@ -10,14 +10,15 @@ import {
   WidthType,
   HeadingLevel,
   BorderStyle,
+  ShadingType,
 } from 'docx';
 import saveAs from 'file-saver';
 import { DocumentGenerationContext, GeneratedDocumentResult } from '../types';
-import { formatOfficialDate } from '../docxStyles';
-import { LearningPlan, SchoolData, TeacherProfile } from '../../../types';
+import { formatOfficialDate, DOCX_BG_TABLE_HEADER } from '../docxStyles';
+import { AssessmentCriterion, KKTPLevel, LearningPlan, SchoolData, TeacherProfile } from '../../../types';
 import { createEmptyLearningPlan } from '../../learningPlanService';
 import { getCurriculumTypeFromSetting, isMerdeka } from '../../curriculumRouter';
-import { buildModulAjarProjection } from '../modulAjarProjection';
+import { buildModulAjarProjection, ModulAjarMeeting } from '../modulAjarProjection';
 
 /**
  * Creates professional standard Modul Ajar identity metadata table in Times New Roman.
@@ -184,6 +185,354 @@ function createModulAjarSignoffBlock(
 }
 
 /**
+ * Removes undefined/null or expressions like "opening: undefined" to guarantee clean output.
+ */
+function cleanText(val: unknown): string {
+  if (val === undefined || val === null) return '';
+  const s = String(val).trim();
+  if (s === 'undefined' || s === 'null') return '';
+  return s.replace(/\b(opening|core|closing):\s*undefined\b/gi, '').trim();
+}
+
+/**
+ * Safely extracts criterion level description for standardized rubric tiers.
+ */
+function getLevelDesc(levels: KKTPLevel[] = [], target: string): string {
+  const norm = target.toLowerCase().trim();
+  const exact = levels.find((l) => {
+    const lvl = (l.level || '').toLowerCase().trim();
+    const lbl = (l.label || '').toLowerCase().trim();
+    return lvl === norm || lbl === norm;
+  });
+  if (exact) {
+    const desc = cleanText(exact.description || exact.label || exact.level);
+    return desc || '-';
+  }
+
+  const found = levels.find((l) => {
+    const lvl = (l.level || '').toLowerCase().trim();
+    const lbl = (l.label || '').toLowerCase().trim();
+    if (norm === 'baik' && (lvl.includes('sangat') || lbl.includes('sangat'))) {
+      return false;
+    }
+    return lvl.includes(norm) || lbl.includes(norm);
+  });
+  if (found) {
+    const desc = cleanText(found.description || found.label || found.level);
+    return desc || '-';
+  }
+
+  return '-';
+}
+
+/**
+ * Creates structured meeting block table:
+ * - Header: PERTEMUAN N — Judul — X JP with light shading (DOCX_BG_TABLE_HEADER)
+ * - keepNext on header paragraph to prevent orphan headers
+ * - Strict omission of meeting date
+ * - Bold labels: Materi, Tujuan Pembelajaran, Asesmen, KKTP
+ * - Structured KKTP per TP: Kriteria, Indikator, Perlu Bimbingan, Cukup, Baik, Sangat Baik
+ */
+function createModulAjarMeetingTable(
+  meeting: ModulAjarMeeting,
+  allTPs: Array<{ id: string; code?: string; statement: string; materialScope?: string }>
+): Table {
+  const tableBorder = { style: BorderStyle.SINGLE, size: 4, color: 'CBD5E1' };
+  const cellMargin = { top: 100, bottom: 100, left: 140, right: 140 };
+
+  const meetingTitle = cleanText(meeting.title) || `Pertemuan ${meeting.order}`;
+  const headerTitle = `PERTEMUAN ${meeting.order} — ${meetingTitle} — ${meeting.jp} JP`;
+
+  const headerRow = new TableRow({
+    cantSplit: true,
+    children: [
+      new TableCell({
+        columnSpan: 2,
+        shading: { type: ShadingType.CLEAR, fill: DOCX_BG_TABLE_HEADER },
+        margins: { top: 120, bottom: 120, left: 140, right: 140 },
+        children: [
+          new Paragraph({
+            keepNext: true,
+            spacing: { line: 276, before: 60, after: 60 },
+            children: [
+              new TextRun({
+                text: headerTitle,
+                bold: true,
+                size: 22,
+                font: 'Times New Roman',
+                color: '000000',
+              }),
+            ],
+          }),
+        ],
+      }),
+    ],
+  });
+
+  const createLabelCell = (label: string): TableCell => {
+    return new TableCell({
+      width: { size: 25, type: WidthType.PERCENTAGE },
+      margins: cellMargin,
+      children: [
+        new Paragraph({
+          spacing: { line: 276, after: 40 },
+          children: [
+            new TextRun({
+              text: label,
+              bold: true,
+              size: 22,
+              font: 'Times New Roman',
+              color: '000000',
+            }),
+          ],
+        }),
+      ],
+    });
+  };
+
+  // 1. Materi
+  const materiParagraphs: Paragraph[] = [];
+  if (meeting.materials && meeting.materials.length > 0) {
+    meeting.materials.forEach((mat) => {
+      const matTitle = cleanText(mat.title);
+      if (matTitle) {
+        materiParagraphs.push(
+          new Paragraph({
+            alignment: AlignmentType.JUSTIFIED,
+            spacing: { line: 276, after: 40 },
+            children: [
+              new TextRun({
+                text: `• ${matTitle}`,
+                size: 22,
+                font: 'Times New Roman',
+              }),
+            ],
+          })
+        );
+      }
+    });
+  }
+  if (materiParagraphs.length === 0) {
+    materiParagraphs.push(
+      new Paragraph({
+        spacing: { line: 276, after: 40 },
+        children: [new TextRun({ text: '-', size: 22, font: 'Times New Roman' })],
+      })
+    );
+  }
+
+  const materiRow = new TableRow({
+    cantSplit: true,
+    children: [
+      createLabelCell('Materi'),
+      new TableCell({
+        width: { size: 75, type: WidthType.PERCENTAGE },
+        margins: cellMargin,
+        children: materiParagraphs,
+      }),
+    ],
+  });
+
+  // 2. Tujuan Pembelajaran
+  const tpParagraphs: Paragraph[] = [];
+  if (meeting.resolvedTPs && meeting.resolvedTPs.length > 0) {
+    meeting.resolvedTPs.forEach((t) => {
+      const stmt = cleanText(t.statement);
+      if (stmt) {
+        tpParagraphs.push(
+          new Paragraph({
+            alignment: AlignmentType.JUSTIFIED,
+            spacing: { line: 276, after: 40 },
+            children: [
+              new TextRun({
+                text: `• ${t.code ? `[${t.code}] ` : ''}${stmt}${t.materialScope ? ` (Materi: ${cleanText(t.materialScope)})` : ''}`,
+                size: 22,
+                font: 'Times New Roman',
+              }),
+            ],
+          })
+        );
+      }
+    });
+  }
+  if (tpParagraphs.length === 0) {
+    tpParagraphs.push(
+      new Paragraph({
+        spacing: { line: 276, after: 40 },
+        children: [new TextRun({ text: '-', size: 22, font: 'Times New Roman' })],
+      })
+    );
+  }
+
+  const tpRow = new TableRow({
+    cantSplit: true,
+    children: [
+      createLabelCell('Tujuan Pembelajaran'),
+      new TableCell({
+        width: { size: 75, type: WidthType.PERCENTAGE },
+        margins: cellMargin,
+        children: tpParagraphs,
+      }),
+    ],
+  });
+
+  // 3. Asesmen
+  const assessmentParagraphs: Paragraph[] = [];
+  if (meeting.assessments && meeting.assessments.length > 0) {
+    meeting.assessments.forEach((a) => {
+      const desc = cleanText(a.description || a.method);
+      assessmentParagraphs.push(
+        new Paragraph({
+          alignment: AlignmentType.JUSTIFIED,
+          spacing: { line: 276, after: 40 },
+          children: [
+            new TextRun({
+              text: `• ${a.type ? `[${a.type}] ` : ''}${desc || 'Asesmen'}${a.technique ? ` (Teknik: ${cleanText(a.technique)})` : ''}${a.instrument ? ` (Instrumen: ${cleanText(a.instrument)})` : ''}`,
+              size: 22,
+              font: 'Times New Roman',
+            }),
+          ],
+        })
+      );
+    });
+  }
+  if (assessmentParagraphs.length === 0) {
+    assessmentParagraphs.push(
+      new Paragraph({
+        spacing: { line: 276, after: 40 },
+        children: [new TextRun({ text: '-', size: 22, font: 'Times New Roman' })],
+      })
+    );
+  }
+
+  const assessmentRow = new TableRow({
+    cantSplit: true,
+    children: [
+      createLabelCell('Asesmen'),
+      new TableCell({
+        width: { size: 75, type: WidthType.PERCENTAGE },
+        margins: cellMargin,
+        children: assessmentParagraphs,
+      }),
+    ],
+  });
+
+  // 4. KKTP
+  const kktpParagraphs: Paragraph[] = [];
+  if (meeting.KKTP && meeting.KKTP.length > 0) {
+    meeting.KKTP.forEach((c, idx) => {
+      const tp = meeting.resolvedTPs.find((t) => t.id === c.tpId) || allTPs.find((t) => t.id === c.tpId);
+      if (idx > 0) {
+        kktpParagraphs.push(new Paragraph({ spacing: { line: 276, before: 60, after: 20 } }));
+      }
+      if (tp) {
+        kktpParagraphs.push(
+          new Paragraph({
+            alignment: AlignmentType.JUSTIFIED,
+            spacing: { line: 276, after: 40 },
+            children: [
+              new TextRun({
+                text: `TP: ${tp.code ? `[${tp.code}] ` : ''}${cleanText(tp.statement)}`,
+                bold: true,
+                size: 22,
+                font: 'Times New Roman',
+              }),
+            ],
+          })
+        );
+      }
+      kktpParagraphs.push(
+        new Paragraph({
+          alignment: AlignmentType.JUSTIFIED,
+          spacing: { line: 276, after: 20 },
+          children: [
+            new TextRun({ text: 'Kriteria: ', bold: true, size: 22, font: 'Times New Roman' }),
+            new TextRun({ text: cleanText(c.description) || '-', size: 22, font: 'Times New Roman' }),
+          ],
+        }),
+        new Paragraph({
+          alignment: AlignmentType.JUSTIFIED,
+          spacing: { line: 276, after: 40 },
+          children: [
+            new TextRun({ text: 'Indikator: ', bold: true, size: 22, font: 'Times New Roman' }),
+            new TextRun({
+              text: c.indicators && c.indicators.length > 0 ? c.indicators.map(cleanText).filter(Boolean).join('; ') : '-',
+              size: 22,
+              font: 'Times New Roman',
+            }),
+          ],
+        }),
+        new Paragraph({
+          alignment: AlignmentType.JUSTIFIED,
+          spacing: { line: 276, after: 20 },
+          children: [
+            new TextRun({ text: '• Perlu Bimbingan: ', bold: true, size: 22, font: 'Times New Roman' }),
+            new TextRun({ text: getLevelDesc(c.levels, 'Perlu Bimbingan'), size: 22, font: 'Times New Roman' }),
+          ],
+        }),
+        new Paragraph({
+          alignment: AlignmentType.JUSTIFIED,
+          spacing: { line: 276, after: 20 },
+          children: [
+            new TextRun({ text: '• Cukup: ', bold: true, size: 22, font: 'Times New Roman' }),
+            new TextRun({ text: getLevelDesc(c.levels, 'Cukup'), size: 22, font: 'Times New Roman' }),
+          ],
+        }),
+        new Paragraph({
+          alignment: AlignmentType.JUSTIFIED,
+          spacing: { line: 276, after: 20 },
+          children: [
+            new TextRun({ text: '• Baik: ', bold: true, size: 22, font: 'Times New Roman' }),
+            new TextRun({ text: getLevelDesc(c.levels, 'Baik'), size: 22, font: 'Times New Roman' }),
+          ],
+        }),
+        new Paragraph({
+          alignment: AlignmentType.JUSTIFIED,
+          spacing: { line: 276, after: 40 },
+          children: [
+            new TextRun({ text: '• Sangat Baik: ', bold: true, size: 22, font: 'Times New Roman' }),
+            new TextRun({ text: getLevelDesc(c.levels, 'Sangat Baik'), size: 22, font: 'Times New Roman' }),
+          ],
+        })
+      );
+    });
+  }
+  if (kktpParagraphs.length === 0) {
+    kktpParagraphs.push(
+      new Paragraph({
+        spacing: { line: 276, after: 40 },
+        children: [new TextRun({ text: '-', size: 22, font: 'Times New Roman' })],
+      })
+    );
+  }
+
+  const kktpRow = new TableRow({
+    cantSplit: true,
+    children: [
+      createLabelCell('KKTP'),
+      new TableCell({
+        width: { size: 75, type: WidthType.PERCENTAGE },
+        margins: cellMargin,
+        children: kktpParagraphs,
+      }),
+    ],
+  });
+
+  return new Table({
+    width: { size: 100, type: WidthType.PERCENTAGE },
+    borders: {
+      top: tableBorder,
+      bottom: tableBorder,
+      left: tableBorder,
+      right: tableBorder,
+      insideHorizontal: tableBorder,
+      insideVertical: tableBorder,
+    },
+    rows: [headerRow, materiRow, tpRow, assessmentRow, kktpRow],
+  });
+}
+
+/**
  * Pure Canonical Document Renderer for Modul Ajar / RPP.
  * Strict M1 Standard:
  * - Times New Roman 12pt black
@@ -197,6 +546,7 @@ export async function generateModulAjar(context: DocumentGenerationContext): Pro
   const isBlankMode = context.documentMode === 'blank';
 
   const sharedProjection = buildModulAjarProjection(context);
+  // Uses sharedProjection.meetings directly instead of parsing projection.sections or section.lines
   let plan: LearningPlan | undefined = undefined;
   let resolvedTPs: any[] = [];
   let resolvedAllocatedJP: number | undefined;
@@ -319,8 +669,10 @@ export async function generateModulAjar(context: DocumentGenerationContext): Pro
     );
   };
 
+
   // Helper: Narrative Prose Paragraph (12pt Justified, 1.25cm first-line indent, line spacing 1.15, 6pt after)
   const addProseParagraph = (text: string) => {
+    const cleaned = cleanText(text);
     docChildren.push(
       new Paragraph({
         alignment: AlignmentType.JUSTIFIED,
@@ -328,7 +680,7 @@ export async function generateModulAjar(context: DocumentGenerationContext): Pro
         spacing: { line: 276, after: 120 }, // 1.15 line spacing, 6pt after
         children: [
           new TextRun({
-            text,
+            text: cleaned || '-',
             size: 24, // 12pt
             font: 'Times New Roman',
           }),
@@ -337,18 +689,32 @@ export async function generateModulAjar(context: DocumentGenerationContext): Pro
     );
   };
 
-  // Helper: List Paragraph (12pt Left-aligned, NO first-line indent, line spacing 1.15, 4pt after)
-  const addListParagraph = (text: string) => {
+  // Helper: List Paragraph (12pt Justified, NO first-line indent, line spacing 1.15, 4pt after)
+  const addListParagraph = (text: string, boldPrefix?: string) => {
+    const cleaned = cleanText(text) || '-';
+    const runs: TextRun[] = [];
+    if (boldPrefix) {
+      runs.push(
+        new TextRun({
+          text: boldPrefix,
+          bold: true,
+          size: 24,
+          font: 'Times New Roman',
+        })
+      );
+    }
+    runs.push(
+      new TextRun({
+        text: cleaned,
+        size: 24,
+        font: 'Times New Roman',
+      })
+    );
     docChildren.push(
       new Paragraph({
+        alignment: AlignmentType.JUSTIFIED,
         spacing: { line: 276, after: 80 },
-        children: [
-          new TextRun({
-            text,
-            size: 24, // 12pt
-            font: 'Times New Roman',
-          }),
-        ],
+        children: runs,
       })
     );
   };
@@ -363,173 +729,282 @@ export async function generateModulAjar(context: DocumentGenerationContext): Pro
   const dimensionsText = explicitDimensions.length > 0 ? explicitDimensions.join(', ') : '-';
 
   if (!isBlankMode) {
-    for (const section of sharedProjection.sections || []) {
-      addSectionTitle(section.title);
-      section.lines.forEach(addListParagraph);
-    }
-  } else {
-  // I. INFORMASI UMUM
-  addSectionTitle('I. INFORMASI UMUM');
+    // I. INFORMASI UMUM
+    addSectionTitle('I. INFORMASI UMUM');
 
-  // A. Kompetensi Awal
-  addSubSectionTitle('A. Kompetensi Awal');
-  addProseParagraph(isBlankMode ? '........................................................................................................................' : (plan.initialCompetency || '-'));
+    // A. Kompetensi Awal
+    addSubSectionTitle('A. Kompetensi Awal');
+    addProseParagraph(plan.initialCompetency || '-');
 
-  // B. Dimensi Profil Lulusan
-  addSubSectionTitle('B. Dimensi Profil Lulusan');
-  addListParagraph(isBlankMode ? '........................................................................................................................' : dimensionsText);
+    // B. Dimensi Profil Lulusan
+    addSubSectionTitle('B. Dimensi Profil Lulusan');
+    addListParagraph(dimensionsText);
 
-  // C. Sarana dan Prasarana
-  addSubSectionTitle('C. Sarana dan Prasarana');
-  if (isBlankMode) {
-    addListParagraph('........................................................................................................................');
-  } else if (plan.resources && plan.resources.length > 0) {
-    plan.resources.forEach((r, i) => {
-      addListParagraph(`${i + 1}. ${r.title}${r.source ? ` (${r.source})` : ''}`);
-    });
-  } else {
-    addListParagraph('-');
-  }
-
-  // D. Karakteristik/Kebutuhan Belajar Murid (OPTIONAL: only render if meaningful text exists)
-  let nextLetterCode = 68; // ASCII 'D'
-  if (plan.targetStudents && plan.targetStudents.trim().length > 0) {
-    addSubSectionTitle(`${String.fromCharCode(nextLetterCode)}. Karakteristik/Kebutuhan Belajar Murid`);
-    addProseParagraph(plan.targetStudents.trim());
-    nextLetterCode++;
-  }
-
-  // Model/Praktik Pembelajaran
-  addSubSectionTitle(`${String.fromCharCode(nextLetterCode)}. Model/Praktik Pembelajaran`);
-  addProseParagraph(isBlankMode ? '........................................................................................................................' : (plan.learningModel || '-'));
-
-  // II. KOMPONEN INTI
-  addSectionTitle('II. KOMPONEN INTI');
-
-  // A. Tujuan Pembelajaran (TP)
-  addSubSectionTitle('A. Tujuan Pembelajaran (TP)');
-  if (isBlankMode) {
-    addListParagraph('........................................................................................................................');
-  } else if (resolvedTPs.length > 0) {
-    resolvedTPs.forEach((t, idx) => {
-      addListParagraph(`${idx + 1}. ${t.code ? `[${t.code}] ` : ''}${t.statement}${t.materialScope ? ` (Materi: ${t.materialScope})` : ''}`);
-    });
-  } else {
-    addListParagraph('-');
-  }
-
-  // B. Pemahaman Bermakna
-  addSubSectionTitle('B. Pemahaman Bermakna');
-  addProseParagraph(isBlankMode ? '........................................................................................................................' : (plan.meaningfulUnderstanding || '-'));
-
-  // C. Pertanyaan Pemantik
-  addSubSectionTitle('C. Pertanyaan Pemantik');
-  if (isBlankMode) {
-    addListParagraph('........................................................................................................................');
-  } else if (plan.triggerQuestions && plan.triggerQuestions.length > 0) {
-    plan.triggerQuestions.forEach((q, idx) => {
-      addListParagraph(`${idx + 1}. ${q}`);
-    });
-  } else {
-    addListParagraph('-');
-  }
-
-  // III. KEGIATAN / PENGALAMAN PEMBELAJARAN
-  const experiences = plan.learningExperiences || [];
-  const openingSteps = plan.learningSteps?.opening || [];
-  const coreSteps = plan.learningSteps?.core || [];
-  const closingSteps = plan.learningSteps?.closing || [];
-
-  const isMerdekaCurriculum = isMerdeka(academicSetting);
-  if (experiences.length > 0 || (isBlankMode && isMerdekaCurriculum)) {
-    addSectionTitle('III. PENGALAMAN BELAJAR');
-
-    const renderExpPhase = (subLetter: string, phase: 'UNDERSTAND' | 'APPLY' | 'REFLECT', label: string) => {
-      addSubSectionTitle(`${subLetter}. ${label}`);
-      const filtered = experiences.filter((e) => e.phase === phase);
-      if (isBlankMode) {
-        addListParagraph('........................................................................................................................');
-      } else if (filtered.length === 0) {
-        addListParagraph('-');
-      } else {
-        filtered.forEach((e) => {
-          addListParagraph(`• ${e.description}${typeof e.durationMinutes === 'number' && e.durationMinutes > 0 ? ` (${e.durationMinutes} Menit)` : ''}`);
-        });
-      }
-    };
-
-    renderExpPhase('A', 'UNDERSTAND', 'Memahami');
-    renderExpPhase('B', 'APPLY', 'Mengaplikasi');
-    renderExpPhase('C', 'REFLECT', 'Merefleksi');
-  } else {
-    addSectionTitle('III. KEGIATAN PEMBELAJARAN');
-
-    const renderStepPhase = (subLetter: string, label: string, steps: typeof openingSteps) => {
-      addSubSectionTitle(`${subLetter}. ${label}`);
-      if (isBlankMode) {
-        addListParagraph('........................................................................................................................');
-      } else if (steps.length === 0) {
-        addListParagraph('-');
-      } else {
-        steps.forEach((s) => {
-          addListParagraph(`• ${s.title ? `[${s.title}] ` : ''}${s.description}${typeof s.durationMinutes === 'number' && s.durationMinutes > 0 ? ` (${s.durationMinutes} Menit)` : ''}`);
-        });
-      }
-    };
-
-    renderStepPhase('A', 'Kegiatan Pendahuluan', openingSteps);
-    renderStepPhase('B', 'Kegiatan Inti', coreSteps);
-    renderStepPhase('C', 'Kegiatan Penutup', closingSteps);
-  }
-
-  if (plan.differentiation && (plan.differentiation.content || plan.differentiation.process || plan.differentiation.product || plan.differentiation.notes)) {
-    addSubSectionTitle('D. Rencana Pembelajaran Berdiferensiasi');
-    if (plan.differentiation.content) addListParagraph(`• Diferensiasi Konten: ${plan.differentiation.content}`);
-    if (plan.differentiation.process) addListParagraph(`• Diferensiasi Proses: ${plan.differentiation.process}`);
-    if (plan.differentiation.product) addListParagraph(`• Diferensiasi Produk: ${plan.differentiation.product}`);
-    if (plan.differentiation.notes) addListParagraph(`• Catatan: ${plan.differentiation.notes}`);
-  }
-
-  // IV. ASESMEN PEMBELAJARAN
-  addSectionTitle('IV. ASESMEN PEMBELAJARAN');
-
-  const renderAssessmentGroup = (subLetter: string, label: string, items?: typeof plan.assessmentPlan.initial) => {
-    addSubSectionTitle(`${subLetter}. ${label}`);
-    if (isBlankMode) {
-      addListParagraph('........................................................................................................................');
-    } else if (!items || items.length === 0) {
-      addListParagraph('-');
-    } else {
-      items.forEach((a) => {
-        addListParagraph(`• ${a.description || a.method || a.technique || 'Asesmen'}${a.technique ? ` (Teknik: ${a.technique})` : ''}${a.instrument ? ` (Instrumen: ${a.instrument})` : ''}`);
+    // C. Sarana dan Prasarana
+    addSubSectionTitle('C. Sarana dan Prasarana');
+    if (plan.resources && plan.resources.length > 0) {
+      plan.resources.forEach((r, i) => {
+        addListParagraph(`${i + 1}. ${cleanText(r.title)}${r.source ? ` (${cleanText(r.source)})` : ''}`);
       });
+    } else {
+      addListParagraph('-');
     }
-  };
 
-  renderAssessmentGroup('A', 'Asesmen Awal (Diagnostik)', plan.assessmentPlan?.initial);
-  renderAssessmentGroup('B', 'Asesmen Formatif', plan.assessmentPlan?.formative);
-  renderAssessmentGroup('C', 'Asesmen Sumatif', plan.assessmentPlan?.summative);
-
-  // V. PENGAYAAN DAN REMEDIAL
-  addSectionTitle('V. PENGAYAAN DAN REMEDIAL');
-  addSubSectionTitle('A. Rencana Pengayaan');
-  addProseParagraph(isBlankMode ? '........................................................................................................................' : (plan.enrichmentPlan || '-'));
-  addSubSectionTitle('B. Rencana Remedial');
-  addProseParagraph(isBlankMode ? '........................................................................................................................' : (plan.remedialPlan || '-'));
-
-  // VI. REFLEKSI
-  if (plan.reflection?.teacherReflection || plan.reflection?.studentReflection || isBlankMode) {
-    addSectionTitle('VI. REFLEKSI');
-    if (plan.reflection?.teacherReflection || isBlankMode) {
-      addSubSectionTitle('A. Refleksi Guru');
-      addProseParagraph(isBlankMode ? '........................................................................................................................' : (plan.reflection?.teacherReflection || '-'));
+    // D. Karakteristik/Kebutuhan Belajar Murid (optional)
+    let nextLetterCode = 68; // ASCII 'D'
+    if (plan.targetStudents && cleanText(plan.targetStudents).length > 0) {
+      addSubSectionTitle(`${String.fromCharCode(nextLetterCode)}. Karakteristik/Kebutuhan Belajar Murid`);
+      addProseParagraph(cleanText(plan.targetStudents));
+      nextLetterCode++;
     }
-    if (plan.reflection?.studentReflection || isBlankMode) {
-      addSubSectionTitle('B. Refleksi Murid');
-      addProseParagraph(isBlankMode ? '........................................................................................................................' : (plan.reflection?.studentReflection || '-'));
-    }
-  }
 
+    // Model/Praktik Pembelajaran
+    addSubSectionTitle(`${String.fromCharCode(nextLetterCode)}. Model/Praktik Pembelajaran`);
+    addProseParagraph(plan.learningModel || '-');
+
+    // II. KOMPONEN INTI
+    addSectionTitle('II. KOMPONEN INTI');
+
+    // A. Tujuan Pembelajaran (TP)
+    addSubSectionTitle('A. Tujuan Pembelajaran (TP)');
+    if (resolvedTPs.length > 0) {
+      resolvedTPs.forEach((t, idx) => {
+        addListParagraph(`${idx + 1}. ${t.code ? `[${t.code}] ` : ''}${cleanText(t.statement)}${t.materialScope ? ` (Materi: ${cleanText(t.materialScope)})` : ''}`);
+      });
+    } else {
+      addListParagraph('-');
+    }
+
+    // B. Pemahaman Bermakna
+    addSubSectionTitle('B. Pemahaman Bermakna');
+    addProseParagraph(plan.meaningfulUnderstanding || '-');
+
+    // C. Pertanyaan Pemantik
+    addSubSectionTitle('C. Pertanyaan Pemantik');
+    if (plan.triggerQuestions && plan.triggerQuestions.length > 0) {
+      plan.triggerQuestions.forEach((q, idx) => {
+        const cleanedQ = cleanText(q);
+        if (cleanedQ) {
+          addListParagraph(`${idx + 1}. ${cleanedQ}`);
+        }
+      });
+    } else {
+      addListParagraph('-');
+    }
+
+    // III. PENGALAMAN BELAJAR UNIT
+    addSectionTitle('III. PENGALAMAN BELAJAR UNIT');
+    const experiences = plan.learningExperiences || [];
+    const openingSteps = plan.learningSteps?.opening || [];
+    const coreSteps = plan.learningSteps?.core || [];
+    const closingSteps = plan.learningSteps?.closing || [];
+
+    if (experiences.length > 0) {
+      const renderExpPhase = (subLetter: string, phase: 'UNDERSTAND' | 'APPLY' | 'REFLECT', label: string) => {
+        addSubSectionTitle(`${subLetter}. ${label}`);
+        const filtered = experiences.filter((e) => e.phase === phase);
+        if (filtered.length === 0) {
+          addListParagraph('-');
+        } else {
+          filtered.forEach((e) => {
+            const desc = cleanText(e.description);
+            const dur = typeof e.durationMinutes === 'number' && e.durationMinutes > 0 ? ` (${e.durationMinutes} Menit)` : '';
+            if (desc) {
+              addListParagraph(`• ${desc}${dur}`);
+            }
+          });
+        }
+      };
+
+      renderExpPhase('A', 'UNDERSTAND', 'Memahami');
+      renderExpPhase('B', 'APPLY', 'Mengaplikasi');
+      renderExpPhase('C', 'REFLECT', 'Merefleksi');
+    } else {
+      const renderStepPhase = (subLetter: string, label: string, steps: typeof openingSteps) => {
+        addSubSectionTitle(`${subLetter}. ${label}`);
+        const validSteps = steps.filter((s) => s && (cleanText(s.description) || cleanText(s.title)));
+        if (validSteps.length === 0) {
+          addListParagraph('-');
+        } else {
+          validSteps.forEach((s) => {
+            const title = cleanText(s.title);
+            const desc = cleanText(s.description);
+            const body = [title ? `[${title}]` : '', desc].filter(Boolean).join(' ');
+            const dur = typeof s.durationMinutes === 'number' && s.durationMinutes > 0 ? ` (${s.durationMinutes} Menit)` : '';
+            if (body) {
+              addListParagraph(`• ${body}${dur}`);
+            }
+          });
+        }
+      };
+
+      renderStepPhase('A', 'Kegiatan Pendahuluan', openingSteps);
+      renderStepPhase('B', 'Kegiatan Inti', coreSteps);
+      renderStepPhase('C', 'Kegiatan Penutup', closingSteps);
+    }
+
+    // IV. RENCANA PERTEMUAN
+    // Gunakan langsung sharedProjection.meetings; jangan parsing section.lines.
+    addSectionTitle('IV. RENCANA PERTEMUAN');
+    const sortedMeetings = (sharedProjection.meetings || []).slice().sort((a, b) => a.order - b.order);
+    if (sortedMeetings.length > 0) {
+      sortedMeetings.forEach((m) => {
+        docChildren.push(createModulAjarMeetingTable(m, resolvedTPs));
+        docChildren.push(new Paragraph({ spacing: { after: 180 } }));
+      });
+    } else {
+      addListParagraph('-');
+    }
+
+    // V. ASESMEN + KKTP
+    addSectionTitle('V. ASESMEN + KKTP');
+
+    // A. Rencana Asesmen
+    addSubSectionTitle('A. Rencana Asesmen (Awal, Formatif, Sumatif)');
+    const renderAssessmentGroup = (subNum: string, label: string, items?: typeof plan.assessmentPlan.initial) => {
+      addSubSectionTitle(`${subNum} ${label}`);
+      if (!items || items.length === 0) {
+        addListParagraph('-');
+      } else {
+        items.forEach((a) => {
+          const desc = cleanText(a.description || a.method);
+          addListParagraph(
+            `• ${a.type ? `[${a.type}] ` : ''}${desc || 'Asesmen'}${a.technique ? ` (Teknik: ${cleanText(a.technique)})` : ''}${a.instrument ? ` (Instrumen: ${cleanText(a.instrument)})` : ''}`
+          );
+        });
+      }
+    };
+
+    renderAssessmentGroup('1.', 'Asesmen Awal (Diagnostik)', plan.assessmentPlan?.initial);
+    renderAssessmentGroup('2.', 'Asesmen Formatif', plan.assessmentPlan?.formative);
+    renderAssessmentGroup('3.', 'Asesmen Sumatif', plan.assessmentPlan?.summative);
+
+    // B. KKTP terstruktur per TP
+    addSubSectionTitle('B. Kriteria Ketercapaian Tujuan Pembelajaran (KKTP)');
+    const scopedCriteria = (context.assessmentCriteria || []).filter(
+      (c) =>
+        c.academicSettingId === context.academicSetting.id &&
+        plan!.tpIds.includes(c.tpId) &&
+        (!plan!.kktpCriterionIds?.length || plan!.kktpCriterionIds.includes(c.id))
+    );
+
+    if (scopedCriteria.length > 0) {
+      scopedCriteria.forEach((c) => {
+        const tp = resolvedTPs.find((t) => t.id === c.tpId);
+        if (tp) {
+          addListParagraph(`[${tp.code || tp.id}] ${cleanText(tp.statement)}`, 'Tujuan Pembelajaran: ');
+        }
+        addListParagraph(cleanText(c.description) || '-', 'Kriteria: ');
+        addListParagraph(
+          c.indicators && c.indicators.length > 0 ? c.indicators.map(cleanText).filter(Boolean).join('; ') : '-',
+          'Indikator: '
+        );
+        addListParagraph(getLevelDesc(c.levels, 'Perlu Bimbingan'), '• Perlu Bimbingan: ');
+        addListParagraph(getLevelDesc(c.levels, 'Cukup'), '• Cukup: ');
+        addListParagraph(getLevelDesc(c.levels, 'Baik'), '• Baik: ');
+        addListParagraph(getLevelDesc(c.levels, 'Sangat Baik'), '• Sangat Baik: ');
+        docChildren.push(new Paragraph({ spacing: { after: 100 } }));
+      });
+    } else {
+      addListParagraph('-');
+    }
+
+    // VI. DIFERENSIASI
+    addSectionTitle('VI. DIFERENSIASI');
+    if (
+      plan.differentiation &&
+      (cleanText(plan.differentiation.content) ||
+        cleanText(plan.differentiation.process) ||
+        cleanText(plan.differentiation.product) ||
+        cleanText(plan.differentiation.notes))
+    ) {
+      if (cleanText(plan.differentiation.content)) addListParagraph(cleanText(plan.differentiation.content), '• Diferensiasi Konten: ');
+      if (cleanText(plan.differentiation.process)) addListParagraph(cleanText(plan.differentiation.process), '• Diferensiasi Proses: ');
+      if (cleanText(plan.differentiation.product)) addListParagraph(cleanText(plan.differentiation.product), '• Diferensiasi Produk: ');
+      if (cleanText(plan.differentiation.notes)) addListParagraph(cleanText(plan.differentiation.notes), '• Catatan: ');
+    } else {
+      addListParagraph('-');
+    }
+
+    // VII. PENGAYAAN/REMEDIAL
+    addSectionTitle('VII. PENGAYAAN/REMEDIAL');
+    addSubSectionTitle('A. Rencana Pengayaan');
+    addProseParagraph(cleanText(plan.enrichmentPlan) || '-');
+    addSubSectionTitle('B. Rencana Remedial');
+    addProseParagraph(cleanText(plan.remedialPlan) || '-');
+
+    // VIII. REFLEKSI
+    addSectionTitle('VIII. REFLEKSI');
+    addSubSectionTitle('A. Refleksi Guru');
+    addProseParagraph(cleanText(plan.reflection?.teacherReflection) || '-');
+    addSubSectionTitle('B. Refleksi Murid');
+    addProseParagraph(cleanText(plan.reflection?.studentReflection) || '-');
+  } else {
+    // Blank Mode template
+    // I. INFORMASI UMUM
+    addSectionTitle('I. INFORMASI UMUM');
+
+    addSubSectionTitle('A. Kompetensi Awal');
+    addProseParagraph('........................................................................................................................');
+
+    addSubSectionTitle('B. Dimensi Profil Lulusan');
+    addListParagraph('........................................................................................................................');
+
+    addSubSectionTitle('C. Sarana dan Prasarana');
+    addListParagraph('........................................................................................................................');
+
+    addSubSectionTitle('D. Model/Praktik Pembelajaran');
+    addProseParagraph('........................................................................................................................');
+
+    // II. KOMPONEN INTI
+    addSectionTitle('II. KOMPONEN INTI');
+
+    addSubSectionTitle('A. Tujuan Pembelajaran (TP)');
+    addListParagraph('........................................................................................................................');
+
+    addSubSectionTitle('B. Pemahaman Bermakna');
+    addProseParagraph('........................................................................................................................');
+
+    addSubSectionTitle('C. Pertanyaan Pemantik');
+    addListParagraph('........................................................................................................................');
+
+    // III. PENGALAMAN BELAJAR UNIT
+    addSectionTitle('III. PENGALAMAN BELAJAR UNIT');
+    addSubSectionTitle('A. Memahami');
+    addListParagraph('........................................................................................................................');
+    addSubSectionTitle('B. Mengaplikasi');
+    addListParagraph('........................................................................................................................');
+    addSubSectionTitle('C. Merefleksi');
+    addListParagraph('........................................................................................................................');
+
+    // IV. RENCANA PERTEMUAN
+    addSectionTitle('IV. RENCANA PERTEMUAN');
+    addListParagraph('........................................................................................................................');
+
+    // V. ASESMEN + KKTP
+    addSectionTitle('V. ASESMEN + KKTP');
+    addSubSectionTitle('A. Rencana Asesmen');
+    addListParagraph('........................................................................................................................');
+    addSubSectionTitle('B. Kriteria Ketercapaian Tujuan Pembelajaran (KKTP)');
+    addListParagraph('........................................................................................................................');
+
+    // VI. DIFERENSIASI
+    addSectionTitle('VI. DIFERENSIASI');
+    addListParagraph('........................................................................................................................');
+
+    // VII. PENGAYAAN/REMEDIAL
+    addSectionTitle('VII. PENGAYAAN/REMEDIAL');
+    addSubSectionTitle('A. Rencana Pengayaan');
+    addProseParagraph('........................................................................................................................');
+    addSubSectionTitle('B. Rencana Remedial');
+    addProseParagraph('........................................................................................................................');
+
+    // VIII. REFLEKSI
+    addSectionTitle('VIII. REFLEKSI');
+    addSubSectionTitle('A. Refleksi Guru');
+    addProseParagraph('........................................................................................................................');
+    addSubSectionTitle('B. Refleksi Murid');
+    addProseParagraph('........................................................................................................................');
   }
 
   // Signoff Block in Times New Roman
