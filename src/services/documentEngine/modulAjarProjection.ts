@@ -202,17 +202,20 @@ function buildSections(plan: LearningPlan, meetings: ModulAjarMeeting[], tps: Mo
     { title: 'II. KOMPONEN INTI', lines: [...tps.map(t => (t.code || t.id) + ': ' + t.statement + (t.materialScope ? ' (Materi: ' + t.materialScope + ')' : '')),
       'Pemahaman Bermakna: ' + (plan.meaningfulUnderstanding || '-'),
       'Pertanyaan Pemantik: ' + (plan.triggerQuestions || []).join('; '),
-      ...(plan.learningExperiences || []).map(e => e.phase + ': ' + e.description + (e.durationMinutes ? ' (' + e.durationMinutes + ' Menit)' : '')),
       ...Object.entries(plan.learningSteps || {}).flatMap(([phase, steps]) => (steps || []).map(step => phase + ': ' + (step.title || '') + ' ' + step.description + (step.durationMinutes ? ' (' + step.durationMinutes + ' Menit)' : '')))] },
-    { title: 'III. RENCANA PERTEMUAN', lines: meetings.flatMap(m => [
+    { title: 'III. PENGALAMAN BELAJAR UNIT', lines: [
+      ['UNDERSTAND', 'Memahami'], ['APPLY', 'Mengaplikasi'], ['REFLECT', 'Merefleksi'],
+    ].flatMap(([phase, label]) => [label + ':',
+      ...(plan.learningExperiences || []).filter(e => e.phase === phase)
+        .map(e => e.description + (e.durationMinutes ? ' (' + e.durationMinutes + ' Menit)' : ''))]) },
+    { title: 'IV. RENCANA PERTEMUAN', lines: meetings.flatMap(m => [
       'Pertemuan ' + m.order + ': ' + m.title + ' | ' + m.date + ' | ' + m.jp + ' JP',
       'Materi: ' + m.materials.map(x => x.title).join('; '),
       ...m.resolvedTPs.map(t => (t.code || t.id) + ': ' + t.statement),
       ...assessmentLines(m.assessments), ...criterionLines(m.KKTP)]) },
-    { title: 'IV. ASESMEN + KKTP', lines: [...assessmentLines(assessments), ...criterionLines(criteria)] },
-    { title: 'V. DIFERENSIASI', lines: Object.entries(plan.differentiation || {}).map(([key,value]) => key + ': ' + value) },
-    { title: 'VI. PENGAYAAN/REMEDIAL', lines: ['Pengayaan: ' + (plan.enrichmentPlan || '-'), 'Remedial: ' + (plan.remedialPlan || '-')] },
-    { title: 'VII. REFLEKSI', lines: ['Guru: ' + (plan.reflection?.teacherReflection || '-'), 'Murid: ' + (plan.reflection?.studentReflection || '-')] },
-    { title: 'VIII. PENGESAHAN', lines: [] },
+    { title: 'V. ASESMEN + KKTP', lines: [...assessmentLines(assessments), ...criterionLines(criteria)] },
+    { title: 'VI. DIFERENSIASI', lines: Object.entries(plan.differentiation || {}).map(([key,value]) => key + ': ' + value) },
+    { title: 'VII. PENGAYAAN/REMEDIAL', lines: ['Pengayaan: ' + (plan.enrichmentPlan || '-'), 'Remedial: ' + (plan.remedialPlan || '-')] },
+    { title: 'VIII. REFLEKSI', lines: ['Guru: ' + (plan.reflection?.teacherReflection || '-'), 'Murid: ' + (plan.reflection?.studentReflection || '-')] },
   ];
 }

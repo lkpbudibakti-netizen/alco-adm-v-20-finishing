@@ -569,7 +569,7 @@ export async function generateDocument(
     throw new Error(validation.message || 'Prasyarat dokumen belum terpenuhi.');
   }
 
-  const snapshot = context.snapshot || createDocumentSnapshot(context, 'docx', context.documentMode);
+  const snapshot = context.snapshot || createDocumentSnapshot(context, 'docx', context.documentMode, type);
 
   let result: GeneratedDocumentResult;
   switch (type) {
@@ -654,7 +654,7 @@ export async function generateDocumentFormatted(
     throw new Error(validation.message || 'Prasyarat dokumen belum terpenuhi.');
   }
 
-  const snapshot = context.snapshot || createDocumentSnapshot(context, format, context.documentMode);
+  const snapshot = context.snapshot || createDocumentSnapshot(context, format, context.documentMode, type);
 
   if (format === 'pdf') {
     const pdfRes = await generatePdfDocument(type, context);

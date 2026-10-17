@@ -286,7 +286,7 @@ export const AdminDocsExport: React.FC<AdminDocsExportProps> = ({
     const effectiveSnapshot: DocumentSnapshot =
       !forceNew && existingRec?.snapshot
         ? existingRec.snapshot
-        : createDocumentSnapshot(context, format, documentMode);
+        : createDocumentSnapshot(context, format, documentMode, type);
 
     const effectiveContext = resolveEffectiveContext(context, effectiveSnapshot);
 

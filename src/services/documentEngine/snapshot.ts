@@ -1,4 +1,4 @@
-import { DocumentSnapshot, DocumentMode, CurriculumType } from '../../types';
+import { DocumentSnapshot, DocumentMode, CurriculumType, DocumentType } from '../../types';
 import { DocumentGenerationContext } from './types';
 import { buildModulAjarProjection } from './modulAjarProjection';
 import { getCurriculumType } from '../curriculumRules';
@@ -11,7 +11,8 @@ import { resolveDocumentDate, formatDocumentDate } from '../documentDateService'
 export function createDocumentSnapshot(
   context: DocumentGenerationContext,
   format: 'docx' | 'pdf' | 'all' = 'docx',
-  modeOverride?: DocumentMode
+  modeOverride?: DocumentMode,
+  documentType?: DocumentType
 ): DocumentSnapshot {
   const { school, profile, academicSetting, workspace, cp, tp, atp, students } = context;
   const docMode = modeOverride || context.documentMode || 'data';
@@ -31,10 +32,10 @@ export function createDocumentSnapshot(
       ? formatDocumentDate(rawDate)
       : undefined;
 
-  const projection = docMode !== 'blank' && (context.activeLearningPlanId || context.learningPlans?.length)
+  const projection = documentType === 'MODUL_AJAR' && docMode !== 'blank'
     ? buildModulAjarProjection(context) : undefined;
   return {
-    learningPlanId: projection?.isReady ? projection.plan?.id : undefined,
+    ...(projection?.isReady && projection.plan ? { learningPlanId: projection.plan.id } : {}),
     schoolName: (school?.name || '').trim(),
     npsn: (school?.npsn || '').trim(),
     schoolNpsn: (school?.npsn || '').trim(),
@@ -66,7 +67,7 @@ export function createDocumentSnapshot(
       cpUpdatedAt: cp?.updatedAt,
       tpUpdatedAt: tp?.updatedAt,
       atpUpdatedAt: atp?.updatedAt,
-      learningPlanUpdatedAt: projection?.isReady ? projection.plan?.updatedAt : undefined,
+      ...(projection?.isReady && projection.plan ? { learningPlanUpdatedAt: projection.plan.updatedAt } : {}),
     },
   };
 }

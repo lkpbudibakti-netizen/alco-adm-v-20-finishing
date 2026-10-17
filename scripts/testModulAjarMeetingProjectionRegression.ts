@@ -44,7 +44,27 @@ for (const mutation of [
   const changed=structuredClone(context); mutation(changed);
   assert.equal(buildModulAjarProjection(changed).isReady,false);
 }
-const snap=createDocumentSnapshot(context);
+// Non-LearningPlan documents must not resolve or carry LearningPlan lineage.
+for (const type of ['CP','TP','ATP','PROTA','PROMES','KKTP'] as const) {
+  const guardedContext = {...context};
+  Object.defineProperty(guardedContext, 'learningPlans', { get() { throw new Error('Non-ModulAjar read LearningPlan'); } });
+  const nonModul = createDocumentSnapshot(guardedContext, 'docx', 'data', type);
+  assert(!('learningPlanId' in nonModul), type);
+  assert(!('learningPlanUpdatedAt' in nonModul.sourceVersions!), type);
+}
+const unspecified = createDocumentSnapshot(context);
+assert(!('learningPlanId' in unspecified));
+assert(!('learningPlanUpdatedAt' in unspecified.sourceVersions!));
+const unitExperiences = projection.sections!.find(s => s.title.includes('PENGALAMAN BELAJAR UNIT'))!;
+assert(unitExperiences);
+assert.deepEqual(unitExperiences.lines, ['Memahami:', 'Kegiatan UNDERSTAND', 'Mengaplikasi:', 'Kegiatan APPLY', 'Merefleksi:', 'Kegiatan REFLECT']);
+assert(!projection.sections!.some(s => s.title.includes('PENGESAHAN')));
+const meetingSection = projection.sections!.find(s => s.title.includes('RENCANA PERTEMUAN'))!;
+for (const experience of plan.learningExperiences) {
+  assert(!meetingSection.lines.some(line => line.includes(experience.description)));
+  assert.equal(projection.sections!.flatMap(s => s.lines).filter(line => line.includes(experience.description)).length, 1);
+}
+const snap=createDocumentSnapshot(context, 'docx', 'data', 'MODUL_AJAR');
 assert.equal(snap.learningPlanId,plan.id);
 assert.equal(snap.sourceVersions?.learningPlanUpdatedAt,stamp);
 assert.equal(buildModulAjarProjection({...context,snapshot:snap}).isReady,true);
@@ -72,6 +92,9 @@ for(const section of projection.sections || []) assert(xml.includes(section.titl
 const pdf = await generatePdfDocument('MODUL_AJAR',{...context,skipDownload:true});
 assert(pdf.blob.size > 0);
 assert.equal(pdf.snapshot.learningPlanId,'lp');
+assert.equal(xml.split('Kegiatan UNDERSTAND').length - 1, 1);
+assert(xml.includes('PENGALAMAN BELAJAR UNIT'));
+assert(!xml.includes('VIII. PENGESAHAN'));
 console.log('PASS: real DOCX/PDF generation; DOCX ordered meeting text and all 8 sections; PDF snapshot lineage.');
 const { getDocument } = await import('pdfjs-dist/legacy/build/pdf.mjs');
 const pdfTask = getDocument({ data:new Uint8Array(await pdf.blob.arrayBuffer()), useSystemFonts:true });
@@ -87,6 +110,10 @@ for(const section of projection.sections || []) assert(pdfText.includes(section.
 for(const meeting of projection.meetings || []) assert(pdfText.includes('Pertemuan '+meeting.order+': '+meeting.title));
 assert(pdfText.indexOf('Pertemuan 1: Judul 1') < pdfText.indexOf('Pertemuan 2: Judul 2'));
 assert(pdfText.indexOf('Pertemuan 2: Judul 2') < pdfText.indexOf('Pertemuan 3: Judul 3'));
+assert.equal(pdfText.split('Kegiatan UNDERSTAND').length - 1, 1);
+assert(!pdfText.includes('VIII. PENGESAHAN'));
+assert(xml.includes('Kepala Sekolah'));
+assert(pdfText.includes('Kepala Sekolah'));
 await pdfTask.destroy();
 console.log('PASS: extracted PDF text contains all 8 sections and the same 3 ordered meetings.');
 

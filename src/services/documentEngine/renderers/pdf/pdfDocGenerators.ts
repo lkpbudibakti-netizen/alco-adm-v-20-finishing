@@ -128,7 +128,7 @@ export async function generatePdfDocument(
     };
   }
 
-  const snapshot = context.snapshot || createDocumentSnapshot(context, 'pdf', context.documentMode);
+  const snapshot = context.snapshot || createDocumentSnapshot(context, 'pdf', context.documentMode, type);
   const { school, profile, academicSetting, cp, tp, atp, students, calendarDays, timeAllocations, k13Analysis } = context;
   const isBlankMode = context.documentMode === 'blank';
 
