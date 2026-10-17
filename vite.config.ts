@@ -1,18 +1,43 @@
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
-import {defineConfig} from 'vite';
+import {defineConfig, type Plugin} from 'vite';
+import { resolveBuildIdentity } from './scripts/buildIdentity';
 import {VitePWA} from 'vite-plugin-pwa';
 
 export default defineConfig(() => {
+  const identity = resolveBuildIdentity(__dirname);
   return {
+    define: {
+      __APP_BUILD_SHA__: JSON.stringify(identity.buildSha),
+      __APP_BUILD_ID__: JSON.stringify(identity.buildId),
+      __APP_BUILD_DIRTY__: JSON.stringify(identity.buildDirty),
+    },
     plugins: [
+      {
+        name: 'runtime-build-identity',
+        generateBundle() {
+          this.emitFile({ type: 'asset', fileName: 'build-info.json', source: JSON.stringify(identity) });
+        },
+        configureServer(server) {
+          server.middlewares.use('/build-info.json', (_req, res) => {
+            res.setHeader('Content-Type', 'application/json');
+            res.setHeader('Cache-Control', 'no-store');
+            res.end(JSON.stringify(identity));
+          });
+        },
+      } satisfies Plugin,
       react(),
       tailwindcss(),
       VitePWA({
-        registerType: 'autoUpdate',
+        registerType: 'prompt',
+        injectRegister: false,
         includeAssets: ['icon.svg'],
         workbox: {
+          skipWaiting: false,
+          clientsClaim: true,
+          globIgnores: ['**/build-info.json'],
+          navigateFallbackDenylist: [/\/build-info\.json$/],
           maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
         },
         manifest: {

@@ -1,3 +1,7 @@
+import { APP_BUILD_SHA } from '../config/buildInfo';
+import { MODUL_AJAR_RENDERER_VERSION } from '../config/modulAjarRendererVersion';
+import { prepareModulAjarExportContext } from '../services/documentEngine/modulAjarExportContext';
+import { getLastModulAjarExportDiagnostic, ModulAjarExportDiagnostic } from '../services/documentEngine/modulAjarExportDiagnostics';
 import React, { useState } from 'react';
 import { saveAs } from 'file-saver';
 import {
@@ -161,6 +165,7 @@ export const AdminDocsExport: React.FC<AdminDocsExportProps> = ({
   const [activePreviewType, setActivePreviewType] = useState<DocumentType>(() =>
     isK13Curriculum ? 'ANALISIS_SKL_KI_KD' : 'ANALISIS_CP_TP'
   );
+  const [exportDiagnostic, setExportDiagnostic] = useState<ModulAjarExportDiagnostic | null>(getLastModulAjarExportDiagnostic);
   const [generatingDocType, setGeneratingDocType] = useState<string | null>(null);
   const [isExportingAll, setIsExportingAll] = useState(false);
   const [isExportingZip, setIsExportingZip] = useState(false);
@@ -170,6 +175,9 @@ export const AdminDocsExport: React.FC<AdminDocsExportProps> = ({
   const [exportSuccessMessage, setExportSuccessMessage] = useState<string | null>(null);
   const [exportErrorMessage, setExportErrorMessage] = useState<string | null>(null);
   const [localDocs, setLocalDocs] = useState<AppDocumentRecord[]>(documents);
+  const [historicalModulSnapshot, setHistoricalModulSnapshot] = useState<DocumentSnapshot | undefined>(() =>
+    documents.find(d => d.type === 'MODUL_AJAR' && (!d.workspaceId || d.workspaceId === workspace?.id))?.snapshot);
+
 
   const readyAssessmentPackages = (assessmentPackages || []).filter((p) => p.workflowStatus === 'SIAP' && p.needsReview !== true);
   const [selectedAssessmentPackageId, setSelectedAssessmentPackageId] = useState<string>(() => {
@@ -278,17 +286,27 @@ export const AdminDocsExport: React.FC<AdminDocsExportProps> = ({
   const handleGenerateSingleDoc = async (
     type: DocumentType,
     format: 'docx' | 'pdf' = 'docx',
-    forceNew: boolean = false
+    forceNew: boolean = false,
+    source: 'live' | 'snapshot' = 'live'
   ) => {
     const existingRec = getDocRecord(type);
-    // Jika dokumen sudah memiliki snapshot historis dan pengguna tidak sengaja meminta "Perbarui",
-    // maka gunakan snapshot historis tersebut agar data sekolah/kepsek tidak ter-override secara tidak sengaja.
-    const effectiveSnapshot: DocumentSnapshot =
-      !forceNew && existingRec?.snapshot
-        ? existingRec.snapshot
-        : createDocumentSnapshot(context, format, documentMode, type);
-
-    const effectiveContext = resolveEffectiveContext(context, effectiveSnapshot);
+    const historicalModul = type === 'MODUL_AJAR' && source === 'snapshot';
+    const historicalSnapshot = historicalModulSnapshot || existingRec?.snapshot;
+    if (historicalModul && !historicalSnapshot) {
+      setExportErrorMessage('Snapshot lama belum tersedia.');
+      return;
+    }
+    let effectiveContext: DocumentGenerationContext;
+    try {
+      effectiveContext = type === 'MODUL_AJAR'
+        ? prepareModulAjarExportContext(context, format, source, historicalSnapshot)
+        : resolveEffectiveContext(context, !forceNew && existingRec?.snapshot
+        ? existingRec.snapshot : createDocumentSnapshot(context, format, documentMode, type));
+    } catch (error) {
+      setExportErrorMessage(error instanceof Error ? error.message : 'Konteks ekspor tidak valid.');
+      return;
+    }
+    const effectiveSnapshot = effectiveContext.snapshot!;
 
     const validation = validateDocumentRequirements(type, effectiveContext);
     if (!validation.isValid) {
@@ -340,6 +358,12 @@ export const AdminDocsExport: React.FC<AdminDocsExportProps> = ({
         };
       }
 
+      if (type === 'MODUL_AJAR') setExportDiagnostic(getLastModulAjarExportDiagnostic());
+      if (historicalModul) {
+        setExportSuccessMessage('Snapshot lama berhasil diunduh.');
+        return; // Historical downloads never replace the latest document record.
+      }
+      if (type === 'MODUL_AJAR' && existingRec?.snapshot) setHistoricalModulSnapshot(existingRec.snapshot);
       const updatedList = [
         ...localDocs.filter((d) => d.id !== record.id && !(d.type === type && (!d.workspaceId || d.workspaceId === workspace?.id))),
         record,
@@ -350,7 +374,7 @@ export const AdminDocsExport: React.FC<AdminDocsExportProps> = ({
       }
       const finalGeneratedAt = record.snapshot?.generatedAt || effectiveSnapshot.generatedAt;
       setExportSuccessMessage(
-        forceNew
+        (forceNew || type === 'MODUL_AJAR')
           ? `Dokumen ${title} (.${format}) berhasil diperbarui dengan data sekolah/kepsek terbaru!`
           : `Dokumen ${title} (.${format}) [Snapshot: ${formatOfficialSnapshotDate(finalGeneratedAt)}] berhasil diunduh!`
       );
@@ -441,7 +465,7 @@ export const AdminDocsExport: React.FC<AdminDocsExportProps> = ({
             const pdfRes = await generatePdfDocument(type, context);
             saveAs(pdfRes.blob, pdfRes.fileName);
             const finalSnapshot: DocumentSnapshot =
-              type === 'ASESMEN' && pdfRes.snapshot
+              (type === 'ASESMEN' || type === 'MODUL_AJAR') && pdfRes.snapshot
                 ? pdfRes.snapshot
                 : snapshot;
             const rec: AppDocumentRecord = {
@@ -465,7 +489,7 @@ export const AdminDocsExport: React.FC<AdminDocsExportProps> = ({
           } else {
             const res = await generateDocument(type, context);
             const finalSnapshot: DocumentSnapshot =
-              type === 'ASESMEN' && res.record?.snapshot
+              (type === 'ASESMEN' || type === 'MODUL_AJAR') && res.record?.snapshot
                 ? res.record.snapshot
                 : snapshot;
             const rec: AppDocumentRecord = {
@@ -533,7 +557,15 @@ export const AdminDocsExport: React.FC<AdminDocsExportProps> = ({
       ];
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6" data-export-busy={Boolean(generatingDocType || isExportingAll || isExportingZip)}>
+      <details className="text-xs bg-slate-50 border border-slate-200 rounded-lg p-3">
+        <summary>Diagnostic ekspor Modul Ajar</summary>
+        <pre className="whitespace-pre-wrap select-text">{JSON.stringify(exportDiagnostic || {
+          buildSha: APP_BUILD_SHA,
+          modulAjarRendererVersion: MODUL_AJAR_RENDERER_VERSION,
+          status: 'Belum ada ekspor pada sesi ini',
+        }, null, 2)}</pre>
+      </details>
       {/* Header Banner */}
       <div className="bg-white rounded-2xl p-6 border border-slate-200/80 shadow-xs">
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
@@ -1040,7 +1072,9 @@ export const AdminDocsExport: React.FC<AdminDocsExportProps> = ({
         <div className="lg:col-span-7 space-y-3">
           {(() => {
             const activeRecord = getDocRecord(activePreviewType);
-            const activeSnapshot = activeRecord?.snapshot;
+            const storedSnapshot = activePreviewType === 'MODUL_AJAR'
+              ? historicalModulSnapshot || activeRecord?.snapshot : activeRecord?.snapshot;
+            const activeSnapshot = activePreviewType === 'MODUL_AJAR' ? undefined : storedSnapshot;
 
             const previewSchoolName = activeSnapshot?.schoolName || school.name || '-';
             const previewSchoolNpsn = activeSnapshot?.schoolNpsn || activeSnapshot?.npsn || school.npsn || '-';
@@ -1087,7 +1121,7 @@ export const AdminDocsExport: React.FC<AdminDocsExportProps> = ({
                       title={activeSnapshot ? 'Unduh DOCX sesuai snapshot historis tersimpan' : 'Unduh Dokumen DOCX'}
                     >
                       <Download className="w-3.5 h-3.5" />
-                      <span>{activeSnapshot ? 'Unduh DOCX (Snapshot)' : 'Unduh DOCX'}</span>
+                      <span>{activePreviewType === 'MODUL_AJAR' ? 'Unduh DOCX Terbaru' : activeSnapshot ? 'Unduh DOCX (Snapshot)' : 'Unduh DOCX'}</span>
                     </button>
 
                     <button
@@ -1097,9 +1131,21 @@ export const AdminDocsExport: React.FC<AdminDocsExportProps> = ({
                       title={activeSnapshot ? 'Unduh PDF sesuai snapshot historis tersimpan' : 'Unduh Dokumen PDF'}
                     >
                       <Printer className="w-3.5 h-3.5" />
-                      <span>{activeSnapshot ? 'Unduh PDF (Snapshot)' : 'Unduh PDF'}</span>
+                      <span>{activePreviewType === 'MODUL_AJAR' ? 'Unduh PDF Terbaru' : activeSnapshot ? 'Unduh PDF (Snapshot)' : 'Unduh PDF'}</span>
                     </button>
 
+                    {activePreviewType === 'MODUL_AJAR' && storedSnapshot && (
+                      <>
+                        <button onClick={() => handleGenerateSingleDoc('MODUL_AJAR', 'docx', false, 'snapshot')}
+                          disabled={Boolean(generatingDocType)} className="text-xs underline px-2 py-1.5">
+                          Unduh Snapshot Lama (DOCX)
+                        </button>
+                        <button onClick={() => handleGenerateSingleDoc('MODUL_AJAR', 'pdf', false, 'snapshot')}
+                          disabled={Boolean(generatingDocType)} className="text-xs underline px-2 py-1.5">
+                          Unduh Snapshot Lama (PDF)
+                        </button>
+                      </>
+                    )}
                     {activeSnapshot && (
                       <button
                         onClick={() => handleGenerateSingleDoc(activePreviewType, 'docx', true)}

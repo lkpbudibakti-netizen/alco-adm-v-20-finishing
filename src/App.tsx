@@ -107,7 +107,7 @@ import { validateAcademicSettingReadiness } from './services/academicSettingRead
 import { resolveATPUnitMappingReadiness } from './services/atpMappingReadinessService';
 import { Plus, Copy, Trash2, X, FolderPlus, AlertCircle, FileSpreadsheet } from 'lucide-react';
 import { GRADE_PHASE_MAP, SUBJECT_OPTIONS } from './data/curriculumDefaults';
-import { APP_BUILD_ID } from './config/buildInfo';
+import { APP_BUILD_ID, APP_BUILD_SHA, APP_BUILD_DIRTY } from './config/buildInfo';
 
 const EMPTY_SCHOOL_VIEW: SchoolData = {
   id: '',
@@ -1851,8 +1851,8 @@ export function App() {
           </div>
           <div className="flex items-center gap-2 text-[11px] text-slate-400">
             <span>Perencanaan Tahunan (YearPlan) • Hierarki V5 • Ekspor Word Resmi (.docx)</span>
-            <span id="app-build-badge" className="font-mono text-[10px] bg-slate-100 text-slate-600 border border-slate-200 px-2 py-0.5 rounded-md font-semibold">
-              Build: {APP_BUILD_ID}
+            <span id="app-build-badge" title={APP_BUILD_ID} className="font-mono text-[10px] bg-slate-100 text-slate-600 border border-slate-200 px-2 py-0.5 rounded-md font-semibold">
+              Build: {APP_BUILD_SHA?.slice(0, 12) || 'tidak diketahui'}{APP_BUILD_DIRTY ? ' (perubahan lokal)' : ''}
             </span>
           </div>
         </div>

@@ -1,3 +1,7 @@
+import { MODUL_AJAR_RENDERER_VERSION } from '../../../config/modulAjarRendererVersion';
+export { MODUL_AJAR_RENDERER_VERSION };
+import { recordModulAjarExportDiagnostic } from '../modulAjarExportDiagnostics';
+import { createDocumentSnapshot } from '../snapshot';
 import {
   Document,
   Packer,
@@ -960,6 +964,8 @@ export async function generateModulAjar(context: DocumentGenerationContext): Pro
   });
 
   const blob = await Packer.toBlob(doc);
+  const snapshot = context.snapshot || createDocumentSnapshot(context, 'docx', context.documentMode, 'MODUL_AJAR');
+  recordModulAjarExportDiagnostic(context, sharedProjection, snapshot, 'docx');
   const cleanSubject = (academicSetting.subject || 'Mapel').replace(/[^a-zA-Z0-9]/g, '_');
   const cleanGrade = (academicSetting.grade || 'Kelas').replace(/[^a-zA-Z0-9]/g, '_');
   const fileName = `MODUL_AJAR_${cleanSubject}_${cleanGrade}_${new Date().toISOString().slice(0, 10)}.docx`;
@@ -984,6 +990,7 @@ export async function generateModulAjar(context: DocumentGenerationContext): Pro
       fileName,
       academicSettingId: academicSetting.id,
       workspaceId: context.workspace?.id,
+      snapshot,
     },
   };
 }

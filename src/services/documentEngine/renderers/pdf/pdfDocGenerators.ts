@@ -1,3 +1,4 @@
+import { recordModulAjarExportDiagnostic } from '../../modulAjarExportDiagnostics';
 import {
   DocumentType,
   DocumentGenerationContext,
@@ -1452,5 +1453,6 @@ export async function generatePdfDocument(
   });
 
   const blob = builder.getBlob();
+  if (type === 'MODUL_AJAR') recordModulAjarExportDiagnostic(context, buildModulAjarProjection(context), snapshot, 'pdf');
   return { blob, fileName, title, snapshot };
 }

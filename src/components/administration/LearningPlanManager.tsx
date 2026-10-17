@@ -1130,7 +1130,7 @@ export const LearningPlanManager: React.FC<LearningPlanManagerProps> = ({
   };
 
   return (
-    <div className="space-y-6" id="learning-plan-manager-container">
+    <div className="space-y-6" id="learning-plan-manager-container" data-export-busy={Boolean(isExporting || isGeneratingAI || isBulkGenerating)}>
       {/* Header & Title */}
       <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
