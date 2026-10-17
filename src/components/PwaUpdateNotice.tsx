@@ -69,7 +69,7 @@ export function PwaUpdateNotice() {
     void check();
     return () => { disposed = true; workerCleanups.forEach(cleanup => cleanup()); navigator.serviceWorker?.removeEventListener('controllerchange', onControllerChange); document.removeEventListener('visibilitychange', onVisible); window.removeEventListener('online', check); window.clearInterval(interval); };
   }, []);
-  if (!state.newerBuildId && !state.waiting && !state.needsReload && APP_BUILD_SHA) return null;
+  if (!state.newerBuildId && !state.waiting && !state.needsReload && APP_BUILD_ID !== 'runtime-unknown') return null;
   return <aside role="status" className="bg-amber-50 border-b border-amber-200 px-4 py-3 text-sm text-amber-950">
     <strong>{state.newerBuildId || state.waiting || state.needsReload ? 'Aplikasi masih memakai versi lama.' : 'Identitas build runtime belum tersedia.'}</strong>{' '}
     Simpan perubahan Anda sebelum memperbarui aplikasi.

@@ -137,6 +137,7 @@ refreshed.compare({buildId:'deployed-newer',buildSha:identity.buildSha});
 await refreshed.apply(async()=>{},true,false);assert.equal(reloads,2);
 await refreshed.apply(async()=>{},true,true);assert.equal(reloads,3);
 const unknown=createRuntimeUpdateMonitor({runtimeBuildId:identity.buildId,notify:()=>{throw new Error('Invalid metadata should be ignored');},reload:()=>{},isBusy:()=>false});
-unknown.compare({buildId:'not-a-build',buildSha:'unknown'});
+unknown.compare({buildId:' ',buildSha:null});
+unknown.compare({buildSha:identity.buildSha});
 console.log(JSON.stringify({buildSha:identity.buildSha,modulAjarRendererVersion:MODUL_AJAR_RENDERER_VERSION,selectedLearningPlanId:receipt.selectedLearningPlanId,snapshotLearningPlanId:receipt.snapshotLearningPlanId,meetingCount:receipt.meetingCount,meetingsWithActivities:receipt.meetingsWithActivities,totalMeetingActivities:receipt.totalMeetingActivities},null,2));
 console.log('PASS: build SHA injection, fresh live vs explicit historical DOCX, actual download action, activity diagnostics, PWA old-build detection and consent/busy-safe reload.');

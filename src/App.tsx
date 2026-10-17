@@ -1852,7 +1852,7 @@ export function App() {
           <div className="flex items-center gap-2 text-[11px] text-slate-400">
             <span>Perencanaan Tahunan (YearPlan) • Hierarki V5 • Ekspor Word Resmi (.docx)</span>
             <span id="app-build-badge" title={APP_BUILD_ID} className="font-mono text-[10px] bg-slate-100 text-slate-600 border border-slate-200 px-2 py-0.5 rounded-md font-semibold">
-              Build: {APP_BUILD_SHA?.slice(0, 12) || 'tidak diketahui'}{APP_BUILD_DIRTY ? ' (perubahan lokal)' : ''}
+              Build: {APP_BUILD_SHA?.slice(0, 12) || APP_BUILD_ID.slice(-12)}{APP_BUILD_DIRTY ? ' (perubahan lokal)' : ''}
             </span>
           </div>
         </div>

@@ -18,9 +18,9 @@ export function createRuntimeUpdateMonitor(options: {
   return {
     waiting() { publish({ waiting: true }); },
     compare(remote: unknown) {
-      if (remote && typeof remote === 'object' && 'buildId' in remote && 'buildSha' in remote &&
-          typeof remote.buildId === 'string' && typeof remote.buildSha === 'string' &&
-          /^[a-f0-9]{40,64}$/i.test(remote.buildSha)) {
+      // buildId is the version authority; SHA is optional diagnostic metadata.
+      if (remote && typeof remote === 'object' && 'buildId' in remote &&
+          typeof remote.buildId === 'string' && remote.buildId.trim().length > 0) {
         publish({ newerBuildId: remote.buildId !== options.runtimeBuildId ? remote.buildId : undefined });
       }
     },
