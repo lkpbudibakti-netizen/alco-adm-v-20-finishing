@@ -25,7 +25,11 @@ const plan: any = { id:'lp', curriculumType:'KURIKULUM_MERDEKA', academicSetting
   objectives:tp.items.map((t:any)=>({ ...t, tpId:t.id })), topic:'Topik', allocatedJP:6,
   initialCompetency:'Kompetensi awal', graduateProfileDimensions:['Kemandirian'], resources:[{id:'r',title:'Buku'}], learningModel:'Praktik',
   learningExperiences:['UNDERSTAND','APPLY','REFLECT'].map((phase,i)=>({id:'e'+i,phase,description:'Kegiatan '+phase})),
-  learningSteps: { core: [3,1,2].map(order => ({ id:'activity'+order, learningMeetingId:'m'+order, description:'Aktivitas khusus '+order, durationMinutes:15 })) },
+  learningSteps: {
+    opening: [3,1,2].map(order=>({id:'opening'+order,learningMeetingId:'m'+order,description:'Awal khusus '+order,durationMinutes:10})),
+    core: [3,1,2].map(order=>({id:'activity'+order,learningMeetingId:'m'+order,description:'Aktivitas khusus '+order,durationMinutes:50})),
+    closing: [3,1,2].map(order=>({id:'closing'+order,learningMeetingId:'m'+order,description:'Akhir khusus '+order,durationMinutes:10})),
+  },
   assessmentPlan:{ initial:[assessment('INITIAL')], formative:[{...assessment('FORMATIVE'), learningMeetingId:'m1'}], summative:[assessment('SUMMATIVE')] },
   differentiation:{content:'Konten'}, enrichmentPlan:'Pengayaan', remedialPlan:'Remedial', reflection:{teacherReflection:'Guru',studentReflection:'Murid'} };
 const context: any = { school:{name:'Sekolah'},profile:{name:'Guru'}, academicSetting:setting,tp,atp, atpUnitMapping:mapping, unitExecutionPlan:execution, learningMeetingSchedules:schedules, learningPlans:[plan],activeLearningPlanId:'lp',assessmentCriteria:criteria };
@@ -35,19 +39,18 @@ assert.deepEqual(projection.meetings?.map(m=>m.id),['m1','m2','m3']);
 assert.deepEqual(projection.meetings?.map(m=>m.KKTP.map(c=>c.tpId)),[['t1'],['t2'],['t1']]);
 assert.deepEqual(projection.meetings?.map(m=>m.assessments.length),[1,0,0]);
 assert.equal(projection.sections?.length,8);
-assert.deepEqual(projection.meetings!.map(m => m.activities.map(a => a.description)),
+assert.deepEqual(projection.meetings!.map(m => m.activities.filter(a=>a.phase==='core').map(a => a.description)),
   [['Aktivitas khusus 1'], ['Aktivitas khusus 2'], ['Aktivitas khusus 3']]);
 assert(projection.meetings!.every(m => m.activitiesStatus === 'COMPLETE'));
 assert(projection.meetings!.every(m => m.KKTP.every(c => !('levels' in c))));
 const missingActivities = structuredClone(context);
 delete missingActivities.learningPlans[0].learningSteps;
 const incomplete = buildModulAjarProjection(missingActivities);
-assert(incomplete.isReady, incomplete.error);
-assert(incomplete.meetings!.every(m => m.activitiesStatus === 'INCOMPLETE' &&
-  m.activityLines.some(line => line.includes('Belum lengkap')) && m.activities.length === 0));
+assert.equal(incomplete.isReady,false);
+assert(incomplete.error?.includes('opening'));
 const blankActivity = structuredClone(context);
 blankActivity.learningPlans[0].learningSteps.core[0].description = ' ';
-assert.equal(buildModulAjarProjection(blankActivity).meetings!.find(m => m.id === 'm3')!.activitiesStatus, 'INCOMPLETE');
+assert.equal(buildModulAjarProjection(blankActivity).isReady,false);
 const scopedExperience = structuredClone(context);
 scopedExperience.learningPlans[0].learningExperiences.push({id:'meeting-exp', phase:'APPLY', description:'Pengalaman khusus m2', learningMeetingId:'m2'});
 const withScopedExperience = buildModulAjarProjection(scopedExperience);
@@ -102,7 +105,7 @@ for(const path of ['src/services/documentEngine/generators/modulAjarGenerator.ts
   assert(source.includes('buildModulAjarProjection(context)'));
   if (path.includes('modulAjarGenerator')) {
     assert(source.includes('sharedProjection.meetings'));
-    assert(source.includes('meeting.activityLines'));
+    assert(source.includes('meeting.activities'));
     assert(source.includes('meeting.kktpSummaryLines'));
   } else {
     assert(source.includes('projection.sections'));

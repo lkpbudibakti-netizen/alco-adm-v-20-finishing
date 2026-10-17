@@ -24,7 +24,11 @@ const ids=meetings.map(m=>m.meetingId);
 const payload: any = {
   title:'Unit', initialCompetency:'Prasyarat', graduateProfileDimensions:['Kemandirian'], resources:[{title:'Buku'}], learningModel:'Praktik',
   learningExperiences:['UNDERSTAND','APPLY','REFLECT'].map((phase,i)=>({id:'exp'+i,phase,description:'Aktivitas '+ids[i], learningMeetingId:ids[i]})),
-  learningSteps:{core:[{id:'step1',description:'Praktik khusus meeting-1',learningMeetingId:'meeting-1'}]},
+  learningSteps:{
+    opening:ids.map((id,i)=>({id:'open'+i,learningMeetingId:id,description:'Awal '+id,durationMinutes:10})),
+    core:ids.map(id=>({id:'step'+id.split('-')[1],learningMeetingId:id,description:'Praktik khusus '+id,durationMinutes:50})),
+    closing:ids.map((id,i)=>({id:'close'+i,learningMeetingId:id,description:'Akhir '+id,durationMinutes:10})),
+  },
   assessmentPlan:Object.fromEntries(['initial','formative','summative'].map(type=>[type,[{type:type.toUpperCase(),description:'Asesmen '+type,linkedTpIds:['tp']}]])),
 };
 assert(validateAILearningPlanPayload(structuredClone(payload),meetings).isValid);
@@ -41,7 +45,7 @@ for(const phase of ['opening','core','closing'] as const) assert('learningMeetin
 const repair=buildLearningPlanRepairPrompt({parsed:payload,tps:[],failedGroups:[],meetings});
 assert(ids.every(id=>repair.includes(id)) && repair.includes('learningMeetingId EXACT'));
 const academicSetting:any={id:'sem',curriculumType:'KURIKULUM_MERDEKA',grade:'7',level:'SMP'};
-const create = (aiDraft:any, learningMeetingIds:string[]=ids)=>createAIDraftLearningPlan({academicSetting,curriculumType:'KURIKULUM_MERDEKA',unitId:'unit',learningMeetingIds,tpIds:['tp'],aiDraft});
+const create = (aiDraft:any, learningMeetingIds:string[]=ids)=>createAIDraftLearningPlan({academicSetting,curriculumType:'KURIKULUM_MERDEKA',unitId:'unit',learningMeetingIds,meetings:learningMeetingIds.length ? meetings : [],tpIds:['tp'],aiDraft});
 const savedFetch=globalThis.fetch;
 let responsePayload=payload;
 let sent:any;
@@ -51,7 +55,7 @@ try {
   assert.deepEqual(sent.meetings,meetings);
   const draft=create(JSON.parse(JSON.stringify(result)));
   assert.deepEqual(draft.learningExperiences!.map(e=>[e.description,e.learningMeetingId]),payload.learningExperiences.map((e:any)=>[e.description,e.learningMeetingId]));
-  assert.equal(draft.learningSteps!.core![0].learningMeetingId,'meeting-1');
+  assert.equal(draft.learningSteps!.core![0].learningMeetingId,'meeting-3');
   assert.deepEqual(JSON.parse(JSON.stringify(draft)).learningExperiences.map((e:any)=>e.learningMeetingId),ids);
   responsePayload=structuredClone(payload);responsePayload.learningExperiences[0].learningMeetingId='dangling';
   await assert.rejects(()=>generateLearningPlanWithAI({academicSetting,tps:[{id:'tp'} as any],meetings}),/learningMeetingId/);
@@ -59,7 +63,7 @@ try {
   let manual={...draft,...updateLearningPlanActivityMeeting(draft,'experience',draft.learningExperiences![0].id,'meeting-2',ids)};
   assert.equal(manual.learningExperiences![0].learningMeetingId,'meeting-2');
   manual={...manual,...updateLearningPlanActivityMeeting(manual,'core','step1','meeting-3',ids)};
-  assert.equal(JSON.parse(JSON.stringify(manual)).learningSteps.core[0].learningMeetingId,'meeting-3');
+  assert.equal(JSON.parse(JSON.stringify(manual)).learningSteps.core.find((s:any)=>s.id==='step1').learningMeetingId,'meeting-3');
   assert(isSubstantiveLearningPlanChange(draft,manual));
   const unlinked={...manual,...updateLearningPlanActivityMeeting(manual,'experience',manual.learningExperiences![0].id,undefined,ids)};
   assert(!('learningMeetingId' in unlinked.learningExperiences![0]));
@@ -76,7 +80,7 @@ const missingStepId = structuredClone(payload);
 delete missingStepId.learningSteps.core[0].id;
 const withStepId = create(missingStepId);
 assert(withStepId.learningSteps!.core![0].id);
-assert.equal(withStepId.learningSteps!.core![0].learningMeetingId, 'meeting-1');
+assert.equal(withStepId.learningSteps!.core![0].learningMeetingId, 'meeting-3');
 const legacyDraft=create(legacy,[]);
 assert(legacyDraft.learningExperiences!.every(e=>e.learningMeetingId===undefined));
 assert.equal(legacyDraft.learningExperiences!.length,3);

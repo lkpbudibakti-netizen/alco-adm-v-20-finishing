@@ -45,7 +45,8 @@ assert(pwaOptions.workbox.navigateFallbackDenylist.some((rule:RegExp)=>rule.test
 
 const context=createModulAjarRuntimeFixture();
 const oldPlan={...structuredClone(context.learningPlans[0]),id:'lp-old',updatedAt:'2026-10-16T00:00:00Z'};
-context.learningPlans[0].learningSteps.core.push({id:'extra',learningMeetingId:'m1',description:'Aktivitas live terbaru'});
+context.learningPlans[0].learningSteps.core.find((step:any)=>step.learningMeetingId==='m1').durationMinutes=45;
+context.learningPlans[0].learningSteps.core.push({id:'extra',learningMeetingId:'m1',description:'Aktivitas live terbaru',durationMinutes:5});
 context.learningPlans.push(oldPlan);
 const historical=createDocumentSnapshot({...context,activeLearningPlanId:'lp-old'},'docx','data','MODUL_AJAR');
 historical.schoolName='Sekolah Lama';historical.generatedAt='2026-10-16T10:00:00Z';
@@ -61,7 +62,7 @@ const receipt=getLastModulAjarExportDiagnostic()!;
 assert.equal(receipt.buildSha,identity.buildSha);
 assert.equal(receipt.modulAjarRendererVersion,MODUL_AJAR_RENDERER_VERSION);
 assert.equal(receipt.selectedLearningPlanId,'lp');assert.equal(receipt.snapshotLearningPlanId,'lp');
-assert.equal(receipt.meetingCount,3);assert.equal(receipt.meetingsWithActivities,3);assert.equal(receipt.totalMeetingActivities,4);
+assert.equal(receipt.meetingCount,3);assert.equal(receipt.meetingsWithActivities,3);assert.equal(receipt.totalMeetingActivities,10);
 const liveXml=await (await JSZip.loadAsync(await currentFile.blob!.arrayBuffer())).file('word/document.xml')!.async('string');
 assert(liveXml.includes('Sekolah Terbaru') && liveXml.includes('Aktivitas live terbaru'));
 const oldContext=prepareModulAjarExportContext(context,'docx','snapshot',historical);
@@ -71,7 +72,7 @@ const oldXml=await (await JSZip.loadAsync(await oldFile.blob!.arrayBuffer())).fi
 assert(oldXml.includes('Sekolah Lama') && !oldXml.includes('Aktivitas live terbaru'));
 assert.equal(getLastModulAjarExportDiagnostic()!.selectedLearningPlanId,'lp-old');
 assert.equal(getLastModulAjarExportDiagnostic()!.snapshotLearningPlanId,'lp-old');
-assert.equal(getLastModulAjarExportDiagnostic()!.totalMeetingActivities,3);
+assert.equal(getLastModulAjarExportDiagnostic()!.totalMeetingActivities,9);
 assert.equal(JSON.stringify(context),original);
 assert.throws(()=>prepareModulAjarExportContext(context,'docx','snapshot'),/belum tersedia/);
 assert.throws(()=>prepareModulAjarExportContext(context,'docx','snapshot',{...historical,learningPlanId:undefined}),/lineage LearningPlan/);

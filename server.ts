@@ -3306,7 +3306,7 @@ export function isPedagogicalItemValid(item: any): boolean {
   );
 }
 
-export function validateAILearningPlanPayload(data: any, meetings: { meetingId: string }[] = []): { isValid: boolean; reason?: string } {
+export function validateAILearningPlanPayload(data: any, meetings: { meetingId: string; jp: number }[] = []): { isValid: boolean; reason?: string } {
   if (!data || typeof data !== 'object' || Array.isArray(data)) {
     return { isValid: false, reason: 'Payload AI bukan berupa objek valid' };
   }
@@ -3334,7 +3334,7 @@ export function validateAILearningPlanPayload(data: any, meetings: { meetingId: 
   }
 
   const meetingIds = meetings.map(m => m.meetingId);
-  const activityValidation = validateLearningPlanActivityMeetings(data, meetingIds, meetingIds.length > 0);
+  const activityValidation = validateLearningPlanActivityMeetings(data, meetingIds, meetingIds.length > 0, meetings);
   if (!activityValidation.isValid) return activityValidation;
 
   const phaseSet = new Set<string>();
@@ -3465,7 +3465,8 @@ INSTRUKSI PERBAIKAN (WAJIB DIPATUHI SECARA MUTLAK):
    - Acuan KKTP jika tersedia
    - Pengalaman Belajar (UNDERSTAND, APPLY, REFLECT)
    - Alokasi waktu kanonikal: ${canonicalAllocatedJP ? `${canonicalAllocatedJP} JP` : 'tetap sesuai rancangan'}
-3. Jika scope meeting tersedia, setiap learningExperience/learningStep wajib memiliki learningMeetingId EXACT dari daftar: ${JSON.stringify((meetings || []).map(m => m.meetingId))}. Setiap meeting harus tercakup. Jangan infer ID dari urutan, judul atau TP. Jika scope tidak tersedia, jangan buat learningMeetingId.
+3. Jika scope meeting tersedia, setiap learningExperience/learningStep wajib memiliki learningMeetingId EXACT dari daftar: ${JSON.stringify((meetings || []).map(m => m.meetingId))}. Setiap meeting wajib memiliki learningSteps.opening + core + closing, deskripsi nonblank dan durationMinutes > 0; jumlah menit tiga fase harus tepat jp canonical × 35. learningExperiences hanya pendekatan kegiatan inti, bukan pengganti fase atau tambahan durasi. JP canonical: ${JSON.stringify(meetings || [])}. Jangan infer ID dari urutan, judul atau TP. Jika scope tidak tersedia, jangan buat learningMeetingId.
+3a. Opening ringkas mencakup salam, sapa, kabar/kesiapan, kehadiran, apersepsi materi sebelumnya, fokus materi hari ini, kaitan kehidupan sehari-hari, afirmasi/motivasi. Closing mencakup refleksi/cek pemahaman, simpulan, tindak lanjut bila relevan, apresiasi, salam; PJOK boleh pendinginan sesuai konteks.
 4. JANGAN menghasilkan asesmen fiktif, JANGAN mengosongkan kelompok asesmen '${failedGroups.join(', ') || 'apapun'}', dan JANGAN menggunakan placeholder generik.
 
 Draft JSON sebelumnya yang memerlukan perbaikan:
@@ -3478,6 +3479,7 @@ export const learningPlanResponseSchema = {
   type: Type.OBJECT,
   required: [
     'learningExperiences',
+    'learningSteps',
     'initialCompetency',
     'graduateProfileDimensions',
     'resources',
@@ -3529,40 +3531,47 @@ export const learningPlanResponseSchema = {
     },
     learningSteps: {
       type: Type.OBJECT,
+      required: ['opening', 'core', 'closing'],
       properties: {
         opening: {
           type: Type.ARRAY,
+          minItems: 1,
           items: {
             type: Type.OBJECT,
+            required: ['learningMeetingId', 'description', 'durationMinutes'],
             properties: {
               learningMeetingId: { type: Type.STRING, description: 'Exact canonical meetingId from the active meeting scope' },
               stepName: { type: Type.STRING },
-              description: { type: Type.STRING },
-              durationMinutes: { type: Type.NUMBER },
+              description: { type: Type.STRING, minLength: '1', description: 'Nonblank operational activity description' },
+              durationMinutes: { type: Type.NUMBER, minimum: 1, description: 'Positive minutes; opening + core + closing per meeting must equal canonical jp * 35' },
             },
           },
         },
         core: {
           type: Type.ARRAY,
+          minItems: 1,
           items: {
             type: Type.OBJECT,
+            required: ['learningMeetingId', 'description', 'durationMinutes'],
             properties: {
               learningMeetingId: { type: Type.STRING, description: 'Exact canonical meetingId from the active meeting scope' },
               stepName: { type: Type.STRING },
-              description: { type: Type.STRING },
-              durationMinutes: { type: Type.NUMBER },
+              description: { type: Type.STRING, minLength: '1', description: 'Nonblank operational activity description' },
+              durationMinutes: { type: Type.NUMBER, minimum: 1, description: 'Positive minutes; opening + core + closing per meeting must equal canonical jp * 35' },
             },
           },
         },
         closing: {
           type: Type.ARRAY,
+          minItems: 1,
           items: {
             type: Type.OBJECT,
+            required: ['learningMeetingId', 'description', 'durationMinutes'],
             properties: {
               learningMeetingId: { type: Type.STRING, description: 'Exact canonical meetingId from the active meeting scope' },
               stepName: { type: Type.STRING },
-              description: { type: Type.STRING },
-              durationMinutes: { type: Type.NUMBER },
+              description: { type: Type.STRING, minLength: '1', description: 'Nonblank operational activity description' },
+              durationMinutes: { type: Type.NUMBER, minimum: 1, description: 'Positive minutes; opening + core + closing per meeting must equal canonical jp * 35' },
             },
           },
         },
@@ -3751,7 +3760,8 @@ ${kktpContextStr}
 
 INSTRUKSI WAJIB MENGENAI STRUKTUR PERTEMUAN & KKTP:
 1. Pertahankan urutan, jumlah, dan lingkup pertemuan kanonikal yang diberikan di atas. Jangan memangkas, mengganti, atau menambah pertemuan.
-2. Jika pertemuan canonical tersedia, setiap learningExperience dan setiap learningStep WAJIB memiliki learningMeetingId yang disalin EXACT dari meetingId scope di atas. Buat kegiatan konkret untuk SETIAP meeting canonical, boleh beberapa aktivitas per meeting. Jangan infer ID dari urutan, judul, TP, atau membuat ID baru. Fase UNDERSTAND, APPLY, REFLECT harus terwakili dalam rangkaian unit. Jika scope pertemuan tidak tersedia, hilangkan learningMeetingId dan pertahankan aktivitas global; jangan mengarang pertemuan.
+2. Jika pertemuan canonical tersedia, setiap learningExperience dan setiap learningStep WAJIB memiliki learningMeetingId yang disalin EXACT dari meetingId scope di atas. Untuk SETIAP meeting canonical, wajib isi learningSteps.opening, core, closing dengan description nonblank dan durationMinutes > 0. Total durasi opening + core + closing meeting tersebut harus tepat jp meeting × 35 menit (3 JP = 105; contoh 15 + 75 + 15). Jangan memakai total JP unit untuk satu meeting. Jangan infer ID dari urutan, judul, TP, atau membuat ID baru. learningExperiences UNDERSTAND, APPLY, REFLECT adalah pendekatan kegiatan inti/deep learning; tidak menggantikan opening/closing dan tidak dihitung sebagai tambahan durasi learningSteps. Jika scope pertemuan tidak tersedia, hilangkan learningMeetingId dan pertahankan aktivitas global; jangan mengarang pertemuan.
+2a. Opening ringkas memuat salam, sapa, kabar/kesiapan, kehadiran, apersepsi materi sebelumnya, fokus materi hari ini, kaitan kehidupan sehari-hari, afirmasi/motivasi. Closing memuat refleksi/cek pemahaman, simpulan, tindak lanjut bila relevan, apresiasi, salam; PJOK boleh pendinginan sesuai konteks.
 3. Batasi topik pembahasan ketat hanya pada Unit, TP, ATP, dan struktur pertemuan kanonikal di atas. Jangan memperluas materi di luar batas-batas tersebut.
 4. Alokasi JP total tepat ${canonicalAllocatedJP ? `${canonicalAllocatedJP} JP` : 'sesuai jumlah JP pertemuan'} dan bersifat mutlak dari rancangan pertemuan kanonikal.
 5. Jika rujukan KKTP di atas tersedia (bukan 'Belum tersedia'):

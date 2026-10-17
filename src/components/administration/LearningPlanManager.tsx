@@ -538,6 +538,7 @@ export const LearningPlanManager: React.FC<LearningPlanManagerProps> = ({
       curriculumType,
       unitId: scope.unitId,
       learningMeetingIds: scope.learningMeetingIds,
+      meetings: scope.meetings,
       tpIds: scope.linkedTpIds,
       atpItemIds: scope.linkedAtpItemIds,
       allocatedJP: scope.jp,

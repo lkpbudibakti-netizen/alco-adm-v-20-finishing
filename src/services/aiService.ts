@@ -833,7 +833,7 @@ export async function generateLearningPlanWithAI(params: GenerateLearningPlanPar
     }
 
     const meetingIds = (params.meetings || []).map(m => m.meetingId);
-    const activityValidation = validateLearningPlanActivityMeetings(data.data, meetingIds, meetingIds.length > 0);
+    const activityValidation = validateLearningPlanActivityMeetings(data.data, meetingIds, meetingIds.length > 0, params.meetings || []);
     if (!activityValidation.isValid) throw new Error(activityValidation.reason);
 
     // Runtime validation and normalization for critical structure

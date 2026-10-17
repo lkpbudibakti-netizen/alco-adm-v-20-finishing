@@ -424,13 +424,27 @@ function createModulAjarMeetingTable(
   const kktpParagraphs = (meeting.kktpSummaryLines.length ? meeting.kktpSummaryLines : ['-']).map(text =>
     new Paragraph({ alignment: AlignmentType.JUSTIFIED, spacing: { line: 276, after: 40 },
       children: [new TextRun({ text: cleanText(text), size: 22, font: 'Times New Roman' })] }));
+  const activityParagraphs: Paragraph[] = [];
+  for (const [phase, label] of [['opening', 'Pendahuluan'], ['core', 'Kegiatan Inti'], ['closing', 'Penutup']]) {
+    activityParagraphs.push(new Paragraph({ spacing: { line: 276, before: 60, after: 40 },
+      children: [new TextRun({ text: label, bold: true, size: 22, font: 'Times New Roman' })] }));
+    const steps = meeting.activities.filter(activity => activity.phase === phase);
+    steps.forEach(activity => activityParagraphs.push(new Paragraph({
+      alignment: AlignmentType.JUSTIFIED, spacing: { line: 276, after: 40 },
+      children: [new TextRun({ text: (activity.title ? cleanText(activity.title) + ' — ' : '') + cleanText(activity.description) + ' (' + activity.durationMinutes + ' Menit)', size: 22, font: 'Times New Roman' })],
+    })));
+    if (phase === 'core') {
+      meeting.activities.filter(activity => ['UNDERSTAND', 'APPLY', 'REFLECT'].includes(activity.phase)).forEach(activity => {
+        const labels: Record<string, string> = { UNDERSTAND: 'Memahami', APPLY: 'Mengaplikasi', REFLECT: 'Merefleksi' };
+        activityParagraphs.push(new Paragraph({ alignment: AlignmentType.JUSTIFIED, spacing: { line: 276, after: 40 },
+          children: [new TextRun({ text: labels[activity.phase] + ': ' + cleanText(activity.description) + ' (pendekatan kegiatan inti)', size: 22, font: 'Times New Roman' })] }));
+      });
+    }
+  }
   const activityRow = new TableRow({
     children: [createLabelCell('Kegiatan Pembelajaran'), new TableCell({
       width: { size: 75, type: WidthType.PERCENTAGE }, margins: cellMargin,
-      children: meeting.activityLines.map(text => new Paragraph({
-        alignment: AlignmentType.JUSTIFIED, spacing: { line: 276, after: 40 },
-        children: [new TextRun({ text: cleanText(text), size: 22, font: 'Times New Roman' })],
-      })),
+      children: activityParagraphs,
     })],
   });
 

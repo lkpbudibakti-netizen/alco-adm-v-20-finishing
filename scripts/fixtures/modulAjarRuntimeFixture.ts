@@ -22,7 +22,11 @@ const plan: any = { id:'lp', curriculumType:'KURIKULUM_MERDEKA', academicSetting
   objectives:tp.items.map((t:any)=>({ ...t, tpId:t.id })), topic:'Topik', allocatedJP:6,
   initialCompetency:'Kompetensi awal', graduateProfileDimensions:['Kemandirian'], resources:[{id:'r',title:'Buku'}], learningModel:'Praktik',
   learningExperiences:['UNDERSTAND','APPLY','REFLECT'].map((phase,i)=>({id:'e'+i,phase,description:'Kegiatan '+phase})),
-  learningSteps: { core: [3,1,2].map(order => ({ id:'activity'+order, learningMeetingId:'m'+order, description:'Aktivitas khusus '+order, durationMinutes:15 })) },
+  learningSteps: {
+    opening: [3,1,2].map(order=>({id:'opening'+order,learningMeetingId:'m'+order,description:'Awal khusus '+order,durationMinutes:10})),
+    core: [3,1,2].map(order=>({id:'activity'+order,learningMeetingId:'m'+order,description:'Aktivitas khusus '+order,durationMinutes:50})),
+    closing: [3,1,2].map(order=>({id:'closing'+order,learningMeetingId:'m'+order,description:'Akhir khusus '+order,durationMinutes:10})),
+  },
   assessmentPlan:{ initial:[assessment('INITIAL')], formative:[{...assessment('FORMATIVE'), learningMeetingId:'m1'}], summative:[assessment('SUMMATIVE')] },
   differentiation:{content:'Konten'}, enrichmentPlan:'Pengayaan', remedialPlan:'Remedial', reflection:{teacherReflection:'Guru',studentReflection:'Murid'} };
 const context: any = { school:{name:'Sekolah'},profile:{name:'Guru'}, academicSetting:setting,tp,atp, atpUnitMapping:mapping, unitExecutionPlan:execution, learningMeetingSchedules:schedules, learningPlans:[plan],activeLearningPlanId:'lp',assessmentCriteria:criteria };

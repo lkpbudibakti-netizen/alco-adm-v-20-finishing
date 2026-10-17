@@ -1,4 +1,4 @@
-import { validateLearningPlanActivityMeetings } from './learningPlanActivityMeetingService';
+import { validateLearningPlanActivityMeetings, ActivityMeetingScope } from './learningPlanActivityMeetingService';
 import {
   LearningPlan,
   LearningPlanStatus,
@@ -1081,9 +1081,6 @@ export function validateLearningPlan(
     }
   }
 
-  const activityMeetingValidation = validateLearningPlanActivityMeetings(plan, plan.learningMeetingIds || []);
-  if (!activityMeetingValidation.isValid) errors.push(activityMeetingValidation.reason!);
-
   // 3b. Canonical schedule & lineage validation (unitId & learningMeetingIds)
   const isCanonicalPlan = Boolean(
     plan.unitId || (plan.learningMeetingIds && plan.learningMeetingIds.length > 0)
@@ -1121,6 +1118,12 @@ export function validateLearningPlan(
   const semesterRows = activeSettingId
     ? projectionRows.filter((r) => r.semesterPlanId === activeSettingId)
     : projectionRows;
+
+  const activityMeetingValidation = validateLearningPlanActivityMeetings(
+    plan, plan.learningMeetingIds || [], false,
+    semesterRows.filter(row => (plan.learningMeetingIds || []).includes(row.meetingId)),
+  );
+  if (!activityMeetingValidation.isValid) errors.push(activityMeetingValidation.reason!);
 
   const semesterMeetingMap = new Map(semesterRows.map((r) => [r.meetingId, r]));
   let targetUnitId: string | null = plan.unitId || null;
@@ -1766,6 +1769,7 @@ export function createAIDraftLearningPlan(params: {
   curriculumType?: CurriculumType;
   unitId?: string;
   learningMeetingIds?: string[];
+  meetings?: ActivityMeetingScope[];
   tpIds: string[];
   atpItemIds?: string[];
   allocatedJP?: number;
@@ -1777,13 +1781,14 @@ export function createAIDraftLearningPlan(params: {
     curriculumType,
     unitId,
     learningMeetingIds,
+    meetings,
     tpIds,
     atpItemIds = [],
     allocatedJP,
     aiDraft,
     context,
   } = params;
-  const activityValidation = validateLearningPlanActivityMeetings(aiDraft, learningMeetingIds || [], Boolean(learningMeetingIds?.length));
+  const activityValidation = validateLearningPlanActivityMeetings(aiDraft, learningMeetingIds || [], Boolean(learningMeetingIds?.length), meetings || []);
   if (!activityValidation.isValid) throw new Error(activityValidation.reason);
   const now = new Date().toISOString();
 
