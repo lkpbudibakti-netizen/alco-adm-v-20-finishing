@@ -26,6 +26,7 @@ export interface PromesMonthHeader {
 export interface PromesRow {
   id: string;
   unitId?: string;
+  unitTitle?: string;
   atpItemId?: string;
   sourceType: 'ATP_ITEM' | 'ASSESSMENT' | 'RESERVE' | 'KD' | 'UNIT' | 'OTHER';
   tpCode: string;
@@ -364,6 +365,7 @@ export function buildPromesProjection(context: DocumentGenerationContext): Prome
             rows.push({
               id: u.unitId,
               unitId: u.unitId,
+              unitTitle: u.unitTitle,
               sourceType: 'UNIT',
               tpCode: tpCodeDisplay,
               tpStatement: tpStatementDisplay,

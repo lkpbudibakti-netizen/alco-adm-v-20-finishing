@@ -1,3 +1,4 @@
+import { buildPromesPresentation } from '../../promesPresentation';
 import { ATP_DOCUMENT_COLUMNS, buildATPDocumentProjection, getATPDocumentRowCells } from '../../atpDocumentProjection';
 import { recordModulAjarExportDiagnostic } from '../../modulAjarExportDiagnostics';
 import {
@@ -636,46 +637,17 @@ export async function generatePdfDocument(
       fileName = `PROMES_${cleanSubject}_${cleanGrade}.pdf`;
       orientation = 'landscape';
 
-      const months = projection.monthHeaders.map((m) => m.monthName);
-      const allRows = [...projection.rows, ...projection.assessmentRows, ...projection.reserveRows];
-
-      const pdfColumns = [
-        { header: 'No', dataKey: 'no', width: 12, align: 'center' as const },
-        { header: 'Kode', dataKey: 'code', width: 18, align: 'center' as const },
-        { header: 'Tujuan Pembelajaran', dataKey: 'tp', width: 65 },
-        { header: 'Materi', dataKey: 'mat', width: 45 },
-        { header: 'JP', dataKey: 'jp', width: 15, align: 'center' as const },
-        ...months.map((mName, idx) => ({
-          header: mName.slice(0, 3).toUpperCase(),
-          dataKey: `m${idx + 1}`,
-          width: 14,
-          align: 'center' as const,
-        })),
-      ];
-
-      const rows = isBlankMode
-        ? Array.from({ length: 15 }, (_, idx) => [
-            idx + 1,
-            `TP ${idx + 1}`,
-            '..........................................................................................',
-            '....................',
-            '..... JP',
-            ...months.map(() => '-'),
-          ])
-        : allRows.map((it, idx) => [
-            idx + 1,
-            it.tpCode || `TP ${idx + 1}`,
-            it.tpStatement || '-',
-            it.materialScope || '-',
-            `${it.allocatedJP} JP`,
-            ...months.map((mName) => (it.monthlyJP[mName] && it.monthlyJP[mName] > 0 ? `${it.monthlyJP[mName]}` : '-')),
-          ]);
-
+      const presentation = buildPromesPresentation(projection, isBlankMode);
+      const contentWidth = 297 - PDF_THEME.margins.landscape.left - PDF_THEME.margins.landscape.right;
       sections.push({
         type: 'table',
-        columns: pdfColumns,
-        rows,
+        columns: presentation.headers.map((header, index) => ({
+          header, dataKey: 'c' + index, width: contentWidth * presentation.widths[index] / 100,
+        })),
+        rows: [...presentation.rows, ...presentation.summaryRows],
       });
+      sections.push({ type: 'heading', text: 'Status & Catatan Pelaksanaan', level: 2 });
+      sections.push({ type: 'paragraph', text: presentation.notes });
       break;
     }
 
