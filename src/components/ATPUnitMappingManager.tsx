@@ -45,6 +45,11 @@ import {
   computeTpSubstantiveFingerprint,
   type MappingActionItem,
 } from '../services/atpMappingActionApplyService';
+import {
+  extractSelectedMappingActions,
+  resolveApplyActionsEligibility,
+  type ApplyActionEligibilityResult,
+} from '../services/atpApplyActionEligibilityService';
 import { runGuardedAnalysis } from '../services/atpAsyncGuard';
 import {
   parseBabMateriXlsx,
@@ -864,6 +869,7 @@ export const ATPUnitMappingManager: React.FC<ATPUnitMappingManagerProps> = ({
   const [selectedAnalysisActionIds, setSelectedAnalysisActionIds] = useState<Set<string>>(new Set());
   const [appliedNotice, setAppliedNotice] = useState<string | null>(null);
   const [analysisFingerprint, setAnalysisFingerprint] = useState<string | null>(null);
+  const [applyIssues, setApplyIssues] = useState<string[]>([]);
 
   const unitsRef = useRef(units);
   useEffect(() => {
@@ -1041,6 +1047,7 @@ export const ATPUnitMappingManager: React.FC<ATPUnitMappingManagerProps> = ({
   };
 
   const handleToggleAction = (findingId: string) => {
+    setApplyIssues([]);
     setSelectedAnalysisActionIds((prev) => {
       const next = new Set(prev);
       if (next.has(findingId)) {
@@ -1054,6 +1061,7 @@ export const ATPUnitMappingManager: React.FC<ATPUnitMappingManagerProps> = ({
 
   const handleSelectAllActionable = () => {
     if (!analysisResult) return;
+    setApplyIssues([]);
     const allActionIds = new Set<string>();
     analysisResult.atpFindings.forEach((f) => {
       if (f.action) allActionIds.add(f.id);
@@ -1065,26 +1073,49 @@ export const ATPUnitMappingManager: React.FC<ATPUnitMappingManagerProps> = ({
   };
 
   const handleDeselectAllActionable = () => {
+    setApplyIssues([]);
     setSelectedAnalysisActionIds(new Set());
   };
+
+  // Contract 2: Hitung selectedActions aktual dari analysisResult + selectedAnalysisActionIds sebelum render
+  const selectedActions = useMemo(() => {
+    return extractSelectedMappingActions(analysisResult, selectedAnalysisActionIds);
+  }, [analysisResult, selectedAnalysisActionIds]);
+
+  const currentFingerprint = useMemo(() => {
+    return computeMappingFingerprint(units, atp, tp);
+  }, [units, atp, tp]);
+
+  // Contract 3 & 4: Kelayakan action nyata & alasan disabled
+  const actionEligibility: ApplyActionEligibilityResult = useMemo(() => {
+    return resolveApplyActionsEligibility({
+      selectedCount: selectedAnalysisActionIds.size,
+      selectedActions,
+      units,
+      atp,
+      tp,
+      expectedFingerprint: analysisFingerprint,
+      currentFingerprint,
+    });
+  }, [
+    selectedAnalysisActionIds.size,
+    selectedActions,
+    units,
+    atp,
+    tp,
+    analysisFingerprint,
+    currentFingerprint,
+  ]);
 
   const handleApplySelectedActions = () => {
     if (!analysisResult || selectedAnalysisActionIds.size === 0) return;
 
-    const selectedActions: MappingActionItem[] = [
-      ...analysisResult.atpFindings
-        .filter(f => f.action && selectedAnalysisActionIds.has(f.id))
-        .map(f => ({
-          id: f.id,
-          ...f.action!,
-        })),
-      ...analysisResult.materialFindings
-        .filter(m => m.action && selectedAnalysisActionIds.has(m.id))
-        .map(m => ({
-          id: m.id,
-          ...m.action!,
-        })),
-    ];
+    if (!actionEligibility.canApply) {
+      if (actionEligibility.issues.length > 0) {
+        setApplyIssues(actionEligibility.issues);
+      }
+      return;
+    }
 
     const result = applyATPMappingActions({
       units,
@@ -1094,12 +1125,14 @@ export const ATPUnitMappingManager: React.FC<ATPUnitMappingManagerProps> = ({
       mappingId: mapping?.id,
       academicSettingId: academicSetting?.id,
       expectedFingerprint: analysisFingerprint,
-      currentFingerprint: computeMappingFingerprint(units, atp, tp),
+      currentFingerprint,
     });
 
     if (!result.success || !result.nextUnits) {
       setAppliedNotice(null);
-      setAnalysisError(result.issues.join('\n') || 'Penerapan gagal.');
+      const issues = result.issues && result.issues.length > 0 ? result.issues : ['Penerapan pilihan gagal.'];
+      setApplyIssues(issues);
+      setAnalysisError(issues.join('\n'));
       return;
     }
 
@@ -1107,6 +1140,7 @@ export const ATPUnitMappingManager: React.FC<ATPUnitMappingManagerProps> = ({
     setHasChanges(true);
     setLastAppliedActionIds([...selectedAnalysisActionIds]);
     setSelectedAnalysisActionIds(new Set());
+    setApplyIssues([]);
     setAnalysisResult(null);
     setSaveSuccessNotice(false);
     setAnalysisFingerprint(null);
@@ -2241,10 +2275,75 @@ export const ATPUnitMappingManager: React.FC<ATPUnitMappingManagerProps> = ({
             )}
           </div>
 
+          {/* Diagnostic Warning: Contract 5 - Explicit diagnostic when user checked suggestions but 0 valid actions */}
+          {selectedAnalysisActionIds.size > 0 && selectedActions.length === 0 && (
+            <div
+              id="apply-actions-diagnostic-warning"
+              className="p-3.5 rounded-xl bg-amber-50 border border-amber-300 text-amber-900 text-xs flex items-start gap-2.5 animate-fadeIn"
+            >
+              <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+              <div className="space-y-1">
+                <p className="font-bold text-amber-950">Diagnostik Pilihan Saran:</p>
+                <p className="leading-relaxed">
+                  {actionEligibility.diagnosticWarning || `Anda telah memilih ${selectedAnalysisActionIds.size} saran, namun pilihan tersebut tidak memiliki tindakan otomatis (action) yang valid untuk diterapkan ke draft. Saran ini bersifat tinjauan atau rekomendasi manual.`}
+                </p>
+              </div>
+            </div>
+          )}
+
+          {/* Stale Analysis Warning */}
+          {selectedAnalysisActionIds.size > 0 && selectedActions.length > 0 && actionEligibility.disabledReason === 'hasil analisis stale/kedaluwarsa' && (
+            <div
+              id="apply-actions-stale-warning"
+              className="p-3.5 rounded-xl bg-amber-50 border border-amber-300 text-amber-900 text-xs flex items-start gap-2.5 animate-fadeIn"
+            >
+              <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+              <div className="space-y-1">
+                <p className="font-bold text-amber-950">Hasil Analisis Kedaluwarsa:</p>
+                <p className="leading-relaxed">
+                  {actionEligibility.diagnosticWarning || 'Hasil analisis sudah kedaluwarsa karena struktur Bab atau data telah berubah setelah analisis. Jalankan analisis ulang.'}
+                </p>
+              </div>
+            </div>
+          )}
+
+          {/* Action Issues Panel on Apply Failure: Contract 6 */}
+          {applyIssues.length > 0 && (
+            <div
+              id="apply-actions-issues-panel"
+              className="p-3.5 rounded-xl bg-rose-50 border border-rose-300 text-rose-900 text-xs space-y-2 animate-fadeIn"
+            >
+              <div className="flex items-center gap-2 font-bold text-rose-950">
+                <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                <span>Gagal Menerapkan Pilihan ({applyIssues.length} kendala terdeteksi):</span>
+              </div>
+              <ul className="list-disc list-inside space-y-1 pl-1 text-rose-800 font-medium">
+                {applyIssues.map((issue, idx) => (
+                  <li key={idx} className="leading-relaxed">{issue}</li>
+                ))}
+              </ul>
+              <p className="text-[11px] text-rose-700 font-semibold">
+                Silakan sesuaikan pilihan saran atau lakukan analisis ulang untuk memperbarui rekomendasi.
+              </p>
+            </div>
+          )}
+
           {/* Action Footer inside Panel */}
           <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-3 border-t border-indigo-100">
-            <div className="text-xs text-slate-500">
-              Terpilih: <strong className="text-slate-800">{selectedAnalysisActionIds.size}</strong> saran untuk diterapkan.
+            <div className="flex flex-col gap-1 w-full sm:w-auto">
+              <div className="text-xs text-slate-500">
+                Terpilih: <strong className="text-slate-800">{selectedAnalysisActionIds.size}</strong> saran{' '}
+                <span className="text-slate-400">({selectedActions.length} action valid)</span>
+              </div>
+              {!actionEligibility.canApply && actionEligibility.disabledReason && (
+                <div
+                  id="apply-actions-disabled-reason"
+                  className="flex items-center gap-1.5 text-xs text-amber-800 font-medium bg-amber-50/80 px-2.5 py-1 rounded-lg border border-amber-200"
+                >
+                  <Info className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                  <span>Alasan tombol nonaktif: <strong>{actionEligibility.disabledReason}</strong></span>
+                </div>
+              )}
             </div>
 
             <div className="flex items-center gap-2 w-full sm:w-auto">
@@ -2260,11 +2359,12 @@ export const ATPUnitMappingManager: React.FC<ATPUnitMappingManagerProps> = ({
                 id="btn-apply-analysis-actions"
                 type="button"
                 onClick={handleApplySelectedActions}
-                disabled={selectedAnalysisActionIds.size === 0}
+                disabled={!actionEligibility.canApply}
+                title={actionEligibility.disabledReason || 'Terapkan pilihan saran ke draf'}
                 className="w-full sm:w-auto inline-flex items-center justify-center gap-1.5 px-5 py-2 rounded-xl text-xs font-bold text-white bg-indigo-800 hover:bg-indigo-900 disabled:bg-slate-200 disabled:text-slate-400 transition cursor-pointer shadow-xs disabled:cursor-not-allowed"
               >
                 <Sparkles className="w-3.5 h-3.5" />
-                <span>Terapkan Pilihan ({selectedAnalysisActionIds.size})</span>
+                <span>Terapkan Pilihan ({selectedActions.length})</span>
               </button>
             </div>
           </div>
