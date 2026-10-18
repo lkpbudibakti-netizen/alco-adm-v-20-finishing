@@ -3,6 +3,8 @@ export interface SemanticEvidence {
   ambiguous: boolean;
   matchedSignals: string[];
   reason: string;
+  /** Explicit, mutually exclusive movement domains; low lexical overlap is not a conflict. */
+  hardConflict?: boolean;
 }
 
 const STOPWORDS = new Set([
@@ -24,7 +26,6 @@ const EQUIVALENTS: Record<string, string> = {
   gerakan: 'gerak',
   perpindahan: 'lokomotor',
   berpindah: 'lokomotor',
-  tempat: 'lokomotor',
   manipulasi: 'manipulatif',
   objek: 'manipulatif',
   aman: 'keselamatan',
@@ -88,6 +89,17 @@ function detectDomainConflict(labelTokens: string[], evidenceTokens: string[]): 
   return null;
 }
 
+function detectExplicitMovementConflict(label: string, evidence: string): string | null {
+  const domains = (text: string) => normalizeText(text).split(/\s+/u)
+    .filter(token => ['lokomotor', 'non-lokomotor', 'manipulatif'].includes(token));
+  const labelDomains = new Set(domains(label));
+  const evidenceDomains = new Set(domains(evidence));
+  if (labelDomains.size && evidenceDomains.size && ![...labelDomains].some(domain => evidenceDomains.has(domain))) {
+    return `Konflik domain gerak eksplisit: ${[...labelDomains].join(', ')} berlawanan dengan ${[...evidenceDomains].join(', ')}.`;
+  }
+  return null;
+}
+
 export function checkMappingSemanticEvidence(params: {
   label: string;
   atpItems?: Array<{ focus?: string; linkedTpIds?: string[]; tpId?: string }>;
@@ -126,6 +138,11 @@ export function checkMappingSemanticEvidence(params: {
 
   const matches = Array.from(matchedSignals);
   const evidenceTokensArray = Array.from(allEvidenceTokens);
+
+  const hardConflict = detectExplicitMovementConflict(params.label, evidenceTexts.join(' '));
+  if (hardConflict) {
+    return { supported: false, ambiguous: false, hardConflict: true, matchedSignals: matches, reason: hardConflict };
+  }
 
   const domainConflict = detectDomainConflict(labelTokens, evidenceTokensArray);
   if (domainConflict) {

@@ -86,7 +86,7 @@ const mapping: ATPUnitMappingData = {
       linkedTpIds: ['tp-loko'],
       materials: [
         { id: 'mat-loko', title: 'Gerak Lokomotor', order: 1, linkedAtpItemIds: ['atp-loko', 'atp-combo'], linkedTpIds: ['tp-loko'] },
-        { id: 'mat-wrong', title: 'Strategi permainan catur', order: 2, linkedAtpItemIds: ['atp-loko'], linkedTpIds: ['tp-loko'] },
+        { id: 'mat-wrong', title: 'Gerak non-lokomotor', order: 2, linkedAtpItemIds: ['atp-loko'], linkedTpIds: ['tp-loko'] },
         { id: 'mat-generic', title: 'Kegiatan gerak', order: 3, linkedAtpItemIds: ['atp-loko'], linkedTpIds: ['tp-loko'] },
       ],
     },
@@ -234,9 +234,9 @@ assertCase(byId.get('wrong-theme')?.status === 'REVIEW', 'ID benar + tema Bab be
 assertCase(byId.get('no-evidence')?.status === 'REVIEW', 'AI mengklaim ALIGNED tanpa evidence / salah unit -> REVIEW', byId.get('no-evidence'));
 assertCase(byId.get('strong')?.status === 'ALIGNED', 'Bab/TP semantik kuat -> ALIGNED', byId.get('strong'));
 assertCase(byId.get('multi-ok')?.status === 'ALIGNED', 'Multi-Bab: semua subset TP selaras -> ALIGNED', byId.get('multi-ok'));
-assertCase(matById.get('mat-wrong-supported')?.status === 'MANUAL_REVIEW', 'Material ID benar tetapi judul tidak sesuai -> MANUAL_REVIEW', matById.get('mat-wrong-supported'));
+assertCase(matById.get('mat-wrong-supported')?.status === 'MANUAL_REVIEW', 'Material ID benar tetapi domain gerak eksplisit bertentangan -> MANUAL_REVIEW', matById.get('mat-wrong-supported'));
 assertCase(matById.get('mat-supported')?.status === 'SUPPORTED', 'Material valid dan substansi sesuai -> SUPPORTED', matById.get('mat-supported'));
-assertCase(!matById.get('ambiguous-action')?.action, 'Kasus ambigu tidak menghasilkan action otomatis', matById.get('ambiguous-action'));
+assertCase(matById.get('ambiguous-action')?.status === 'ALIGNABLE' && !!matById.get('ambiguous-action')?.action, 'Usulan Gemini dengan overlap lexical rendah tetap actionable tanpa konflik eksplisit', matById.get('ambiguous-action'));
 assertCase(result.summary.alignedAtp === result.atpFindings.filter((f) => f.status === 'ALIGNED').length, 'Summary alignedAtp konsisten dengan findings final', result.summary);
 
 // Additional regression tests for unmapped ATP claiming aligned, actual placement vs currentUnitId mismatch, and REVIEW from AI + strong evidence

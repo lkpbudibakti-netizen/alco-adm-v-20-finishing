@@ -589,10 +589,10 @@ export function applyATPMappingActions(input: ApplyATPMappingActionsInput): Appl
     }
     for (const tpId of action.linkedTpIds || []) {
       if (original.linkedAtpItemIds.includes(action.atpItemId!) && original.linkedTpIds.includes(tpId)) continue;
-      const relevant = supported.some(m => m.linkedTpIds.includes(tpId) && checkMappingSemanticEvidence({
+      const relevant = supported.some(m => m.linkedTpIds.includes(tpId) && !checkMappingSemanticEvidence({
         label: m.title, tpItems: (tp.items || []).filter(item => item.id === tpId),
-      }).supported);
-      if (!relevant) issues.push(`ASSIGN_ATP_TO_UNIT: Bab '${unit.title}', TP '${tpId}': kesesuaian dengan materi pendukung belum dapat dipastikan. Tinjau substansi materi sebelum memperluas relasi Bab.`);
+      }).hardConflict);
+      if (!relevant) issues.push(`ASSIGN_ATP_TO_UNIT: Bab '${unit.title}', TP '${tpId}': konflik domain gerak eksplisit pada materi pendukung. Tinjau substansi materi sebelum memperluas relasi Bab.`);
     }
   }
   const affectedUnits = new Set(selectedActions.map(action => action.targetUnitId));

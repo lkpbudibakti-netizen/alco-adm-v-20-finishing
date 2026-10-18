@@ -18,6 +18,8 @@ export function analyzeBabFirstMapping(raw: any, params: AnalyzeATPUnitMappingSe
     const item = tp.items.find(item => item.id === id);
     return !!item && checkMappingSemanticEvidence({ label, tpItems: [item] }).supported;
   });
+  const noHardConflict = (label: string, ids: string[]) => ids.every(id =>
+    !checkMappingSemanticEvidence({ label, tpItems: tp.items.filter(item => item.id === id) }).hardConflict);
 
   for (const unit of units) {
     const proposals = rawMaterials.filter(finding => finding.unitId === unit.id);
@@ -50,16 +52,28 @@ export function analyzeBabFirstMapping(raw: any, params: AnalyzeATPUnitMappingSe
         manual('Saran tidak memiliki subset TP canonical yang eksplisit dan lengkap.'); continue;
       }
       const existingTpIds = material?.linkedTpIds || [];
+      const geminiProposal = ['SUPPORTED', 'ALIGNABLE', 'MISSING_MATERIAL'].includes(proposal?.status) &&
+        Array.isArray(proposedTpIds) && proposedTpIds.length > 0;
       // A raw AI proposal chooses TP only; AI ATP IDs are deliberately not consumed.
       const tpIds: string[] = Array.isArray(proposedTpIds) && proposedTpIds.length
         ? [...proposedTpIds]
         : existingTpIds.length ? [...existingTpIds]
         : tp.items.filter(item => checkMappingSemanticEvidence({ label: title, tpItems: [item] }).supported).map(item => item.id);
       const parents = deriveMappingAtpIds(tpIds, atp, tp);
-      if (parents.issues.length || !tpIds.length || !evidence(title, tpIds)) {
+      if (!tpIds.length && !geminiProposal) {
+        manual('Keselarasan TP belum dapat dipastikan: label tidak memuat kata kunci substansi yang cukup untuk TP pilihan.'); continue;
+      }
+      if (parents.issues.length || !tpIds.length) {
+        manual('Subset TP canonical tidak valid atau ATP induk belum tersedia. ' + parents.issues.join('; ')); continue;
+      }
+      if (geminiProposal && !noHardConflict(title, tpIds)) {
+        manual('Konflik domain gerak eksplisit antara materi dan TP pilihan Gemini; tinjau manual.'); continue;
+      }
+      if (!geminiProposal && !evidence(title, tpIds)) {
         manual('Keselarasan TP belum dapat dipastikan: label tidak memuat kata kunci substansi yang cukup untuk TP pilihan. ' + parents.issues.join('; ')); continue;
       }
-      if (!material && !checkMappingSemanticEvidence({ label: unit.title, tpItems: tp.items.filter(item => tpIds.includes(item.id)) }).supported) {
+      const unitEvidence = checkMappingSemanticEvidence({ label: unit.title, tpItems: tp.items.filter(item => tpIds.includes(item.id)) });
+      if (!material && (geminiProposal ? unitEvidence.hardConflict : !unitEvidence.supported)) {
         manual('Judul Bab belum mendukung TP materi usulan; materi baru tidak ditambahkan otomatis ke Bab yang tidak relevan.'); continue;
       }
       const staleIds = (material?.linkedAtpItemIds || []).filter(id => !atp.items.some(item => item.id === id));
@@ -78,7 +92,9 @@ export function analyzeBabFirstMapping(raw: any, params: AnalyzeATPUnitMappingSe
       materialFindings.push({ id, unitId: unit.id, materialId: material?.id, suggestedTitle: material ? undefined : title,
         status: supported ? 'SUPPORTED' : material ? 'ALIGNABLE' : 'MISSING_MATERIAL',
         supportingTpIds: tpIds, supportingAtpItemIds: parents.atpItemIds, strength: 'STRONG',
-        reason: 'Substansi Bab/Materi mendukung TP pilihan; ATP induk diturunkan deterministik dari relasi canonical.', action });
+        reason: geminiProposal
+          ? 'Relevansi semantik Bab/Materi → TP mengikuti usulan Gemini; ID, induk ATP, lineage dan bundle tetap divalidasi server.'
+          : 'Substansi Bab/Materi mendukung TP pilihan; ATP induk diturunkan deterministik dari relasi canonical.', action });
     }
 
     const findings = materialFindings.filter(finding => finding.unitId === unit.id);
@@ -122,7 +138,8 @@ export function analyzeBabFirstMapping(raw: any, params: AnalyzeATPUnitMappingSe
     const covered = canonicalTpIds.length > 0 && canonicalTpIds.every(id => mappedUnits.some(unit => unit.linkedTpIds.includes(id)));
     const rawFinding = (Array.isArray(raw?.atpFindings) ? raw.atpFindings : []).find((finding: any) => finding.atpItemId === item.id);
     const semantic = mappedUnits.every(unit => (unit.linkedTpIds || []).filter(id => canonicalTpIds.includes(id)).every(id =>
-      unit.materials.some(material => material.linkedTpIds.includes(id) && evidence(material.title, [id]))));
+      unit.materials.some(material => material.linkedTpIds.includes(id) && materialFindings.some(finding =>
+        finding.unitId === unit.id && finding.materialId === material.id && finding.status !== 'MANUAL_REVIEW' && finding.supportingTpIds.includes(id)))));
     const aligned = mappedUnits.length > 0 && covered && semantic && rawFinding?.status !== 'REVIEW' &&
       (!rawFinding?.currentUnitId || mappedUnits.some(unit => unit.id === rawFinding.currentUnitId)) &&
       !validation.issues.some(issue => issue.includes('ATP_PROGRESSION_REVERSED') && issue.includes("'"+item.id+"'"));
