@@ -83,7 +83,7 @@ export async function generatePROMES(context: DocumentGenerationContext): Promis
   });
   const rows = [...presentation.rows, ...presentation.summaryRows].map((cells, rowIndex) => new TableRow({
     cantSplit: false,
-    children: cells.map((text, index) => createTableDataCell(text, presentation.widths[index], AlignmentType.LEFT, rowIndex >= presentation.rows.length)),
+    children: cells.map((text, index) => createTableDataCell(text, presentation.widths[index], presentation.alignments[index] === 'center' ? AlignmentType.CENTER : AlignmentType.LEFT, rowIndex >= presentation.rows.length)),
   }));
   docChildren.push(new Table({
     layout: TableLayoutType.FIXED,

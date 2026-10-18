@@ -642,7 +642,7 @@ export async function generatePdfDocument(
       sections.push({
         type: 'table',
         columns: presentation.headers.map((header, index) => ({
-          header, dataKey: 'c' + index, width: contentWidth * presentation.widths[index] / 100,
+          header, dataKey: 'c' + index, width: contentWidth * presentation.widths[index] / 100, align: presentation.alignments[index],
         })),
         rows: [...presentation.rows, ...presentation.summaryRows],
       });
