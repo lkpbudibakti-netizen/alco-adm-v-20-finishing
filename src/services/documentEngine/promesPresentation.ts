@@ -1,7 +1,9 @@
 import type { PromesProjection } from './promesProjection';
 
 function formatAllocatedWeeks(allocations: Record<number, number>): string {
-  const weeks = Object.keys(allocations).map(Number)
+  const weeks = Object.entries(allocations)
+    .filter(([, jp]) => Number.isFinite(jp) && jp > 0)
+    .map(([week]) => Number(week))
     .filter(week => Number.isInteger(week) && week > 0).sort((a, b) => a - b);
   const ranges: string[] = [];
   for (let index = 0; index < weeks.length; index++) {

@@ -81,6 +81,17 @@ for(const [keys,expected] of [[[5,1,3],'1, 3, 5'],[[5,3,1,2],'1–3, 5'],[[],'-'
  const view=buildPromesPresentation({...projection,rows:[row]});
  assert.equal(view.rows[0][5],expected);assert.equal(view.totalJP,projection.totalAllocatedJP);
 }
+for(const [weekAllocations,expected] of [
+ [{1:1,2:1,3:0},'1–2'],
+ [{1:0,3:2,5:2},'3, 5'],
+ [{1:1,2:-1,3:NaN,4:Infinity,5:-Infinity,6:2},'1, 6'],
+ [{'invalid':2,'1.5':2,'0':2,'-1':2,'Infinity':2,'NaN':2,3:2},'3'],
+ [{1:0,2:-2,3:NaN,4:Infinity},'-'],
+ [{1:'2',2:null,3:undefined,4:true,5:2},'5'],
+] as const){
+ const row={...projection.rows[0],weekAllocations:weekAllocations as Record<number,number>};
+ assert.equal(buildPromesPresentation({...projection,rows:[row]}).rows[0][5],expected);
+}
 const sparse=structuredClone(makeContext(1));
 sparse.learningMeetingSchedules[0].schedule.entries.forEach((entry:any,index:number)=>entry.weekIndex=[5,1,3][index]);
 const sparseProjection=buildPromesProjection(sparse);assert(sparseProjection.isReady,sparseProjection.unreadyReason);
