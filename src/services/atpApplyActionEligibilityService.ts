@@ -15,6 +15,10 @@ export interface ApplyActionEligibilityResult {
   issues: string[];
   selectedCount: number;
   executableActionsCount: number;
+  selectedFindingCount: number;
+  executableActionCount: number;
+  previewSuccess: boolean;
+  previewIssues: string[];
 }
 
 function getCanonicalTpsForAtpItem(atpItem: any): string[] {
@@ -188,81 +192,33 @@ export function resolveApplyActionsEligibility(params: {
     currentFingerprint,
   } = params;
 
-  // Reason 1: belum ada saran dipilih
-  if (selectedCount === 0) {
-    return {
-      canApply: false,
-      disabledReason: 'belum ada saran dipilih',
-      issues: [],
-      selectedCount: 0,
-      executableActionsCount: 0,
-    };
-  }
-
-  // Reason 2: pilihan tidak memiliki action valid
-  if (selectedActions.length === 0) {
-    return {
-      canApply: false,
-      disabledReason: 'pilihan tidak memiliki action valid',
-      diagnosticWarning: `Anda telah memilih ${selectedCount} saran, tetapi tidak ada tindakan otomatis yang valid untuk diterapkan ke draft. Saran ini bersifat tinjauan/catatan manual.`,
-      issues: ['Pilihan tidak memiliki action yang dapat dieksekusi secara otomatis.'],
-      selectedCount,
-      executableActionsCount: 0,
-    };
-  }
-
-  // Reason 3: hasil analisis stale/kedaluwarsa
-  const isStale = Boolean(
-    !expectedFingerprint ||
-    !currentFingerprint ||
-    expectedFingerprint !== currentFingerprint
-  );
-  if (isStale) {
-    return {
-      canApply: false,
-      disabledReason: 'hasil analisis stale/kedaluwarsa',
-      diagnosticWarning: 'Hasil analisis sudah kedaluwarsa karena struktur Bab atau data telah berubah setelah analisis. Jalankan analisis ulang.',
-      issues: ['Analisis tidak tersedia atau sudah kedaluwarsa. Jalankan analisis ulang.'],
-      selectedCount,
-      executableActionsCount: selectedActions.length,
-    };
-  }
-
-  // Reason 4: action tidak lagi cocok dengan draft saat ini
-  const mismatchIssues: string[] = [];
-  for (const action of selectedActions) {
-    const check = validateActionAgainstDraft(action, units, atp, tp);
-    if (!check.valid && check.issue) {
-      mismatchIssues.push(check.issue);
-    }
-  }
-
-  if (mismatchIssues.length > 0) {
-    return {
-      canApply: false,
-      disabledReason: 'action tidak lagi cocok dengan draft saat ini',
-      diagnosticWarning: `Tindakan yang dipilih tidak lagi cocok dengan draf saat ini: ${mismatchIssues.join('; ')}`,
-      issues: mismatchIssues,
-      selectedCount,
-      executableActionsCount: selectedActions.length,
-    };
-  }
-
-  // The button must use the same atomic transaction and canonical validator as Apply.
+  // Preview uses the exact atomic transaction that Apply will execute.
+  // Finding counts describe the UI selection, never transaction validity.
   const preview = applyATPMappingActions({ units, selectedActions, atp, tp,
     expectedFingerprint: expectedFingerprint || undefined, currentFingerprint: currentFingerprint || undefined });
-  if (!preview.success || selectedCount !== selectedActions.length) {
-    const issues = preview.success ? ['Pilihan mencakup tinjauan manual tanpa action; pilih bundle lengkap yang dapat diterapkan.'] : preview.issues;
-    return { canApply: false, disabledReason: 'bundle Bab/Materi/TP/ATP belum dapat diterapkan',
-      diagnosticWarning: issues.join('; '), issues, selectedCount, executableActionsCount: selectedActions.length };
-  }
-  // Action valid -> tombol enabled
-  return {
-    canApply: true,
-    disabledReason: undefined,
-    diagnosticWarning: undefined,
-    issues: [],
+  const missingActionWarning = selectedCount > selectedActions.length
+    ? 'Anda memilih ' + selectedCount + ' saran; ' + selectedActions.length + ' action dapat dieksekusi. Saran tanpa action hanya menjadi catatan tinjauan manual.'
+    : undefined;
+  const diagnostics = {
     selectedCount,
     executableActionsCount: selectedActions.length,
+    selectedFindingCount: selectedCount,
+    executableActionCount: selectedActions.length,
+    previewSuccess: preview.success,
+    previewIssues: preview.issues,
   };
+  if (selectedActions.length === 0) {
+    return { ...diagnostics, canApply: false,
+      disabledReason: selectedCount === 0 ? 'belum ada saran dipilih' : 'pilihan tidak memiliki action valid',
+      diagnosticWarning: [missingActionWarning, ...preview.issues].filter(Boolean).join('; ') || undefined,
+      issues: preview.issues };
+  }
+  if (!preview.success) {
+    const stale = !expectedFingerprint || !currentFingerprint || expectedFingerprint !== currentFingerprint;
+    const disabledReason = stale ? 'hasil analisis stale/kedaluwarsa' : 'bundle Bab/Materi/TP/ATP belum dapat diterapkan';
+    return { ...diagnostics, canApply: false, disabledReason,
+      diagnosticWarning: [missingActionWarning, ...preview.issues].filter(Boolean).join('; '),
+      issues: preview.issues };
+  }
+  return { ...diagnostics, canApply: true, diagnosticWarning: missingActionWarning, issues: preview.issues };
 }

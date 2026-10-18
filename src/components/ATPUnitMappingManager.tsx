@@ -2033,8 +2033,8 @@ export const ATPUnitMappingManager: React.FC<ATPUnitMappingManagerProps> = ({
             )}
           </div>
 
-          {/* Diagnostic Warning: Contract 5 - Explicit diagnostic when user checked suggestions but 0 valid actions */}
-          {selectedAnalysisActionIds.size > 0 && selectedActions.length === 0 && (
+          {/* Informative warnings also remain visible when executable actions can be applied. */}
+          {actionEligibility.diagnosticWarning && (
             <div
               id="apply-actions-diagnostic-warning"
               className="p-3.5 rounded-xl bg-amber-50 border border-amber-300 text-amber-900 text-xs flex items-start gap-2.5 animate-fadeIn"
@@ -2093,6 +2093,14 @@ export const ATPUnitMappingManager: React.FC<ATPUnitMappingManagerProps> = ({
                 Terpilih: <strong className="text-slate-800">{selectedAnalysisActionIds.size}</strong> saran{' '}
                 <span className="text-slate-400">({selectedActions.length} action valid)</span>
               </div>
+              <details id="apply-actions-preview-diagnostics" className="text-xs text-slate-500">
+                <summary className="cursor-pointer">Detail pemeriksaan pilihan</summary>
+                <div>selectedFindingCount: {actionEligibility.selectedFindingCount}</div>
+                <div>executableActionCount: {actionEligibility.executableActionCount}</div>
+                <div>previewSuccess: {String(actionEligibility.previewSuccess)}</div>
+                <div>previewIssues:</div>
+                <ul>{actionEligibility.previewIssues.map((issue, index) => <li key={index}>{issue}</li>)}</ul>
+              </details>
               {!actionEligibility.canApply && actionEligibility.disabledReason && (
                 <div
                   id="apply-actions-disabled-reason"

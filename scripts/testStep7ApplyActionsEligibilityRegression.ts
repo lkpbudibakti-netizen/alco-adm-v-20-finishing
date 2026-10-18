@@ -202,10 +202,15 @@ console.log('Testing Test 3: Action tidak cocok dengan draft -> disabled + alasa
 
   assert.equal(eligibility.canApply, false, 'Mismatched action must not allow apply');
   assert.ok(
-    eligibility.disabledReason && eligibility.disabledReason.toLowerCase().includes('action tidak lagi cocok dengan draft saat ini'),
+    eligibility.previewSuccess === false && eligibility.previewIssues.length > 0,
     `Reason must indicate action does not match draft. Got: ${eligibility.disabledReason}`
   );
   assert.ok(eligibility.issues.length > 0, 'Issues list must not be empty');
+  const preview = applyATPMappingActions({ units, selectedActions: [mismatchedAction], atp, tp,
+    expectedFingerprint: currentFingerprint, currentFingerprint });
+  assert.deepEqual(eligibility.previewIssues, preview.issues, 'Preserve original preview issues');
+  assert.deepEqual(eligibility.issues, preview.issues);
+  assert.ok(preview.issues.every(issue => eligibility.diagnosticWarning?.includes(issue)));
   console.log('✓ Test 3 passed: mismatched action is disabled with reason:', eligibility.disabledReason);
 }
 
@@ -238,6 +243,16 @@ console.log('Testing Test 4: Action valid -> tombol enabled...');
 
   assert.equal(eligibility.canApply, true, 'Valid action must allow apply');
   assert.equal(eligibility.disabledReason, undefined, 'Disabled reason must be undefined when enabled');
+  for (const selectedCount of [0, 3]) {
+    const mixed = resolveApplyActionsEligibility({ selectedCount, selectedActions: [validAction], units, atp, tp,
+      expectedFingerprint: currentFingerprint, currentFingerprint });
+    assert.equal(mixed.canApply, true, 'Finding count must never block a successful executable preview');
+    assert.equal(mixed.selectedFindingCount, selectedCount);
+    assert.equal(mixed.executableActionCount, 1);
+    assert.equal(mixed.previewSuccess, true);
+    assert.deepEqual(mixed.previewIssues, []);
+    if (selectedCount > 1) assert.ok(mixed.diagnosticWarning?.includes('tanpa action'));
+  }
 
   // Verify applyATPMappingActions actually succeeds with this action
   const applyResult = applyATPMappingActions({
@@ -305,6 +320,15 @@ console.log('Testing Test 5: Stale fingerprint -> apply gagal dengan alasan terl
     `Issues must mention stale/outdated. Got: ${JSON.stringify(applyResult.issues)}`
   );
   console.log('✓ Test 5 passed: stale fingerprint fails with visible reason:', eligibility.disabledReason);
+  const incomplete = resolveApplyActionsEligibility({ selectedCount: 3, selectedActions: [validAction],
+    units, atp, tp, expectedFingerprint: currentFingerprint, currentFingerprint });
+  const incompletePreview = applyATPMappingActions({ selectedActions: [validAction], units, atp, tp,
+    expectedFingerprint: currentFingerprint, currentFingerprint });
+  assert.equal(incompletePreview.success, false, 'ATP assignment without paired material must fail global preview');
+  assert.equal(incomplete.canApply, false);
+  assert.equal(incomplete.previewSuccess, false);
+  assert.deepEqual(incomplete.previewIssues, incompletePreview.issues);
+  assert.ok(incompletePreview.issues.every(issue => incomplete.diagnosticWarning?.includes(issue)));
 }
 
 // -------------------------------------------------------------
@@ -343,6 +367,12 @@ console.log('Testing Test 6: Verify ATPUnitMappingManager source bindings...');
     componentSource.includes('id="apply-actions-issues-panel"'),
     'Apply issues list panel must exist in the UI'
   );
+  assert.ok(componentSource.includes('{actionEligibility.diagnosticWarning && ('), 'Informational warning must show even when Apply is enabled');
+  for (const field of ['selectedFindingCount', 'executableActionCount', 'previewSuccess', 'previewIssues']) {
+    assert.ok(componentSource.includes(`actionEligibility.${field}`), `UI must expose ${field}`);
+  }
+  const selectAll = componentSource.slice(componentSource.indexOf('const handleSelectAllActionable'), componentSource.indexOf('const handleDeselectAllActionable'));
+  assert.ok(selectAll.includes('if (f.action)') && selectAll.includes('if (m.action)'), 'Select all must select actionable findings only');
 
   console.log('✓ Test 6 passed: ATPUnitMappingManager adheres to all UX and diagnostic contracts');
 }
