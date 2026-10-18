@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { resolveCPContext } from '../src/data/curriculum/cp';
 import { cpSourceRepository } from '../src/services/cpSourceRepository';
+import { PJOK_SD_CP_046_2025_LITERAL } from './fixtures/pjokSDCP0462025';
 
 const sourceId = 'DEC-BSKAP-046-2025';
 const sourceUrl = 'https://kurikulum.kemendikdasmen.go.id/file/1753929861_manage_file.pdf';
@@ -30,7 +31,7 @@ try {
       assert.equal(entry.verificationStatus, 'VERIFIED');
       assert.equal(entry.elements.length, 4);
       assert.deepEqual(entry.elements.map(element => element.name), elementNames);
-      assert(entry.elements.every(element => element.content.trim().length > 0));
+      assert.deepEqual(entry.elements, PJOK_SD_CP_046_2025_LITERAL[phase], `Fase ${phase}: exact official wording and punctuation`);
       assert(entry.evidence?.some(evidence => evidence.regulationId === sourceId && evidence.sourceUrl === sourceUrl));
       assert(entry.notes?.includes('generalDescription adalah ringkasan aplikasi'));
       assert(entry.notes?.includes('elements merupakan authority substansi CP resmi'));
@@ -45,10 +46,10 @@ try {
       assert.equal(result.isSelectable, true);
       assert.equal(result.statusReason, undefined);
       assert.equal(result.elements.length, 4);
-      assert.deepEqual(result.elements.map(({ name, content }) => ({ name, content })), entry.elements);
+      assert.deepEqual(result.elements.map(({ name, content }) => ({ name, content })), PJOK_SD_CP_046_2025_LITERAL[phase]);
     }
   }
 } finally {
   cpSourceRepository.getLocalReferenceFallback = originalFallback;
 }
-console.log('PASS: PJOK SD Fase A/B/C resolves uniquely for 2025/2026 and 2026/2027, verified BSKAP 046/2025 evidence and four ordered official elements, without local fallback.');
+console.log('PASS: PJOK SD A/B/C exact literal official content and punctuation, four ordered elements, verified BSKAP 046/2025 source, unique resolution for 2025/2026 and 2026/2027 without local fallback.');
