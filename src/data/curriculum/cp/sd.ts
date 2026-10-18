@@ -15,7 +15,7 @@ export const SD_CP_ENTRIES: MasterCPEntry[] = [
     effectiveFrom: '2025-07-01',
     implementationFromAcademicYear: '2025/2026',
     verificationStatus: 'VERIFIED',
-    notes: 'CP PJOK Fase A diverifikasi langsung terhadap Keputusan Kepala BSKAP No. 046/H/KR/2025.',
+    notes: 'CP PJOK Fase A diverifikasi langsung terhadap Keputusan Kepala BSKAP No. 046/H/KR/2025. generalDescription adalah ringkasan aplikasi dari empat elemen untuk kebutuhan UI/app; elements merupakan authority substansi CP resmi.',
     evidence: [
       {
         regulationId: 'DEC-BSKAP-046-2025',
@@ -528,6 +528,47 @@ export const SD_CP_ENTRIES: MasterCPEntry[] = [
 
   // --- FASE B (KELAS 3 & 4 SD) ---
   {
+    id: 'cp25-sd-fase-b-pjok',
+    subjectCode: 'PJOK',
+    phase: 'B',
+    level: 'SD',
+    regulationSourceId: 'DEC-BSKAP-046-2025',
+    implementationFromAcademicYear: '2025/2026',
+    verificationStatus: 'VERIFIED',
+    notes: 'CP PJOK Fase B diverifikasi langsung terhadap Keputusan Kepala BSKAP No. 046/H/KR/2025. generalDescription adalah ringkasan aplikasi dari empat elemen untuk kebutuhan UI/app; elements merupakan authority substansi CP resmi.',
+    evidence: [
+      {
+        regulationId: 'DEC-BSKAP-046-2025',
+        sourceUrl: 'https://kurikulum.kemendikdasmen.go.id/file/1753929861_manage_file.pdf',
+        locator: {
+          attachment: 'Lampiran Capaian Pembelajaran PJOK',
+          section: 'D. Capaian Pembelajaran, Fase B (Kelas III dan IV SD/MI/Program Paket A)',
+          page: 311,
+          note: 'Nomor halaman PDF 311–312.'
+        }
+      }
+    ],
+    generalDescription: 'Pada akhir Fase B, peserta didik menghaluskan gerak fundamental, menyesuaikan strategi, dan memperagakan konsep gerak. Peserta didik memecahkan masalah gerak, menerapkan peraturan untuk fair play, serta berpartisipasi positif dalam kelompok atau tim. Peserta didik mengenali faktor yang membuat aktivitas jasmani menyenangkan, risiko kesehatan dan aktivitas pencegahannya, pola makan sehat dan bergizi seimbang, serta mempraktikkan penanganan cedera ringan berdasarkan prinsip pertolongan pertama.',
+    elements: [
+      {
+        name: 'Terampil Bergerak',
+        content: 'Menghaluskan keterampilan gerak fundamental dan menerapkannya dalam situasi gerak yang baru; menyesuaikan strategi gerak untuk mendapatkan capaian keterampilan gerak; dan memperagakan berbagai konsep gerak yang dapat diterapkan dalam rangkaian gerak.'
+      },
+      {
+        name: 'Belajar Melalui Gerak',
+        content: 'Menerapkan strategi gerak sederhana dan memecahkan masalah gerak; menerapkan peraturan untuk menumbuhkan fair play di dalam berbagai aktivitas jasmani; dan berpartisipasi secara positif dalam kelompok atau tim di dalam berbagai aktivitas jasmani.'
+      },
+      {
+        name: 'Bergaya Hidup Aktif',
+        content: 'Berpartisipasi dalam berbagai aktivitas jasmani dan mengenali faktor-faktor yang menyebabkan aktivitas jasmani menyenangkan.'
+      },
+      {
+        name: 'Memilih Hidup yang Menyehatkan',
+        content: 'Mengenali risiko kesehatan akibat gaya hidup dan berbagai aktivitas jasmani untuk pencegahannya; mengidentifikasi pola makan sehat dan bergizi seimbang sesuai rekomendasi kesehatan untuk menunjang aktivitas sehari-hari; dan mempraktikkan penanganan cedera ringan sesuai pemahaman tentang prinsip pertolongan pertama.'
+      }
+    ]
+  },
+  {
     id: 'cp-sd-fase-b-bindo',
     subjectCode: 'BINDO',
     phase: 'B',
@@ -674,6 +715,47 @@ export const SD_CP_ENTRIES: MasterCPEntry[] = [
   },
 
   // --- FASE C (KELAS 5 & 6 SD) ---
+  {
+    id: 'cp25-sd-fase-c-pjok',
+    subjectCode: 'PJOK',
+    phase: 'C',
+    level: 'SD',
+    regulationSourceId: 'DEC-BSKAP-046-2025',
+    implementationFromAcademicYear: '2025/2026',
+    verificationStatus: 'VERIFIED',
+    notes: 'CP PJOK Fase C diverifikasi langsung terhadap Keputusan Kepala BSKAP No. 046/H/KR/2025. generalDescription adalah ringkasan aplikasi dari empat elemen untuk kebutuhan UI/app; elements merupakan authority substansi CP resmi.',
+    evidence: [
+      {
+        regulationId: 'DEC-BSKAP-046-2025',
+        sourceUrl: 'https://kurikulum.kemendikdasmen.go.id/file/1753929861_manage_file.pdf',
+        locator: {
+          attachment: 'Lampiran Capaian Pembelajaran PJOK',
+          section: 'D. Capaian Pembelajaran, Fase C (Kelas V dan VI SD/MI/Program Paket A)',
+          page: 312,
+          note: 'Nomor halaman PDF 312–313; tanda baca elemen 3.1 dipertahankan sesuai naskah resmi.'
+        }
+      }
+    ],
+    generalDescription: 'Pada akhir Fase C, peserta didik menyesuaikan keterampilan, mentransfer strategi, dan menginvestigasi konsep gerak untuk meningkatkan capaian. Peserta didik menguji efektivitas strategi, merancang peraturan alternatif dan modifikasi permainan yang mendukung fair play dan partisipasi inklusif, serta menjalankan peran dalam kelompok atau tim. Peserta didik menjelaskan pengaruh aktivitas jasmani teratur, mengenali rekomendasi aktivitas dan pencegahan perilaku sedenter, menghubungkan gaya hidup dengan risiko kesehatan dan pencegahannya, menjelaskan pola makan sehat berdasarkan kandungan gizi, serta mempraktikkan penanganan cedera sedang berdasarkan prinsip pertolongan pertama.',
+    elements: [
+      {
+        name: 'Terampil Bergerak',
+        content: 'Menyesuaikan keterampilan gerak melintasi berbagai situasi gerak; mentransfer strategi gerak yang sudah dikuasai ke dalam berbagai situasi gerak yang berbeda; dan menginvestigasi berbagai konsep gerak yang dapat diterapkan untuk meningkatkan capaian keterampilan gerak'
+      },
+      {
+        name: 'Belajar Melalui Gerak',
+        content: 'Menguji efektivitas penerapan strategi gerak dalam berbagai situasi gerak; merancang peraturan alternatif dan modifikasi permainan untuk mendukung fair play dan partisipasi inklusif; dan menjalankan berbagai peran untuk mencapai keberhasilan kelompok atau tim di dalam berbagai aktivitas jasmani.'
+      },
+      {
+        name: 'Bergaya Hidup Aktif',
+        content: 'Berpartisipasi dalam aktivitas jasmani dan menjelaskan pengaruh aktivitas jasmani yang teratur terhadap kesehatan; mengidentifikasi rekomendasi aktivitas jasmani serta pencegahan perilaku sedenter.'
+      },
+      {
+        name: 'Memilih Hidup yang Menyehatkan',
+        content: 'Mengidentifikasi dan menghubungkan antara gaya hidup, risiko kesehatan, dan aktivitas pencegahannya sesuai rekomendasi otoritas kesehatan; menjelaskan pola makan sehat untuk menunjang aktivitas jasmani berdasarkan informasi kandungan gizi pada makanan; dan mempraktikkan penanganan cedera sedang sesuai pemahaman tentang prinsip pertolongan pertama.'
+      }
+    ]
+  },
   {
     id: 'cp-sd-fase-c-bindo',
     subjectCode: 'BINDO',
