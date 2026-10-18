@@ -55,16 +55,18 @@ const tpData: TPData = {
   updatedAt: '2026-01-01T00:00:00.000Z',
 };
 
+// Keep this semantic fixture pedagogically valid: the combined TP stage precedes its revisits.
+// Strictly inverted spans are covered independently by testStep7BabFirstRegression.ts.
 const atpData: ATPData = {
   id: 'atp-pjok',
   academicSettingId: 'acad-pjok',
   tpDataId: tpData.id,
   items: [
-    { id: 'atp-loko', stepNumber: 1, linkedTpIds: ['tp-loko'], focus: 'Variasi gerak lokomotor' },
-    { id: 'atp-non', stepNumber: 2, linkedTpIds: ['tp-non'], focus: 'Variasi gerak non-lokomotor' },
-    { id: 'atp-manip', stepNumber: 3, linkedTpIds: ['tp-manip'], focus: 'Variasi gerak manipulatif menggunakan bola' },
-    { id: 'atp-safe', stepNumber: 4, linkedTpIds: ['tp-safe'], focus: 'Keselamatan aktivitas fisik' },
-    { id: 'atp-combo', stepNumber: 5, linkedTpIds: ['tp-loko', 'tp-non'], focus: 'Kombinasi gerak lokomotor dan non-lokomotor' },
+    { id: 'atp-loko', stepNumber: 2, linkedTpIds: ['tp-loko'], focus: 'Variasi gerak lokomotor' },
+    { id: 'atp-non', stepNumber: 3, linkedTpIds: ['tp-non'], focus: 'Variasi gerak non-lokomotor' },
+    { id: 'atp-manip', stepNumber: 4, linkedTpIds: ['tp-manip'], focus: 'Variasi gerak manipulatif menggunakan bola' },
+    { id: 'atp-safe', stepNumber: 5, linkedTpIds: ['tp-safe'], focus: 'Keselamatan aktivitas fisik' },
+    { id: 'atp-combo', stepNumber: 1, linkedTpIds: ['tp-loko', 'tp-non'], focus: 'Kombinasi gerak lokomotor dan non-lokomotor' },
   ],
   workflowStatus: 'SIAP',
   updatedAt: '2026-01-01T00:00:00.000Z',
@@ -83,7 +85,7 @@ const mapping: ATPUnitMappingData = {
       linkedAtpItemIds: ['atp-loko', 'atp-combo'],
       linkedTpIds: ['tp-loko'],
       materials: [
-        { id: 'mat-loko', title: 'Gerak Lokomotor', order: 1, linkedAtpItemIds: ['atp-loko'], linkedTpIds: ['tp-loko'] },
+        { id: 'mat-loko', title: 'Gerak Lokomotor', order: 1, linkedAtpItemIds: ['atp-loko', 'atp-combo'], linkedTpIds: ['tp-loko'] },
         { id: 'mat-wrong', title: 'Strategi permainan catur', order: 2, linkedAtpItemIds: ['atp-loko'], linkedTpIds: ['tp-loko'] },
         { id: 'mat-generic', title: 'Kegiatan gerak', order: 3, linkedAtpItemIds: ['atp-loko'], linkedTpIds: ['tp-loko'] },
       ],

@@ -257,7 +257,8 @@ console.log('=== RUNNING ATP UNIT MAPPING ACTION APPLY REGRESSION TESTS ===');
     targetUnitId: 'unit-aljabar',
     title: 'Operasi Bentuk Aljabar',
     linkedAtpItemIds: ['atp-item-3'],
-    // Test omitted linkedTpIds: should automatically derive canonical TPs of atp-item-3 ('tp-4', 'tp-5')
+    // Bab-first: TP subset is explicit; ATP parents are deterministic.
+    linkedTpIds: ['tp-4', 'tp-5'],
   };
 
   const result = applyATPMappingActions({
@@ -316,9 +317,12 @@ console.log('=== RUNNING ATP UNIT MAPPING ACTION APPLY REGRESSION TESTS ===');
     linkedTpIds: ['tp-3'],
   };
 
+  const partial = applyATPMappingActions({ units: unitWithLineage, selectedActions: [validAction], atp: mockAtp, tp: mockTp, expectedFingerprint: fp, currentFingerprint: fp });
+  assert.equal(partial.success, false, 'Bundle yang masih meninggalkan TP Bab tanpa materi wajib ditolak');
+  assert.equal(partial.nextUnits, undefined);
   const resultValid = applyATPMappingActions({
     units: unitWithLineage,
-    selectedActions: [validAction],
+    selectedActions: [validAction, { id: 'align-pair', type: 'ALIGN_EXISTING_MATERIAL', targetUnitId: 'unit-bil', targetMaterialId: 'mat-exist-1', linkedTpIds: ['tp-1','tp-2'], linkedAtpItemIds: ['atp-item-1'] }],
     atp: mockAtp,
     tp: mockTp,
     expectedFingerprint: fp,

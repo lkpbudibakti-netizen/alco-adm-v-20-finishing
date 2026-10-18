@@ -312,7 +312,7 @@ console.log('Testing Test 5: Stale fingerprint -> apply gagal dengan alasan terl
 // -------------------------------------------------------------
 console.log('Testing Test 6: Verify ATPUnitMappingManager source bindings...');
 {
-  const componentPath = path.resolve(__dirname, '../src/components/ATPUnitMappingManager.tsx');
+  const componentPath = path.resolve('src/components/ATPUnitMappingManager.tsx');
   const componentSource = fs.readFileSync(componentPath, 'utf8');
 
   // Contract 2: selectedActions computed before render

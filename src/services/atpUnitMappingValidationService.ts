@@ -66,6 +66,20 @@ export function validateATPUnitMappingCanonical(
 
   const units = mapping.units || [];
 
+  // Bab presentation order is independent of ATP stepNumber. Only a wholly
+  // reversed pair of pedagogical spans is forbidden; revisits/overlaps are valid.
+  const spans = (atp.items || []).map(item => {
+    const orders = units.filter(unit => unit.linkedAtpItemIds?.includes(item.id) &&
+      unit.linkedTpIds?.some(id => getCanonicalTpsForAtpItem(item).includes(id))).map(unit => unit.order);
+    return { item, min: Math.min(...orders), max: Math.max(...orders), present: orders.length > 0 };
+  });
+  for (const early of spans) for (const late of spans) {
+    if (early.present && late.present && early.item.stepNumber < late.item.stepNumber && late.max < early.min) {
+      result.isValid = false;
+      result.issues.push(`ATP_PROGRESSION_REVERSED: ATP tahap ${late.item.stepNumber} ('${late.item.id}') seluruhnya sebelum tahap ${early.item.stepNumber} ('${early.item.id}'). Urutan Bab tidak perlu sama dengan nomor ATP; pertahankan progresi atau overlap pedagogis yang sah.`);
+    }
+  }
+
   // Check structure and duplicates
   for (const u of units) {
     if (!u.id) {
@@ -139,6 +153,12 @@ export function validateATPUnitMappingCanonical(
     }
 
     // Every Unit TP supported by >=1 Unit ATP
+    for (const atpId of unitAtpIds) {
+      if (validAtpIds.has(atpId) && !unitTpIds.some(id => getCanonicalTpsForAtpItem(atpMap.get(atpId)).includes(id))) {
+        result.isValid = false;
+        result.issues.push(`Bab '${u.title || u.id}': ATP '${atpId}' tidak memiliki subset TP canonical pendukung.`);
+      }
+    }
     for (const tpId of unitTpIds) {
       if (!validTpIds.has(tpId)) continue;
       let supported = false;
@@ -203,6 +223,12 @@ export function validateATPUnitMappingCanonical(
       }
 
       // Every Material TP supported by >=1 Material ATP
+      for (const atpId of matAtpIds) {
+        if (validAtpIds.has(atpId) && !matTpIds.some(id => getCanonicalTpsForAtpItem(atpMap.get(atpId)).includes(id))) {
+          result.isValid = false;
+          result.issues.push(`Lingkup Materi '${m.title || m.id}': ATP '${atpId}' tidak memiliki TP canonical pendukung.`);
+        }
+      }
       for (const tpId of matTpIds) {
         if (!validTpIds.has(tpId) || !parentUnitTpSet.has(tpId)) continue;
         let supported = false;
@@ -294,6 +320,13 @@ export function validateATPUnitMappingCanonical(
   }
 
   // If there are any validation errors (isValid false), it can't be complete.
+  for (const tpItem of tp.items || []) {
+    if (!units.some(unit => unit.linkedTpIds?.includes(tpItem.id)) && !result.uncoveredTpIds.includes(tpItem.id)) {
+      result.uncoveredTpIds.push(tpItem.id);
+      result.isComplete = false;
+      result.issues.push(`TP canonical '${tpItem.id}' belum tercakup pada Bab mana pun.`);
+    }
+  }
   if (!result.isValid) {
     result.isComplete = false;
   }

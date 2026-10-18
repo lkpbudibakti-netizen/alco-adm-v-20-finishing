@@ -2,7 +2,6 @@ import assert from 'node:assert';
 import {
   sanitizeMappingAnalysisResult,
   fallbackAnalyzeMapping,
-  findDeterministicEmptyUnitRecommendations,
 } from '../server/mappingAnalysis';
 import { applyATPMappingActions, computeMappingFingerprint } from '../src/services/atpMappingActionApplyService';
 import type { ATPData, ATPUnitMappingData, TPData } from '../src/types';
@@ -273,7 +272,7 @@ runTest('Test 3: Bab tanpa lineage dan tanpa materi menghasilkan rekomendasi ber
   assert.strictEqual(unitFindings[0].action?.targetUnitId, 'unit-imported');
   assert.deepStrictEqual(unitFindings[0].action?.linkedAtpItemIds, ['atp-manip']);
   assert.deepStrictEqual(unitFindings[0].action?.linkedTpIds, ['tp-manip']);
-  assert.strictEqual(unitFindings[0].action?.title, 'Variasi gerak manipulatif');
+  assert.strictEqual(unitFindings[0].action?.title, 'Variasi Gerak Manipulatif');
 
   // Verify action passes validation in apply service
   const fp = computeMappingFingerprint(mappingNoLineage.units, atpDataPJOK, tpDataPJOK);
@@ -418,7 +417,7 @@ runTest('Test 5: Bab dengan keselarasan ambigu menghasilkan MANUAL_REVIEW tanpa 
 // =========================================================================
 // TEST 6: BEBERAPA LINGKUP MATERI UNTUK SATU BAB (Multiple Materials)
 // =========================================================================
-runTest('Test 6: Bab dengan multiple langkah ATP menghasilkan beberapa rekomendasi Lingkup Materi tanpa duplikasi', () => {
+runTest('Test 6: Bab tanpa evidence TP lengkap tidak membuat materi dari fokus ATP', () => {
   const tpInformatika: TPData = {
     id: 'tp-info',
     academicSettingId: 'acad-info',
@@ -481,15 +480,10 @@ runTest('Test 6: Bab dengan multiple langkah ATP menghasilkan beberapa rekomenda
   });
 
   const findings = result.materialFindings.filter((f) => f.unitId === 'unit-coding');
-  assert.strictEqual(findings.length, 2, 'Harus menghasilkan 2 rekomendasi materi untuk 2 langkah ATP yang berbeda');
+  assert.strictEqual(findings.length, 1);
+  assert.strictEqual(findings[0].status, 'MANUAL_REVIEW', 'Judul Bab tidak membuktikan seluruh TP kontrol; jangan membuat materi dari fokus ATP');
+  assert.strictEqual(findings[0].action, undefined);
 
-  const titles = findings.map((f) => f.action?.type === 'ADD_MATERIAL_TO_UNIT' ? f.action.title : '');
-  assert.ok(titles.includes('Algoritma dan Diagram Alir'));
-  assert.ok(titles.includes('Struktur Percabangan dan Perulangan'));
-
-  // Ensure no duplicate titles
-  const uniqueTitles = new Set(titles);
-  assert.strictEqual(uniqueTitles.size, 2, 'Tidak boleh ada judul duplikat');
 });
 
 console.log(`\n==========================================`);

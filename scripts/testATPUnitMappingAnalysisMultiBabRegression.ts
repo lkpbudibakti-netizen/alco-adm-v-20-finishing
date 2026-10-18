@@ -110,7 +110,7 @@ console.log('Testing Case B & C: Z=0 deadlock prevention & multi-Bab subset TP..
         order: 2,
         linkedAtpItemIds: [], // Z=0 globally because atp-1 is in unit-1, but unit-2 has no lineage
         linkedTpIds: [],
-        materials: [{ id: 'm-2', title: 'Konsep Pecahan', order: 1, linkedAtpItemIds: [], linkedTpIds: [] }],
+        materials: [{ id: 'm-2', title: 'Pecahan Sederhana', order: 1, linkedAtpItemIds: [], linkedTpIds: [] }],
       },
     ],
     updatedAt: '2026-01-01T00:00:00Z',
@@ -209,7 +209,7 @@ console.log('Testing Case I: True Z=0 deadlock prevention...');
         order: 2,
         linkedAtpItemIds: [],
         linkedTpIds: [],
-        materials: [{ id: 'm-2', title: 'Pecahan', order: 1, linkedAtpItemIds: [], linkedTpIds: [] }],
+        materials: [{ id: 'm-2', title: 'Pecahan Sederhana', order: 1, linkedAtpItemIds: [], linkedTpIds: [] }],
       },
     ],
     updatedAt: '2026-01-01T00:00:00Z',
@@ -320,7 +320,7 @@ console.log('Testing Case L: Regression Third Bab...');
     units: [
       { id: 'unit-1', title: 'B1', order: 1, linkedAtpItemIds: ['atp-1'], linkedTpIds: ['TP1'], materials: [] },
       { id: 'unit-2', title: 'B2', order: 2, linkedAtpItemIds: ['atp-1'], linkedTpIds: ['TP2'], materials: [] },
-      { id: 'unit-3', title: 'B3: Pecahan', order: 3, linkedAtpItemIds: [], linkedTpIds: [], materials: [{ id: 'm-3', title: 'Pecahan', order: 1, linkedAtpItemIds: [], linkedTpIds: [] }] },
+      { id: 'unit-3', title: 'B3: Pecahan', order: 3, linkedAtpItemIds: [], linkedTpIds: [], materials: [{ id: 'm-3', title: 'Pecahan Sederhana', order: 1, linkedAtpItemIds: [], linkedTpIds: [] }] },
     ],
     updatedAt: '2026-01-01T00:00:00Z',
   };
@@ -342,7 +342,7 @@ console.log('Testing Case M: Material Closure...');
     atpId: 'atp-001',
     tpDataId: 'tp-data-001',
     units: [
-      { id: 'unit-1', title: 'B1', order: 1, linkedAtpItemIds: ['atp-1'], linkedTpIds: ['TP1', 'TP2', 'TP3'], materials: [] },
+      { id: 'unit-1', title: 'B1', order: 1, linkedAtpItemIds: ['atp-1'], linkedTpIds: ['TP1', 'TP2'], materials: [{ id: 'm-supported', title: 'Bilangan', order: 1, linkedAtpItemIds: ['atp-1'], linkedTpIds: ['TP1','TP2'] }] },
       { 
         id: 'unit-2', 
         title: 'B2', 
@@ -433,7 +433,7 @@ console.log('Testing Case N: Reject TP belonging to another ATP...');
 // ==========================================
 // CASE O: ALIGNED ATP with Valid Multi-Bab Action to Empty Unit Preserved
 // ==========================================
-console.log('Testing Case O: ALIGNED + valid multi-Bab action to empty unit preserved...');
+console.log('Testing Case O: AI ALIGNED without material evidence stays REVIEW without automatic action...');
 {
   const rawResult = {
     atpFindings: [
@@ -486,9 +486,9 @@ console.log('Testing Case O: ALIGNED + valid multi-Bab action to empty unit pres
 
   const findings = sanitized.atpFindings;
   assert.strictEqual(findings.length, 1);
-  assert.strictEqual(findings[0].status, 'ALIGNED');
-  assert.strictEqual(findings[0].action?.targetUnitId, 'unit-2');
-  assert.deepStrictEqual(findings[0].action?.linkedTpIds, ['TP3']);
+  assert.strictEqual(findings[0].status, 'REVIEW');
+  assert.strictEqual(findings[0].action, undefined, 'AI assignment without supporting material must not be offered');
+  assert(sanitized.materialFindings.every(f => f.status === 'MANUAL_REVIEW' && !f.action));
   console.log('✅ Case O passed');
 }
 

@@ -1,3 +1,4 @@
+import { deriveMappingAtpIds } from './atpMappingLineageService';
 import type { ATPData, TPData, ATPUnitMapping, ATPUnitMaterial, ATPUnitMappingData } from '../types';
 import { validateATPUnitMappingCanonical } from './atpUnitMappingValidationService';
 import { checkMappingSemanticEvidence } from '../../server/mappingSemanticEvidence';
@@ -153,7 +154,7 @@ export function buildMappingDraftFromUnits(
       return {
         id: m.id && m.id.trim() ? m.id.trim() : `mat-${Date.now()}-${mIdx + 1}`,
         title: m.title !== undefined ? m.title : '',
-        order: mIdx + 1,
+        order: m.order,
         linkedTpIds: matTpIds,
         linkedAtpItemIds: matAtpIds,
       };
@@ -186,7 +187,7 @@ export function buildMappingDraftFromUnits(
 export function applyATPMappingActions(input: ApplyATPMappingActionsInput): ApplyATPMappingActionsResult {
   const {
     units,
-    selectedActions,
+    selectedActions: proposedActions,
     atp,
     tp,
     mappingId,
@@ -196,6 +197,25 @@ export function applyATPMappingActions(input: ApplyATPMappingActionsInput): Appl
   } = input;
 
   const issues: string[] = [];
+  // Normalize a transaction from TP choices before any draft mutation. No full-ATP TP expansion.
+  const selectedActions = (proposedActions || []).map(action => {
+    if (!action) return action;
+    const selectedTpIds = action.linkedTpIds || [];
+    const derived = deriveMappingAtpIds(selectedTpIds, atp, tp);
+    issues.push(...derived.issues);
+    if (!selectedTpIds.length) issues.push('Bundle Bab/Materi wajib memilih subset TP canonical.');
+    if (action.type === 'ASSIGN_ATP_TO_UNIT') {
+      if (!derived.atpItemIds.includes(action.atpItemId || '')) issues.push('ATP penugasan bukan induk TP pilihan.');
+      return { ...action, linkedTpIds: [...selectedTpIds] };
+    }
+    const supplied = action.linkedAtpItemIds || (action.atpItemId ? [action.atpItemId] : []);
+    for (const id of supplied) if (!atp.items.some(item => item.id === id)) issues.push(`Action merujuk ATP fiktif: ${id}`);
+    if (supplied.length && (supplied.some(id => !derived.atpItemIds.includes(id)) || derived.atpItemIds.some(id => !supplied.includes(id)))) {
+      issues.push('CANONICAL_LINEAGE_MISMATCH: ATP materi harus sama dengan induk TP canonical pilihan.');
+    }
+    return { ...action, linkedTpIds: [...selectedTpIds], linkedAtpItemIds: derived.atpItemIds };
+  });
+
 
   // 1. Stale Analysis Guard
   if (
@@ -474,18 +494,12 @@ export function applyATPMappingActions(input: ApplyATPMappingActionsInput): Appl
           const newMat: ATPUnitMaterial = {
             id: `mat-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
             title,
-            order: currentMats.length + 1,
+            order: Math.max(0, ...currentMats.map(material => material.order)) + 1,
             linkedTpIds: sortedMatTps,
             linkedAtpItemIds: sortedMatAtps,
           };
           nextMaterials = [...currentMats, newMat];
         }
-
-        // Re-index material orders consistently 1..N without altering relative order
-        nextMaterials = nextMaterials.map((m, idx) => ({
-          ...m,
-          order: idx + 1,
-        }));
 
         return {
           ...u,
@@ -580,6 +594,13 @@ export function applyATPMappingActions(input: ApplyATPMappingActionsInput): Appl
       }).supported);
       if (!relevant) issues.push(`ASSIGN_ATP_TO_UNIT: Bab '${unit.title}', TP '${tpId}': kesesuaian dengan materi pendukung belum dapat dipastikan. Tinjau substansi materi sebelum memperluas relasi Bab.`);
     }
+  }
+  const affectedUnits = new Set(selectedActions.map(action => action.targetUnitId));
+  for (const gap of validation.materialCoverageGaps.filter(gap => affectedUnits.has(gap.unitId))) {
+    issues.push('SOURCE_LINEAGE_MISSING: bundle Bab '+gap.unitTitle+' belum lengkap; seluruh TP/ATP Bab harus didukung materi dalam transaksi yang sama.');
+  }
+  if (validation.materialsWithoutLineage.some(item => affectedUnits.has(item.unitId)) || validation.unitsWithoutLineage.some(id => affectedUnits.has(id))) {
+    issues.push('Bundle Bab + Materi + TP + ATP belum lengkap. Tidak ada perubahan parsial yang diterapkan.');
   }
   if (issues.length) return { success: false, issues };
 

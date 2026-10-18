@@ -1,3 +1,4 @@
+import { applyATPMappingActions } from './atpMappingActionApplyService';
 import type { ATPData, TPData, ATPUnitMapping } from '../types';
 import type { MappingActionItem } from './atpMappingActionApplyService';
 import type { MappingAnalysisResult } from './aiService';
@@ -50,7 +51,7 @@ export function extractSelectedMappingActions(
   });
 
   (analysisResult.materialFindings || []).forEach((m) => {
-    if (m.action && selectedActionIds.has(m.id)) {
+    if (m.status !== 'MANUAL_REVIEW' && m.action && selectedActionIds.has(m.id)) {
       actions.push({
         id: m.id,
         ...m.action,
@@ -247,6 +248,14 @@ export function resolveApplyActionsEligibility(params: {
     };
   }
 
+  // The button must use the same atomic transaction and canonical validator as Apply.
+  const preview = applyATPMappingActions({ units, selectedActions, atp, tp,
+    expectedFingerprint: expectedFingerprint || undefined, currentFingerprint: currentFingerprint || undefined });
+  if (!preview.success || selectedCount !== selectedActions.length) {
+    const issues = preview.success ? ['Pilihan mencakup tinjauan manual tanpa action; pilih bundle lengkap yang dapat diterapkan.'] : preview.issues;
+    return { canApply: false, disabledReason: 'bundle Bab/Materi/TP/ATP belum dapat diterapkan',
+      diagnosticWarning: issues.join('; '), issues, selectedCount, executableActionsCount: selectedActions.length };
+  }
   // Action valid -> tombol enabled
   return {
     canApply: true,
