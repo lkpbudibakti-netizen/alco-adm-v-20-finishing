@@ -82,4 +82,47 @@ assert.deepEqual(createEmptyUnitExecutionPlanData({...mapping,units:reversedArra
 assert.deepEqual(buildCurrentMappingDraftFromUnits(reversedArray).units.map(unit=>unit.order),reversedArray.map(unit=>unit.order));
 assert.deepEqual(createInitialUnits({...mapping,units:reversedArray},atp.items).map(unit=>unit.order),reversedArray.map(unit=>unit.order));
 assert(buildMappingAnalysisPrompt(params).includes('Bab/Materi → pilih subset TP relevan'));
+
+// A failed Bab preview must not suppress an independent, executable Bab bundle.
+const mixedUnits = structuredClone(units);
+mixedUnits[1].linkedTpIds = ['t2', 't3'];
+mixedUnits[1].linkedAtpItemIds = ['a2', 'a1'];
+const mixedMapping = { ...mapping, units: mixedUnits };
+const mixedBefore = JSON.stringify(mixedMapping);
+const mixedAnalysis = fallbackAnalyzeMapping({ ...params, currentMapping: mixedMapping });
+const validBabActions = [...mixedAnalysis.atpFindings, ...mixedAnalysis.materialFindings]
+  .filter(finding => finding.action?.targetUnitId === mixedUnits[0].id)
+  .map(finding => ({ id: finding.id, ...finding.action! }));
+assert(validBabActions.length > 0, 'Bab 1 must remain actionable when Bab 2 preview fails');
+const invalidBabMaterial = mixedAnalysis.materialFindings.find(finding => finding.unitId === mixedUnits[1].id)!;
+assert.equal(invalidBabMaterial.status, 'MANUAL_REVIEW');
+assert.equal(invalidBabMaterial.action, undefined);
+assert(invalidBabMaterial.reason.includes('Bundle Bab/Materi/TP/ATP belum dapat diterapkan'));
+assert(!mixedAnalysis.atpFindings.some(finding => finding.action?.targetUnitId === mixedUnits[1].id));
+const mixedFingerprint = computeMappingFingerprint(mixedUnits, atp, tp);
+const validBabApply = applyATPMappingActions({ units: mixedUnits, selectedActions: validBabActions, atp, tp,
+  expectedFingerprint: mixedFingerprint, currentFingerprint: mixedFingerprint });
+assert(validBabApply.success, validBabApply.issues.join('; '));
+assert.deepEqual(validBabApply.nextUnits![1], mixedUnits[1], 'Invalid Bab stays untouched');
+assert.equal(JSON.stringify(mixedMapping), mixedBefore);
+
+// Legacy tpId is used only when linkedTpIds is absent/empty, never in preference to it.
+const legacyTp = { ...tp, items: [tp.items[0]] };
+for (const linkedTpIds of [[], undefined]) {
+  const legacyAtp = { ...atp, items: [{ ...atp.items[0], linkedTpIds, tpId: 't1' }] };
+  const legacyBefore = JSON.stringify(legacyAtp);
+  assert.deepEqual(deriveMappingAtpIds(['t1'], legacyAtp, legacyTp), { atpItemIds: ['a1'], issues: [] });
+  const legacyMapping = { ...mapping, units: [units[0]] };
+  const legacyAnalysis = fallbackAnalyzeMapping({ currentMapping: legacyMapping, atpData: legacyAtp, tpData: legacyTp });
+  const legacyActions = [...legacyAnalysis.atpFindings, ...legacyAnalysis.materialFindings]
+    .flatMap(finding => finding.action ? [{ id: finding.id, ...finding.action }] : []);
+  assert(legacyActions.length > 0, 'Legacy ATP must support a real Bab-first bundle');
+  const fp = computeMappingFingerprint(legacyMapping.units, legacyAtp, legacyTp);
+  const result = applyATPMappingActions({ units: legacyMapping.units, selectedActions: legacyActions, atp: legacyAtp, tp: legacyTp,
+    expectedFingerprint: fp, currentFingerprint: fp });
+  assert(result.success, result.issues.join('; '));
+  assert.equal(JSON.stringify(legacyAtp), legacyBefore);
+}
+assert.deepEqual(deriveMappingAtpIds(['t1'], { ...atp, items: [{ ...atp.items[0], linkedTpIds: ['t3'], tpId: 't1' }] }, tp).atpItemIds, []);
 console.log('PASS: imported six-Bab structure preserved, ATP1 across Bab1/3 and ATP3 across Bab4/5, canonical immutability/global coverage, deterministic TP parents, atomic supported bundles, no safe action from MANUAL_REVIEW, progression guard and Step8 unit.order.');
+console.log('PASS: independent per-Bab preview keeps Bab 1 actionable while Bab 2 fails; legacy tpId fallback derives and applies without mutating ATP.');

@@ -1,7 +1,7 @@
 import type { AnalyzeATPUnitMappingServerParams, MappingAnalysisResult } from './mappingAnalysis';
 import type { MappingActionItem } from '../src/services/atpMappingActionApplyService';
 import { applyATPMappingActions, computeMappingFingerprint } from '../src/services/atpMappingActionApplyService';
-import { deriveMappingAtpIds } from '../src/services/atpMappingLineageService';
+import { deriveMappingAtpIds, getMappingAtpTpIds } from '../src/services/atpMappingLineageService';
 import { validateATPUnitMappingCanonical } from '../src/services/atpUnitMappingValidationService';
 import { checkMappingSemanticEvidence } from './mappingSemanticEvidence';
 
@@ -86,7 +86,7 @@ export function analyzeBabFirstMapping(raw: any, params: AnalyzeATPUnitMappingSe
     const parents = deriveMappingAtpIds(proposedTps, atp, tp);
     for (const atpId of parents.atpItemIds) {
       const item = atp.items.find(item => item.id === atpId)!;
-      const subset = proposedTps.filter(id => item.linkedTpIds.includes(id));
+      const subset = proposedTps.filter(id => getMappingAtpTpIds(item).includes(id));
       if (unit.linkedAtpItemIds.includes(atpId) && subset.every(id => unit.linkedTpIds.includes(id))) continue;
       atpFindings.push({ id: `bab-atp-${unit.id}-${atpId}`, atpItemId: atpId, status: units.some(unit => unit.linkedAtpItemIds.includes(atpId)) ? 'REVIEW' : 'UNMAPPED', suggestedUnitId: unit.id,
         supportingTpIds: subset, strength: 'STRONG', reason: 'Bagian dari bundle materi Bab; bukan pemindahan atau pengurutan ulang ATP.',
@@ -97,13 +97,16 @@ export function analyzeBabFirstMapping(raw: any, params: AnalyzeATPUnitMappingSe
   const actions = () => [...atpFindings, ...materialFindings].flatMap(finding => finding.action ? [{ id: finding.id, ...finding.action } as MappingActionItem] : []);
   const preview = (selectedActions: MappingActionItem[]) => applyATPMappingActions({ units, atp, tp, selectedActions,
     expectedFingerprint: fingerprint, currentFingerprint: fingerprint });
-  // The offered actions must pass the exact Apply gate together; unsafe suggestions remain visible as manual review.
+  // Preview each Bab transaction independently; one rejected bundle must not disable another Bab.
   const proposed = actions();
-  const transaction = preview(proposed);
-  if (proposed.length && !transaction.success) {
+  for (const targetUnitId of new Set(proposed.map(action => action.targetUnitId))) {
+    const transaction = preview(proposed.filter(action => action.targetUnitId === targetUnitId));
+    if (transaction.success) continue;
     const reason = 'Bundle Bab/Materi/TP/ATP belum dapat diterapkan: ' + transaction.issues.join('; ');
-    for (const finding of atpFindings) { finding.action = undefined; finding.strength = 'LOW'; finding.reason = reason; }
-    for (const finding of materialFindings.filter(finding => !!finding.action)) {
+    for (const finding of atpFindings.filter(finding => finding.action?.targetUnitId === targetUnitId)) {
+      finding.action = undefined; finding.strength = 'LOW'; finding.reason = reason;
+    }
+    for (const finding of materialFindings.filter(finding => finding.action?.targetUnitId === targetUnitId)) {
       finding.action = undefined; finding.status = 'MANUAL_REVIEW'; finding.strength = 'LOW'; finding.reason = reason;
     }
   }
@@ -115,9 +118,10 @@ export function analyzeBabFirstMapping(raw: any, params: AnalyzeATPUnitMappingSe
   const coverageFindings: MappingAnalysisResult['atpFindings'] = [];
   for (const item of atp.items) {
     const mappedUnits = units.filter(unit => unit.linkedAtpItemIds.includes(item.id));
-    const covered = item.linkedTpIds?.every(id => mappedUnits.some(unit => unit.linkedTpIds.includes(id)));
+    const canonicalTpIds = getMappingAtpTpIds(item);
+    const covered = canonicalTpIds.length > 0 && canonicalTpIds.every(id => mappedUnits.some(unit => unit.linkedTpIds.includes(id)));
     const rawFinding = (Array.isArray(raw?.atpFindings) ? raw.atpFindings : []).find((finding: any) => finding.atpItemId === item.id);
-    const semantic = mappedUnits.every(unit => (unit.linkedTpIds || []).filter(id => item.linkedTpIds?.includes(id)).every(id =>
+    const semantic = mappedUnits.every(unit => (unit.linkedTpIds || []).filter(id => canonicalTpIds.includes(id)).every(id =>
       unit.materials.some(material => material.linkedTpIds.includes(id) && evidence(material.title, [id]))));
     const aligned = mappedUnits.length > 0 && covered && semantic && rawFinding?.status !== 'REVIEW' &&
       (!rawFinding?.currentUnitId || mappedUnits.some(unit => unit.id === rawFinding.currentUnitId)) &&
@@ -125,7 +129,7 @@ export function analyzeBabFirstMapping(raw: any, params: AnalyzeATPUnitMappingSe
     const firstActionIndex = atpFindings.findIndex(finding => finding.atpItemId === item.id);
     const firstAction = firstActionIndex < 0 ? undefined : atpFindings.splice(firstActionIndex, 1)[0];
     coverageFindings.push({ ...firstAction, id: rawFinding?.id || `atp-coverage-${item.id}`, atpItemId: item.id, status: aligned ? 'ALIGNED' : mappedUnits.length ? 'REVIEW' : 'UNMAPPED',
-      supportingTpIds: item.linkedTpIds || [], strength: aligned ? 'STRONG' : 'LOW',
+      supportingTpIds: canonicalTpIds, strength: aligned ? 'STRONG' : 'LOW',
       reason: aligned ? 'Gabungan subset TP lintas Bab mencakup ATP canonical; urutan Bab dan ATP tetap terpisah.' : 'Cakupan ATP/TP lintas Bab belum lengkap; petakan TP melalui materi yang relevan.' });
   }
   const mappedAtp = atp.items.filter(item => units.some(unit => unit.linkedAtpItemIds.includes(item.id))).length;
