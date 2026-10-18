@@ -21,7 +21,7 @@ import {
   CheckCircle2,
 } from 'lucide-react';
 import { CPData, CPElem, AcademicSetting, TeacherProfile, ActiveContext, CPSource, CPVerificationStatus, normalizeCPVerificationStatus } from '../types';
-import { cpSourceRepository, CPSourceSearchResult } from '../services/cpSourceRepository';
+import { cpSourceRepository, CPSourceSearchResult, CPSourceSearchReport } from '../services/cpSourceRepository';
 import { validateCPDataWorkflow } from '../services/cpWorkflowService';
 // CPManager imports
 
@@ -33,6 +33,17 @@ interface CPManagerProps {
   onSaveCP: (cp: CPData) => void;
   onNextStep: () => void;
 }
+
+export const CPSourceSearchDiagnostic: React.FC<{ report: CPSourceSearchReport }> = ({ report }) => (
+  <div role="alert" className="p-4 border border-amber-300 rounded-xl bg-amber-50 text-xs text-amber-950 space-y-1 break-words">
+    <p className="font-bold">Pencarian sumber CP resmi: {report.status}</p>
+    <p>subject aktual: {report.context.subject || '(kosong)'}</p>
+    <p>level: {report.context.level || '(kosong)'}</p>
+    <p>phase: {report.context.phase || '(kosong)'}</p>
+    <p>academicYear: {report.context.academicYear || '(kosong)'}</p>
+    <p>reason: {report.reason}</p>
+  </div>
+);
 
 export const CPManager: React.FC<CPManagerProps> = ({
   cp,
@@ -49,7 +60,8 @@ export const CPManager: React.FC<CPManagerProps> = ({
 
   // Modal / Source selector state
   const [isSourceModalOpen, setIsSourceModalOpen] = useState(false);
-  const [searchResults, setSearchResults] = useState<CPSourceSearchResult[]>([]);
+  const [sourceSearch, setSourceSearch] = useState<CPSourceSearchReport | null>(null);
+  const searchResults = sourceSearch?.results || [];
   const [selectedResult, setSelectedResult] = useState<CPSourceSearchResult | null>(null);
 
   const [saveToast, setSaveToast] = useState(false);
@@ -63,15 +75,25 @@ export const CPManager: React.FC<CPManagerProps> = ({
     setAiNotes(cp.aiNotes || '');
   }, [cp]);
 
+  // Results belong to the exact context used for the search; never apply a stale selection.
+  useEffect(() => {
+    setIsSourceModalOpen(false);
+    setSourceSearch(null);
+    setSelectedResult(null);
+  }, [context.subject, context.level, context.phase, context.academicYear,
+    academicSetting.subject, academicSetting.level, academicSetting.phase, academicSetting.academicYear, academicSetting.id]);
+
   // Perform search based on ActiveContext
   const handleOpenSourceSearch = () => {
-    const results = cpSourceRepository.search(context);
-    setSearchResults(results);
-    setSelectedResult(results.length > 0 ? results[0] : null);
+    const report = cpSourceRepository.searchWithDiagnostics(context, { academicSetting });
+    setSourceSearch(report);
+    setSelectedResult(report.status === 'RESOLVED' && report.results.length === 1 && report.results[0].isSelectable
+      ? report.results[0] : null);
     setIsSourceModalOpen(true);
   };
 
   const handleApplySelectedSource = (item: CPSourceSearchResult) => {
+    if (sourceSearch?.status !== 'RESOLVED' || !item.isSelectable) return;
     if (
       generalDescription.trim().length > 0 &&
       !confirm('Gantikan teks CP saat ini dengan rujukan terpilih?')
@@ -451,23 +473,17 @@ export const CPManager: React.FC<CPManagerProps> = ({
             </div>
 
             <div className="flex-1 overflow-y-auto space-y-3 pr-1">
+              {sourceSearch && sourceSearch.status !== 'RESOLVED' && (
+                <CPSourceSearchDiagnostic report={sourceSearch} />
+              )}
               {searchResults.length === 0 ? (
                 <div className="p-8 text-center border-2 border-dashed border-slate-200 rounded-2xl bg-slate-50 space-y-3">
                   <p className="text-sm font-semibold text-slate-700">
-                    Tidak ditemukan dokumen terverifikasi khusus untuk mata pelajaran "{context.subject}".
+                    Pencarian belum menghasilkan sumber CP yang dapat digunakan untuk mata pelajaran "{context.subject}".
                   </p>
                   <p className="text-xs text-slate-500 max-w-md mx-auto">
-                    Anda dapat menggunakan format rujukan lokal atau menginputkan uraian CP secara mandiri sesuai dokumen kurikulum sekolah Anda.
+                    Periksa context dan alasan di atas, lalu perbaiki pengaturan akademik aktif dan cari ulang. Anda juga dapat menginputkan CP secara mandiri dari dokumen resmi.
                   </p>
-                  <button
-                    onClick={() => {
-                      const fallback = cpSourceRepository.getLocalReferenceFallback(context);
-                      handleApplySelectedSource(fallback);
-                    }}
-                    className="inline-flex items-center gap-1.5 px-4 py-2 bg-blue-700 hover:bg-blue-800 text-white text-xs font-semibold rounded-xl shadow-xs"
-                  >
-                    <span>Gunakan Format Rujukan Lokal</span>
-                  </button>
                 </div>
               ) : (
                 <div className="space-y-3">
@@ -479,7 +495,7 @@ export const CPManager: React.FC<CPManagerProps> = ({
                     return (
                       <div
                         key={item.id}
-                        onClick={() => setSelectedResult(item)}
+                        onClick={() => { if (sourceSearch?.status === 'RESOLVED' && item.isSelectable) setSelectedResult(item); }}
                         className={`p-4 rounded-2xl border transition cursor-pointer text-left space-y-2.5 ${
                           isSelected
                             ? 'border-blue-600 bg-blue-50/50 shadow-xs ring-2 ring-blue-600/20'
@@ -497,7 +513,7 @@ export const CPManager: React.FC<CPManagerProps> = ({
                               ) : (
                                 <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium bg-amber-100 text-amber-800">
                                   <AlertTriangle className="w-3 h-3 text-amber-600" />
-                                  <span>Referensi Lokal</span>
+                                  <span>{itemVerStatus === 'VERSION_CONFLICT' ? 'Konflik Versi Sumber' : 'Sumber Belum Terverifikasi'}</span>
                                 </span>
                               )}
                               <span className="text-xs font-mono font-bold text-slate-700">

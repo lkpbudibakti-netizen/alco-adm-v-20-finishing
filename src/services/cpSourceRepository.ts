@@ -1,7 +1,8 @@
-import { ActiveContext, CPSource, CPElem, CPVerificationStatus, normalizeCPVerificationStatus } from '../types';
+import { ActiveContext, AcademicSetting, CPSource, CPElem, CPVerificationStatus, normalizeCPVerificationStatus } from '../types';
 import {
   ALL_MASTER_CP_ENTRIES,
   MasterCPEntry,
+  parseAcademicYearStart,
   resolveCPContext,
 } from '../data/curriculum/cp';
 import { CurriculumPhase, SchoolLevel } from '../data/curriculum/types';
@@ -27,6 +28,13 @@ export interface CPSourceSearchResult {
   confidenceScore: number;
   statusReason?: string;
   isSelectable?: boolean;
+}
+
+export interface CPSourceSearchReport {
+  context: Pick<ActiveContext, 'subject' | 'level' | 'phase' | 'academicYear'>;
+  status: 'RESOLVED' | 'UNRESOLVED' | 'AMBIGUOUS';
+  reason: string;
+  results: CPSourceSearchResult[];
 }
 
 const ALIAS_CLUSTERS: string[][] = [
@@ -302,38 +310,68 @@ class CPSourceRepository {
    * academic-year, and regulation applicability from the master registry.
    */
   public search(context: Partial<ActiveContext>, entriesPool: MasterCPEntry[] = this.registry): CPSourceSearchResult[] {
+    return this.searchWithDiagnostics(context, { entriesPool }).results;
+  }
+
+  public searchWithDiagnostics(
+    context: Partial<ActiveContext>,
+    options: { entriesPool?: MasterCPEntry[]; academicSetting?: Partial<AcademicSetting> } = {}
+  ): CPSourceSearchReport {
+    const actualContext = {
+      subject: context.subject || '', level: context.level || '',
+      phase: context.phase || '', academicYear: context.academicYear || '',
+    };
+    const unresolved = (reason: string): CPSourceSearchReport => ({ context: actualContext, status: 'UNRESOLVED', reason, results: [] });
     const rawTargetSubject = context.subject || '';
     const targetSubject = rawTargetSubject.trim();
     if (!targetSubject) {
-      return [];
+      return unresolved('subject aktual kosong; mata pelajaran diperlukan untuk pencarian CP resmi.');
     }
 
     const subject = findSubjectByCode(targetSubject) || findSubjectByNameOrAlias(targetSubject);
-    if (!subject) return [];
+    if (!subject) return unresolved('subject aktual tidak dikenali dalam katalog mata pelajaran: ' + targetSubject);
 
     const phase = this.normalizePhase(context.phase);
     const level = this.normalizeLevel(context.level);
-    if (!phase || !level) return [];
+    if (!phase || !level) return unresolved('level atau phase aktual kosong/tidak valid.');
+    if (parseAcademicYearStart(actualContext.academicYear) === null) {
+      return unresolved('academicYear aktual harus berupa tahun ajaran berurutan, misalnya 2025/2026.');
+    }
+
+    if (options.academicSetting) {
+      const setting = options.academicSetting;
+      const settingSubject = findSubjectByCode(setting.subject || '') || findSubjectByNameOrAlias(setting.subject || '');
+      const mismatches: string[] = [];
+      const compare = (field: string, same: boolean, actual: string | undefined) => {
+        if (!same) mismatches.push(`${field} academicSetting="${actual || '(kosong)'}"`);
+      };
+      compare('subject', subject.code === settingSubject?.code, setting.subject);
+      compare('level', level === this.normalizeLevel(setting.level), setting.level);
+      compare('phase', phase === this.normalizePhase(setting.phase), setting.phase);
+      compare('academicYear', actualContext.academicYear === setting.academicYear, setting.academicYear);
+      if (mismatches.length) return unresolved('ActiveContext tidak cocok dengan academicSetting: ' + mismatches.join('; ') + '. Periksa pengaturan akademik aktif, lalu cari ulang.');
+    }
 
     const resolution = resolveCPContext({
       subjectCode: subject.code,
       phase,
       level,
       academicYear: context.academicYear,
-      entriesPool,
+      entriesPool: options.entriesPool || this.registry,
     });
 
     if (resolution.status === 'RESOLVED' && resolution.cp) {
-      return [this.mapMasterEntryToResult(resolution.cp, context)];
+      return { context: actualContext, status: 'RESOLVED', reason: 'Tepat satu sumber CP resmi sesuai context aktif.', results: [this.mapMasterEntryToResult(resolution.cp, context)] };
     }
 
     if (resolution.status === 'AMBIGUOUS') {
-      return (resolution.candidates || []).map((entry) =>
+      const results = (resolution.candidates || []).map((entry) =>
         this.mapMasterEntryToResult(entry, context, { conflict: true, reason: resolution.reason })
       );
+      return { context: actualContext, status: 'AMBIGUOUS', reason: resolution.reason || 'Lebih dari satu sumber CP aktif cocok dengan context.', results };
     }
 
-    return [];
+    return unresolved(resolution.reason || 'Tidak ditemukan sumber CP resmi sesuai context aktif.');
   }
 
   /**
