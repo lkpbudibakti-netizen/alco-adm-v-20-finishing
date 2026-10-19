@@ -111,6 +111,7 @@ interface AdminDocsExportProps {
   semesterJPSetting?: SemesterJPSetting;
   annualJPReference?: AnnualJPReference;
   protaSemesterAllocations?: ProtaSemesterAllocationBundle[];
+  zipAnnualSource?: DocumentGenerationContext['zipAnnualSource'];
   attendanceSessions?: AttendanceSession[];
   attendanceRecords?: AttendanceRecord[];
   assessmentCriteria?: AssessmentCriterion[];
@@ -146,6 +147,7 @@ export const AdminDocsExport: React.FC<AdminDocsExportProps> = ({
   semesterJPSetting,
   annualJPReference,
   protaSemesterAllocations = [],
+  zipAnnualSource,
   attendanceSessions,
   attendanceRecords,
   assessmentCriteria,
@@ -224,6 +226,7 @@ export const AdminDocsExport: React.FC<AdminDocsExportProps> = ({
     semesterJPSetting,
     annualJPReference,
     protaSemesterAllocations,
+    zipAnnualSource,
     attendanceSessions,
     attendanceRecords,
     assessmentCriteria,

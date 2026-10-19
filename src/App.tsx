@@ -1807,6 +1807,12 @@ export function App() {
               semesterJPSetting={runtimeContext.semesterJPSetting}
               annualJPReference={runtimeContext.annualData?.annualJPReference}
               protaSemesterAllocations={protaSemesterAllocations}
+              zipAnnualSource={activeYearPlan ? {
+                yearPlan: activeYearPlan,
+                semesterPlans: semesterPlansForActiveYear,
+                semesterData: v5State.semesterData,
+                semesterJPSettings: v5State.semesterJPSettings,
+              } : undefined}
               attendanceSessions={runtimeContext.semesterData?.attendance?.sessions || []}
               attendanceRecords={runtimeContext.semesterData?.attendance?.records || []}
               assessmentCriteria={runtimeContext.semesterData?.assessmentCriteria || []}

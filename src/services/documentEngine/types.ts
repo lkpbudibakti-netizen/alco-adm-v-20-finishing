@@ -32,6 +32,7 @@ import {
   UnitExecutionPlanData,
   LearningMeetingScheduleData,
 } from '../../types';
+import type { AppStorageStateV5 } from '../../types/storageV5';
 
 export type { DocumentType, DocumentMode, DocumentSnapshot, AppDocumentRecord, LearningPlan };
 
@@ -42,6 +43,11 @@ export interface ProtaSemesterAllocationBundle {
 }
 
 export interface DocumentGenerationContext {
+  /** Read-only canonical annual data exposure for ZIP packaging only. */
+  zipAnnualSource?: Pick<AppStorageStateV5, 'semesterData' | 'semesterJPSettings'> & {
+    yearPlan: import('../../types').YearPlan;
+    semesterPlans: import('../../types').SemesterPlan[];
+  };
   school: SchoolData;
   profile: TeacherProfile;
   academicSetting: AcademicSetting;

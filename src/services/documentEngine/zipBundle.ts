@@ -1,4 +1,5 @@
 import JSZip from 'jszip';
+import { buildAnnualZipWorkItems, type AnnualZipWorkItem } from './annualZipPlan';
 import saveAs from 'file-saver';
 import {
   DocumentType,
@@ -246,22 +247,15 @@ function getUniqueZipFileName(folder: JSZip, candidateName: string): string {
   return `${base}_${counter}${ext}`;
 }
 
-interface ZipWorkItem {
-  type: DocumentType;
-  instanceId?: string;
-  instanceTitle?: string;
-  context: DocumentGenerationContext;
-  folderCategory: string;
-  seqNum: number;
-}
+type ZipWorkItem = AnnualZipWorkItem;
 
 /**
  * Main ZIP Bundle Generator supporting:
  * 1. ZIP PDF (via PDF Renderer)
  * 2. ZIP Word (via DOCX Renderer)
  * 3. ZIP PDF + Word (Combination of both)
- * Organized into standard administration folders:
- * 01_Kurikulum, 02_Perencanaan, 03_Asesmen, 04_Pelaksanaan, 05_Tindak_Lanjut, 06_Format_Kosong
+ * Data exports package one academic year: annual documents plus canonical semester folders.
+ * Blank templates retain their existing format-only grouping.
  */
 export async function generateZipBundle(
   typesOrOptions: DocumentType[] | ZipExportOptions,
@@ -329,100 +323,26 @@ export async function generateZipBundle(
 
   const safeSubject = (rawContext.academicSetting?.subject || 'Mapel').replace(/[^a-zA-Z0-9]/g, '_');
   const safeGrade = (rawContext.academicSetting?.grade || 'Kelas').replace(/[^a-zA-Z0-9]/g, '_');
-  const safeSem = (rawContext.academicSetting?.semester || '1').replace(/[^a-zA-Z0-9]/g, '_');
-  const safeCur = curType.toUpperCase();
+  const safeYear = sanitizeForFileName(rawContext.academicSetting?.academicYear || 'TahunAjaran');
 
   const formatTag = exportFormat === 'both' ? 'PDF_Word' : exportFormat === 'pdf' ? 'PDF' : 'Word';
   const modeTag = isBlank ? 'Format_Kosong_' : '';
-  const zipFileName = `Paket_Administrasi_${modeTag}${safeSubject}_${safeGrade}_Sem${safeSem}_${safeCur}_${formatTag}.zip`;
+  const zipFileName = `Paket_Administrasi_${modeTag}${safeSubject}_${safeGrade}_${safeYear}_${formatTag}.zip`;
 
   // Track item counts for ordering within folders
   const folderItemCount: Record<string, number> = {};
   const itemResults: ZipExportItemStatus[] = [];
   const workItems: ZipWorkItem[] = [];
 
-  // Expand targetTypes into discrete, instance-aware work items
-  for (const type of targetTypes) {
-    const folderCategory = getDocumentZipFolder(type, isBlank);
-
-    if (!isBlank && type === 'MODUL_AJAR') {
-      const matchingPlans = (rawContext.learningPlans || []).filter(
-        (lp) => !rawContext.academicSetting?.id || lp.academicSettingId === rawContext.academicSetting.id
-      );
-      const siapPlans = matchingPlans.filter((lp) => lp.status === 'SIAP');
-
-      if (siapPlans.length === 0) {
-        itemResults.push({
-          type: 'MODUL_AJAR',
-          status: 'SKIPPED',
-          reason:
-            matchingPlans.length === 0
-              ? 'Belum ada Modul Ajar / RPP yang dibuat untuk kelas/mapel ini.'
-              : 'Tidak ada Modul Ajar yang berstatus SIAP (seluruh modul masih DRAFT atau belum dikonfirmasi SIAP).',
-        });
-      } else {
-        for (const plan of siapPlans) {
-          folderItemCount[folderCategory] = (folderItemCount[folderCategory] || 0) + 1;
-          const seqNum = folderItemCount[folderCategory];
-          const planTitle = plan.topic?.trim() || plan.title?.trim() || `Topik_${plan.id.slice(0, 6)}`;
-          workItems.push({
-            type: 'MODUL_AJAR',
-            instanceId: plan.id,
-            instanceTitle: planTitle,
-            context: {
-              ...effectiveContextBase,
-              activeLearningPlanId: plan.id,
-            },
-            folderCategory,
-            seqNum,
-          });
-        }
-      }
-    } else if (!isBlank && type === 'ASESMEN') {
-      const matchingPackages = (rawContext.assessmentPackages || []).filter(
-        (pkg) => !rawContext.academicSetting?.id || pkg.academicSettingId === rawContext.academicSetting.id
-      );
-      const siapPackages = matchingPackages.filter(
-        (pkg) => pkg.workflowStatus === 'SIAP' && !pkg.needsReview
-      );
-
-      if (siapPackages.length === 0) {
-        itemResults.push({
-          type: 'ASESMEN',
-          status: 'SKIPPED',
-          reason:
-            matchingPackages.length === 0
-              ? 'Belum ada Perangkat Asesmen yang tersedia untuk kelas/mapel ini.'
-              : 'Tidak ada Perangkat Asesmen yang berstatus SIAP dan lolos verifikasi (needsReview !== true).',
-        });
-      } else {
-        for (const pkg of siapPackages) {
-          folderItemCount[folderCategory] = (folderItemCount[folderCategory] || 0) + 1;
-          const seqNum = folderItemCount[folderCategory];
-          const pkgTitle = pkg.title?.trim() || `Paket_${pkg.id.slice(0, 6)}`;
-          workItems.push({
-            type: 'ASESMEN',
-            instanceId: pkg.id,
-            instanceTitle: pkgTitle,
-            context: {
-              ...effectiveContextBase,
-              activeAssessmentPackageId: pkg.id,
-            },
-            folderCategory,
-            seqNum,
-          });
-        }
-      }
-    } else {
-      // Standard single-instance document
+  if (!isBlank) {
+    const annualPlan = buildAnnualZipWorkItems(targetTypes, effectiveContextBase);
+    workItems.push(...annualPlan.items);
+    itemResults.push(...annualPlan.skipped);
+  } else {
+    for (const type of targetTypes) {
+      const folderCategory = getDocumentZipFolder(type, true);
       folderItemCount[folderCategory] = (folderItemCount[folderCategory] || 0) + 1;
-      const seqNum = folderItemCount[folderCategory];
-      workItems.push({
-        type,
-        context: effectiveContextBase,
-        folderCategory,
-        seqNum,
-      });
+      workItems.push({ type, context: effectiveContextBase, folderCategory, seqNum: folderItemCount[folderCategory] });
     }
   }
 
@@ -470,7 +390,7 @@ export async function generateZipBundle(
         }
         const pdfResult = await generatePdfDocument(item.type, effectiveContext);
         if (pdfResult.blob && pdfResult.blob.size > 0) {
-          const candidatePdfName = formatDocumentZipFileName(
+          const candidatePdfName = item.fileStem ? `${item.fileStem}.pdf` : formatDocumentZipFileName(
             item.type,
             'pdf',
             effectiveContext,
@@ -507,7 +427,7 @@ export async function generateZipBundle(
         });
 
         if (docxResult.blob && docxResult.blob.size > 0) {
-          const candidateDocxName = formatDocumentZipFileName(
+          const candidateDocxName = item.fileStem ? `${item.fileStem}.docx` : formatDocumentZipFileName(
             item.type,
             'docx',
             effectiveContext,

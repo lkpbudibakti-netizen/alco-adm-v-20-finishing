@@ -102,6 +102,7 @@ interface AdministrationHubProps {
   semesterJPSetting?: SemesterJPSetting;
   annualJPReference?: AnnualJPReference;
   protaSemesterAllocations?: ProtaSemesterAllocationBundle[];
+  zipAnnualSource?: import('../../services/documentEngine/types').DocumentGenerationContext['zipAnnualSource'];
   initialTab?: AdministrationTab;
   onSaveCalendar: (calendar: AcademicCalendar, days: CalendarDay[], explicitSemesterPlanId?: string) => boolean;
   onSaveSemesterJPSetting?: (actualWeeklyJP: number | null, explicitSemesterPlanId?: string) => boolean;
@@ -157,6 +158,7 @@ export const AdministrationHub: React.FC<AdministrationHubProps> = ({
   assessmentPackages = [],
   annualJPReference,
   protaSemesterAllocations = [],
+  zipAnnualSource,
   initialTab = 'time_planning',
   onSaveCalendar,
   onSaveSemesterJPSetting,
@@ -695,6 +697,7 @@ export const AdministrationHub: React.FC<AdministrationHubProps> = ({
             semesterJPSetting={semesterJPSetting}
             annualJPReference={annualJPReference}
             protaSemesterAllocations={protaSemesterAllocations}
+            zipAnnualSource={zipAnnualSource}
             attendanceSessions={attendanceSessions}
             attendanceRecords={attendanceRecords}
             assessmentCriteria={assessmentCriteria}
