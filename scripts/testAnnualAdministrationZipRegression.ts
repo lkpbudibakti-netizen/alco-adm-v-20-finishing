@@ -4,7 +4,7 @@ import { runInNewContext } from 'node:vm';
 import ts from 'typescript';
 import JSZip from 'jszip';
 import { createModulAjarRuntimeFixture } from './fixtures/modulAjarRuntimeFixture';
-import { buildAnnualZipWorkItems, resolveAnnualZipContexts } from '../src/services/documentEngine/annualZipPlan';
+import { administrationZipRoot, buildAnnualZipWorkItems, isAnnualZipDocument, semesterZipFolder, resolveAnnualZipContexts } from '../src/services/documentEngine/annualZipPlan';
 import { buildModulAjarProjection } from '../src/services/documentEngine/modulAjarProjection';
 import { buildPromesProjection } from '../src/services/documentEngine/promesProjection';
 import { validateDocumentRequirements } from '../src/services/documentEngine';
@@ -13,6 +13,9 @@ import { resolveEffectiveContext } from '../src/services/documentEngine/snapshot
 
 const base = createModulAjarRuntimeFixture();
 base.documentDate = '2026-10-19';
+base.profile.name = 'Adzani Kusumawardani S.Pd';
+base.cp = { id: 'cp', academicSettingId: 'year', generalDescription: 'CP resmi', elements: [], workflowStatus: 'DRAFT' };
+base.atp.items.forEach((item: any, index: number) => { item.focus = 'Fokus '+index; item.unitTitle = 'Bab '+index; });
 const templateUnit = structuredClone(base.atpUnitMapping.units[0]);
 const templateExecution = structuredClone(base.unitExecutionPlan.units[0]);
 const templatePlan = structuredClone(base.learningPlans[0]);
@@ -57,12 +60,12 @@ base.zipAnnualSource = source;
 base.learningPlans = source.semesterData.learningPlan[0].value;
 base.snapshot = { semester: 'WRONG_HISTORICAL_SEMESTER' };
 const before = JSON.stringify(base);
-const requested: any = ['MODUL_AJAR', 'PROMES'];
+const requested: any = ['CP', 'ANALISIS_CP_TP', 'TP', 'ATP', 'PEMETAAN_ATP_UNIT', 'PROTA', 'KALENDER_AKADEMIK', 'MODUL_AJAR', 'PROMES'];
 const planned = buildAnnualZipWorkItems(requested, base);
 assert.deepEqual(planned.skipped, []);
 const modules = planned.items.filter(i => i.type === 'MODUL_AJAR');
 assert.equal(modules.length, 3);
-assert.deepEqual(modules.map(i => i.folderCategory), ['02_Semester_1/Modul_Ajar', '02_Semester_1/Modul_Ajar', '03_Semester_2/Modul_Ajar']);
+assert.deepEqual(modules.map(i => i.folderCategory), ['Semester_1', 'Semester_1', 'Semester_2']);
 for (const [index, item] of modules.entries()) {
   assert.equal(item.fileStem, `Modul_Ajar_BAB_${index+1}_Gerak_Bab_${index+1}`);
   assert.equal(item.context.snapshot, undefined);
@@ -89,7 +92,6 @@ for (const mutate of [
   (c: any) => { c.zipAnnualSource.semesterData.learningMeetingSchedules[1].value.entries.push({ ...c.zipAnnualSource.semesterData.learningMeetingSchedules[0].value.entries[0], semesterPlanId: 's2' }); },
   (c: any) => { c.zipAnnualSource.semesterData.learningPlan[0].value[0].learningMeetingIds.push('u3-m1'); },
   (c: any) => { c.zipAnnualSource.semesterData.learningPlan[0].value[0].learningMeetingIds = ['missing']; },
-  (c: any) => { c.zipAnnualSource.semesterData.learningPlan[0].value[0].status = 'DRAFT'; },
   (c: any) => { c.zipAnnualSource.semesterData.learningPlan[0].value[0].unitId = 'unit3'; },
 ]) {
   const bad = structuredClone(base); mutate(bad);
@@ -99,17 +101,23 @@ for (const mutate of [
 }
 const absent = structuredClone(base); absent.zipAnnualSource.semesterPlans.pop();
 const absentResult = buildAnnualZipWorkItems(requested, absent);
-assert(!absentResult.items.some(i => i.folderCategory.startsWith('03_')));
+assert(!absentResult.items.some(i => i.folderCategory.startsWith('Semester_2')));
 assert(absentResult.skipped.some(i => i.type === 'PROMES' && i.reason?.includes('Semester 2')));
 const annual = buildAnnualZipWorkItems(['CP', 'TP', 'ANALISIS_CP_TP', 'ATP', 'PEMETAAN_ATP_UNIT', 'PROTA'], base);
-assert(annual.items.every(i => i.folderCategory === '01_Tahunan' && i.context.academicSetting.id === 'year'));
+assert(annual.items.every(i => i.folderCategory === 'Administrasi_Umum' && i.context.academicSetting.id === 'year'));
 assert.equal(resolveAnnualZipContexts(base).annual.protaSemesterAllocations?.length, 2);
 const draftAnnual = structuredClone(base); draftAnnual.atp.status = 'DRAFT';
-assert.equal(buildAnnualZipWorkItems(['ATP'], draftAnnual).items.length, 0);
-assert.equal(buildAnnualZipWorkItems(['ATP'], draftAnnual).skipped[0].status, 'SKIPPED');
+assert.equal(buildAnnualZipWorkItems(['ATP'], draftAnnual).items.length, 1, 'Status eligibility belongs to document validator');
+for (const type of ['CP', 'TP', 'ANALISIS_CP_TP'] as const) {
+  const candidate = structuredClone(base);
+  candidate.tp.status = 'DRAFT'; candidate.tp.workflowStatus = 'DRAFT'; candidate.tp.needsReview = true;
+  const item = buildAnnualZipWorkItems([type], candidate).items[0];
+  assert(item, 'Planner must not gate CP/TP/Analysis statuses');
+  assert(validateDocumentRequirements(type, item.context).isValid);
+}
 const duplicated = structuredClone(base);
 duplicated.zipAnnualSource.semesterPlans.push({ ...duplicated.zipAnnualSource.semesterPlans[1], id: 'second-s2' });
-assert(!buildAnnualZipWorkItems(requested, duplicated).items.some(i => i.folderCategory.startsWith('03_')));
+assert(!buildAnnualZipWorkItems(requested, duplicated).items.some(i => i.folderCategory.startsWith('Semester_2')));
 const changedOwner = structuredClone(base); changedOwner.zipAnnualSource.semesterData.learningPlan[0].value[0].academicSettingId = 's2';
 assert(buildAnnualZipWorkItems(requested, changedOwner).skipped.some(i => i.instanceId === 'lp1'));
 const isolated = structuredClone(base);
@@ -133,7 +141,7 @@ runInNewContext(ts.transpileModule(readFileSync('src/services/documentEngine/zip
 }).outputText, { exports, console, require: (id: string) => {
   if (id === 'jszip') return JSZip;
   if (id === 'file-saver') return (blob: Blob, name: string) => downloads.push({ blob, name });
-  if (id === './annualZipPlan') return { buildAnnualZipWorkItems };
+  if (id === './annualZipPlan') return { administrationZipRoot, buildAnnualZipWorkItems, isAnnualZipDocument, semesterZipFolder };
   if (id === '../curriculumRules') return { getCurriculumType };
   if (id === './snapshot') return { resolveEffectiveContext };
   if (id === './index') return { validateDocumentRequirements, generateDocument: fakeRender };
@@ -144,17 +152,40 @@ runInNewContext(ts.transpileModule(readFileSync('src/services/documentEngine/zip
 // Existing Zip renderer contract tests blob.size; simulated bytes provide the same envelope.
 Object.defineProperty(Uint8Array.prototype, 'size', { configurable: true, get() { return this.byteLength; } });
 try {
-  const result = await exports.generateZipBundle({ types: requested, format: 'both' }, base);
-  assert.equal(result.exportedCount, 5);
+  const exportContext = structuredClone(base);
+  const draftPlan = { ...structuredClone(source.semesterData.learningPlan[0].value[0]), id: 'draft-plan', status: 'DRAFT' };
+  exportContext.zipAnnualSource.semesterData.learningPlan[0].value.push(draftPlan);
+  const draftItem = buildAnnualZipWorkItems(['MODUL_AJAR'], exportContext).items.find(i => i.instanceId === draftPlan.id)!;
+  assert(draftItem, 'Planner resolves scope; validator owns export readiness');
+  const invalid = validateDocumentRequirements('MODUL_AJAR', draftItem.context);
+  assert(!invalid.isValid);
+  const result = await exports.generateZipBundle({ types: requested, format: 'both' }, exportContext);
+  const skipped = result.itemResults.find((r: any) => r.instanceId === draftPlan.id);
+  assert.equal(skipped.status, 'SKIPPED');
+  assert.equal(skipped.reason, invalid.missingFields.join('; '), 'Preserve the original validator reason');
+  assert.equal(result.exportedCount, 13);
   assert.equal(downloads.length, 1);
-  assert.equal(renderCalls.length, 10);
+  assert.equal(renderCalls.length, 26);
   assert(!result.zipFileName.includes('Sem'));
   assert(result.zipFileName.includes('2026_2027'));
   const archive = await JSZip.loadAsync(await downloads[0].blob.arrayBuffer());
   const files = Object.keys(archive.files).filter(path => !archive.files[path].dir);
-  assert.equal(files.length, 10);
-  for (const item of modules) for (const ext of ['pdf', 'docx']) assert(files.includes(`${item.folderCategory}/${item.fileStem}.${ext}`));
-  for (const folder of ['02_Semester_1/PROMES/', '03_Semester_2/PROMES/']) assert.equal(files.filter(f => f.startsWith(folder)).length, 2);
+  assert.equal(files.length, 26);
+  for (const item of modules) for (const ext of ['pdf', 'docx']) assert(files.includes(`${administrationZipRoot(base)}/${item.folderCategory}/${item.fileStem}.${ext}`));
+  const root = administrationZipRoot(base);
+  assert.equal(root, 'Kelas_7_PJOK_Adzani Kusumawardani S.Pd');
+  assert.equal(administrationZipRoot({ ...base, academicSetting: { ...base.academicSetting, grade: 'Kelas 1', subject: 'PJOK/SD' } }), 'Kelas 1_PJOK_SD_Adzani Kusumawardani S.Pd');
+  assert(files.every(f => f.split('/').length === 3), 'No nested document-type folders');
+  for (const folder of ['Semester_1', 'Semester_2']) {
+    assert(files.filter(f => f.startsWith(root+'/'+folder+'/')).some(f => f.includes('PROMES')));
+  }
+  for (const type of ['CP', 'ANALISIS_CP_TP', 'TP', 'ATP', 'PEMETAAN_ATP_UNIT', 'PROTA', 'KALENDER_AKADEMIK']) {
+    assert(result.itemResults.some((r: any) => r.type === type && r.status === 'SUCCESS'));
+  }
+  assert.equal(files.filter(f => f.startsWith(root+'/Administrasi_Umum/')).length, 16);
+  assert.deepEqual(Object.keys(archive.files).filter(path => archive.files[path].dir).sort(), [
+    root+'/', root+'/Administrasi_Umum/', root+'/Semester_1/', root+'/Semester_2/',
+  ].sort());
 } finally { delete (Uint8Array.prototype as any).size; }
 assert.equal(JSON.stringify(base), before);
-console.log('PASS: annual ZIP exports 2+1 SIAP modules, canonical semester folders/Bab names, isolated PROMES, ambiguous/DRAFT skips, immutable source and one ZIP download; render bytes simulated, validators/projections real.');
+console.log('PASS: readable root with three flat folders, all validator-approved annual documents/calendar, 2+1 modules, isolated PROMES, original validator skip reason, no generic status gate, immutable source and one ZIP download; renderer bytes simulated.');

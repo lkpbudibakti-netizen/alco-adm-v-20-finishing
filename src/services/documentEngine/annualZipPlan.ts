@@ -13,10 +13,19 @@ export interface AnnualZipWorkItem {
 
 const annualTypes = new Set<DocumentType>([
   'CP', 'TP', 'ANALISIS_CP_TP', 'ATP', 'PEMETAAN_ATP_UNIT', 'PROTA',
-  'ANALISIS_SKL_KI_KD', 'PENETAPAN_KKM',
+  'ANALISIS_SKL_KI_KD', 'PENETAPAN_KKM', 'KALENDER_AKADEMIK',
 ]);
+export const isAnnualZipDocument = (type: DocumentType) => annualTypes.has(type);
 const clean = (text: string) => text.replace(/[\\/:*?"<>|]/g, '_').replace(/\s+/g, '_').replace(/_+/g, '_').replace(/^_+|_+$/g, '');
-export const semesterZipFolder = (semester: 1 | 2) => semester === 1 ? '02_Semester_1' : '03_Semester_2';
+export const semesterZipFolder = (semester: 1 | 2) => semester === 1 ? 'Semester_1' : 'Semester_2';
+
+/** Keep spaces, punctuation and Unicode names; replace only filesystem-invalid characters. */
+export function administrationZipRoot(context: DocumentGenerationContext): string {
+  const safe = (value: string) => value.replace(/[\\/:*?"<>|\u0000-\u001f]/g, '_');
+  const grade = context.academicSetting.grade || 'Kelas';
+  const label = /^\d+$/.test(grade) ? `Kelas_${grade}` : grade;
+  return [label, context.academicSetting.subject || 'Mapel', context.profile.name || 'Guru'].map(safe).join('_');
+}
 
 /** No storage reads or semester-label fallback: each context owns persisted SemesterPlan data. */
 export function resolveAnnualZipContexts(base: DocumentGenerationContext): {
@@ -37,7 +46,9 @@ export function resolveAnnualZipContexts(base: DocumentGenerationContext): {
     return { annual: base, semesters: [], issues: ['Identitas YearPlan tidak cocok dengan context export.'] };
   }
   const annual: DocumentGenerationContext = { ...base, snapshot: undefined, skipDownload: true,
-    academicSetting: { ...setting, id: year.id, semester: '' } };
+    // Preserve supplied metadata: the existing export validator still requires a semester.
+    // Annual scope comes from YearPlan/folder, not by clearing otherwise valid metadata.
+    academicSetting: { ...setting, id: year.id } };
   const issues: string[] = [];
   const semesters: { semester: 1 | 2; context: DocumentGenerationContext }[] = [];
   for (const semester of [1, 2] as const) {
@@ -87,7 +98,6 @@ export function resolveAnnualZipContexts(base: DocumentGenerationContext): {
 export function resolveZipLearningPlan(plan: LearningPlan, annual: DocumentGenerationContext,
   semesters: ReturnType<typeof resolveAnnualZipContexts>['semesters']) {
   const fail = (reason: string) => ({ reason, item: undefined });
-  if (plan.status !== 'SIAP') return fail('Modul Ajar belum SIAP (DRAFT/tidak valid).');
   const units = annual.atpUnitMapping?.units.filter(unit => unit.id === plan.unitId) || [];
   const execution = annual.unitExecutionPlan;
   if (units.length !== 1 || !execution || !plan.learningMeetingIds?.length) return fail('Lineage Bab → pertemuan → Modul Ajar tidak lengkap/ambigu.');
@@ -113,7 +123,7 @@ export function resolveZipLearningPlan(plan: LearningPlan, annual: DocumentGener
   const target = targets[0];
   const item: AnnualZipWorkItem = { type: 'MODUL_AJAR', instanceId: plan.id, instanceTitle: unit.title,
     context: { ...target.context, learningPlans: [plan], activeLearningPlanId: plan.id, skipDownload: true },
-    folderCategory: `${semesterZipFolder(target.semester)}/Modul_Ajar`, seqNum: unit.order,
+    folderCategory: semesterZipFolder(target.semester), seqNum: unit.order,
     fileStem: `Modul_Ajar_BAB_${unit.order}_${clean(unit.title)}` };
   return { item, reason: undefined };
 }
@@ -126,14 +136,13 @@ export function buildAnnualZipWorkItems(types: DocumentType[], base: DocumentGen
   for (const type of types) {
     if (annualTypes.has(type)) {
       if (issues.some(issue => issue.startsWith('Identitas'))) { skip(type, issues.join('; ')); continue; }
-      const sources = type === 'CP' ? [annual.cp] : type === 'TP' ? [annual.tp]
-        : type === 'ANALISIS_CP_TP' ? [annual.cp, annual.tp]
-        : ['ATP', 'PEMETAAN_ATP_UNIT', 'PROTA'].includes(type) ? [annual.tp, annual.atp] : [];
-      if (sources.some(data => data && (
-        (data.workflowStatus !== undefined && data.workflowStatus !== 'SIAP') ||
-        ('status' in data && data.status === 'DRAFT') || ('needsReview' in data && data.needsReview)
-      ))) { skip(type, 'Sumber dokumen tahunan masih DRAFT/belum SIAP atau memerlukan tinjauan.'); continue; }
-      items.push({ type, context: annual, folderCategory: '01_Tahunan', seqNum: items.length + 1 });
+      if (type === 'KALENDER_AKADEMIK' && semesters.length) {
+        for (const { semester, context } of semesters) items.push({ type, context,
+          instanceId: context.academicSetting.id, instanceTitle: `Kalender Pendidikan Semester ${semester}`,
+          folderCategory: 'Administrasi_Umum', seqNum: semester });
+        continue;
+      }
+      items.push({ type, context: annual, folderCategory: 'Administrasi_Umum', seqNum: items.length + 1 });
     } else if (type === 'MODUL_AJAR') {
       const plans = semesters.flatMap(s => s.context.learningPlans || []);
       if (!plans.length) skip(type, 'Belum ada Modul Ajar pada context semester tersedia. ' + issues.join('; '));
@@ -146,14 +155,11 @@ export function buildAnnualZipWorkItems(types: DocumentType[], base: DocumentGen
       for (const semester of [1, 2] as const) {
         const scoped = semesters.find(s => s.semester === semester);
         if (!scoped) { skip(type, `Semester ${semester}: context canonical tidak tersedia. ${issues.join('; ')}`); continue; }
-        const folderCategory = `${semesterZipFolder(semester)}/${type === 'PROMES' ? 'PROMES' : type}`;
+        const folderCategory = semesterZipFolder(semester);
         if (type === 'ASESMEN') {
           const packages = scoped.context.assessmentPackages || [];
           if (!packages.length) skip(type, `Semester ${semester}: belum ada perangkat asesmen.`);
           for (const pkg of packages) {
-            if (pkg.workflowStatus !== 'SIAP' || pkg.needsReview || pkg.academicSettingId !== scoped.context.academicSetting.id) {
-              skip(type, 'Perangkat asesmen belum SIAP atau lineage semester tidak valid.', pkg.id); continue;
-            }
             items.push({ type, instanceId: pkg.id, instanceTitle: pkg.title, folderCategory, seqNum: items.length + 1,
               context: { ...scoped.context, activeAssessmentPackageId: pkg.id } });
           }

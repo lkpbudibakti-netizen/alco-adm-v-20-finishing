@@ -1,5 +1,5 @@
 import JSZip from 'jszip';
-import { buildAnnualZipWorkItems, type AnnualZipWorkItem } from './annualZipPlan';
+import { administrationZipRoot, buildAnnualZipWorkItems, isAnnualZipDocument, semesterZipFolder, type AnnualZipWorkItem } from './annualZipPlan';
 import saveAs from 'file-saver';
 import {
   DocumentType,
@@ -255,7 +255,7 @@ type ZipWorkItem = AnnualZipWorkItem;
  * 2. ZIP Word (via DOCX Renderer)
  * 3. ZIP PDF + Word (Combination of both)
  * Data exports package one academic year: annual documents plus canonical semester folders.
- * Blank templates retain their existing format-only grouping.
+ * Every file sits directly in the general-administration or semester folder under one readable root.
  */
 export async function generateZipBundle(
   typesOrOptions: DocumentType[] | ZipExportOptions,
@@ -312,6 +312,12 @@ export async function generateZipBundle(
   let pdfCount = 0;
   let docxCount = 0;
   const foldersCreatedSet = new Set<string>();
+  const rootFolder = administrationZipRoot(rawContext);
+  for (const folder of ['Administrasi_Umum', 'Semester_1', 'Semester_2']) {
+    const path = `${rootFolder}/${folder}`;
+    zip.folder(path);
+    foldersCreatedSet.add(path);
+  }
   const snapshots: DocumentSnapshot[] = [];
 
   const isBlank = documentMode === 'blank';
@@ -340,7 +346,8 @@ export async function generateZipBundle(
     itemResults.push(...annualPlan.skipped);
   } else {
     for (const type of targetTypes) {
-      const folderCategory = getDocumentZipFolder(type, true);
+      const semester = rawContext.academicSetting.semester?.startsWith('2') ? 2 : 1;
+      const folderCategory = isAnnualZipDocument(type) ? 'Administrasi_Umum' : semesterZipFolder(semester);
       folderItemCount[folderCategory] = (folderItemCount[folderCategory] || 0) + 1;
       workItems.push({ type, context: effectiveContextBase, folderCategory, seqNum: folderItemCount[folderCategory] });
     }
@@ -365,11 +372,12 @@ export async function generateZipBundle(
       continue;
     }
 
-    let targetFolder = zip.folder(item.folderCategory);
+    const folderPath = `${rootFolder}/${item.folderCategory}`;
+    let targetFolder = zip.folder(folderPath);
     if (!targetFolder) {
       targetFolder = zip;
     }
-    foldersCreatedSet.add(item.folderCategory);
+    foldersCreatedSet.add(folderPath);
 
     const filesGenerated: string[] = [];
     let pdfSuccess = false;
