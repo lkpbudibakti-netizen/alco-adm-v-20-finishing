@@ -80,7 +80,7 @@ try {
 } finally {globalThis.fetch=savedFetch;}
 const doc=await generateModulAjar({...context,skipDownload:true});
 const xml=await (await JSZip.loadAsync(await doc.blob!.arrayBuffer())).file('word/document.xml')!.async('string');
-const blocks=xml.slice(xml.indexOf('IV. RENCANA PERTEMUAN'),xml.indexOf('V. ASESMEN + KKTP'));
+const blocks=xml.slice(xml.indexOf('III. RENCANA PERTEMUAN'),xml.indexOf('IV. ASESMEN + KKTP'));
 for(const order of [1,2,3]) {
  const start=blocks.indexOf('PERTEMUAN '+order+' —');const next=blocks.indexOf('PERTEMUAN '+(order+1)+' —');
  const block=blocks.slice(start,next<0?undefined:next);

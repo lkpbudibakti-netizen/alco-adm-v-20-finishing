@@ -734,60 +734,9 @@ export async function generateModulAjar(context: DocumentGenerationContext): Pro
       addListParagraph('-');
     }
 
-    // III. PENGALAMAN BELAJAR UNIT
-    addSectionTitle('III. PENGALAMAN BELAJAR UNIT');
-    const experiences = (plan.learningExperiences || []).filter(e => e.learningMeetingId === undefined);
-    const openingSteps = (plan.learningSteps?.opening || []).filter(a => a.learningMeetingId === undefined);
-    const coreSteps = (plan.learningSteps?.core || []).filter(a => a.learningMeetingId === undefined);
-    const closingSteps = (plan.learningSteps?.closing || []).filter(a => a.learningMeetingId === undefined);
-
-    if (experiences.length > 0) {
-      const renderExpPhase = (subLetter: string, phase: 'UNDERSTAND' | 'APPLY' | 'REFLECT', label: string) => {
-        addSubSectionTitle(`${subLetter}. ${label}`);
-        const filtered = experiences.filter((e) => e.phase === phase);
-        if (filtered.length === 0) {
-          addListParagraph('-');
-        } else {
-          filtered.forEach((e) => {
-            const desc = cleanText(e.description);
-            const dur = typeof e.durationMinutes === 'number' && e.durationMinutes > 0 ? ` (${e.durationMinutes} Menit)` : '';
-            if (desc) {
-              addListParagraph(`• ${desc}${dur}`);
-            }
-          });
-        }
-      };
-
-      renderExpPhase('A', 'UNDERSTAND', 'Memahami');
-      renderExpPhase('B', 'APPLY', 'Mengaplikasi');
-      renderExpPhase('C', 'REFLECT', 'Merefleksi');
-    } else {
-      const renderStepPhase = (subLetter: string, label: string, steps: typeof openingSteps) => {
-        addSubSectionTitle(`${subLetter}. ${label}`);
-        const validSteps = steps.filter((s) => s && (cleanText(s.description) || cleanText(s.title)));
-        if (validSteps.length === 0) {
-          addListParagraph('-');
-        } else {
-          validSteps.forEach((s) => {
-            const title = cleanText(s.title);
-            const desc = cleanText(s.description);
-            const body = [title ? `[${title}]` : '', desc].filter(Boolean).join(' ');
-            const dur = typeof s.durationMinutes === 'number' && s.durationMinutes > 0 ? ` (${s.durationMinutes} Menit)` : '';
-            if (body) {
-              addListParagraph(`• ${body}${dur}`);
-            }
-          });
-        }
-      };
-
-      renderStepPhase('A', 'Kegiatan Pendahuluan', openingSteps);
-      renderStepPhase('B', 'Kegiatan Inti', coreSteps);
-      renderStepPhase('C', 'Kegiatan Penutup', closingSteps);
-    }
-
-    // IV. RENCANA PERTEMUAN
+    // III. RENCANA PERTEMUAN
     // Gunakan langsung sharedProjection.meetings; jangan parsing section.lines.
-    addSectionTitle('IV. RENCANA PERTEMUAN');
+    addSectionTitle('III. RENCANA PERTEMUAN');
     const sortedMeetings = (sharedProjection.meetings || []).slice().sort((a, b) => a.order - b.order);
     if (sortedMeetings.length > 0) {
       sortedMeetings.forEach((m) => {
@@ -798,8 +747,8 @@ export async function generateModulAjar(context: DocumentGenerationContext): Pro
       addListParagraph('-');
     }
 
-    // V. ASESMEN + KKTP
-    addSectionTitle('V. ASESMEN + KKTP');
+    // IV. ASESMEN + KKTP
+    addSectionTitle('IV. ASESMEN + KKTP');
 
     // A. Rencana Asesmen
     addSubSectionTitle('A. Rencana Asesmen (Awal, Formatif, Sumatif)');
@@ -851,8 +800,8 @@ export async function generateModulAjar(context: DocumentGenerationContext): Pro
       addListParagraph('-');
     }
 
-    // VI. DIFERENSIASI
-    addSectionTitle('VI. DIFERENSIASI');
+    // V. DIFERENSIASI
+    addSectionTitle('V. DIFERENSIASI');
     if (
       plan.differentiation &&
       (cleanText(plan.differentiation.content) ||
@@ -868,15 +817,15 @@ export async function generateModulAjar(context: DocumentGenerationContext): Pro
       addListParagraph('-');
     }
 
-    // VII. PENGAYAAN/REMEDIAL
-    addSectionTitle('VII. PENGAYAAN/REMEDIAL');
+    // VI. PENGAYAAN/REMEDIAL
+    addSectionTitle('VI. PENGAYAAN/REMEDIAL');
     addSubSectionTitle('A. Rencana Pengayaan');
     addProseParagraph(cleanText(plan.enrichmentPlan) || '-');
     addSubSectionTitle('B. Rencana Remedial');
     addProseParagraph(cleanText(plan.remedialPlan) || '-');
 
-    // VIII. REFLEKSI
-    addSectionTitle('VIII. REFLEKSI');
+    // VII. REFLEKSI
+    addSectionTitle('VII. REFLEKSI');
     addSubSectionTitle('A. Refleksi Guru');
     addProseParagraph(cleanText(plan.reflection?.teacherReflection) || '-');
     addSubSectionTitle('B. Refleksi Murid');
@@ -910,39 +859,30 @@ export async function generateModulAjar(context: DocumentGenerationContext): Pro
     addSubSectionTitle('C. Pertanyaan Pemantik');
     addListParagraph('........................................................................................................................');
 
-    // III. PENGALAMAN BELAJAR UNIT
-    addSectionTitle('III. PENGALAMAN BELAJAR UNIT');
-    addSubSectionTitle('A. Memahami');
-    addListParagraph('........................................................................................................................');
-    addSubSectionTitle('B. Mengaplikasi');
-    addListParagraph('........................................................................................................................');
-    addSubSectionTitle('C. Merefleksi');
+    // III. RENCANA PERTEMUAN
+    addSectionTitle('III. RENCANA PERTEMUAN');
     addListParagraph('........................................................................................................................');
 
-    // IV. RENCANA PERTEMUAN
-    addSectionTitle('IV. RENCANA PERTEMUAN');
-    addListParagraph('........................................................................................................................');
-
-    // V. ASESMEN + KKTP
-    addSectionTitle('V. ASESMEN + KKTP');
+    // IV. ASESMEN + KKTP
+    addSectionTitle('IV. ASESMEN + KKTP');
     addSubSectionTitle('A. Rencana Asesmen');
     addListParagraph('........................................................................................................................');
     addSubSectionTitle('B. Kriteria Ketercapaian Tujuan Pembelajaran (KKTP)');
     addListParagraph('........................................................................................................................');
 
-    // VI. DIFERENSIASI
-    addSectionTitle('VI. DIFERENSIASI');
+    // V. DIFERENSIASI
+    addSectionTitle('V. DIFERENSIASI');
     addListParagraph('........................................................................................................................');
 
-    // VII. PENGAYAAN/REMEDIAL
-    addSectionTitle('VII. PENGAYAAN/REMEDIAL');
+    // VI. PENGAYAAN/REMEDIAL
+    addSectionTitle('VI. PENGAYAAN/REMEDIAL');
     addSubSectionTitle('A. Rencana Pengayaan');
     addProseParagraph('........................................................................................................................');
     addSubSectionTitle('B. Rencana Remedial');
     addProseParagraph('........................................................................................................................');
 
-    // VIII. REFLEKSI
-    addSectionTitle('VIII. REFLEKSI');
+    // VII. REFLEKSI
+    addSectionTitle('VII. REFLEKSI');
     addSubSectionTitle('A. Refleksi Guru');
     addProseParagraph('........................................................................................................................');
     addSubSectionTitle('B. Refleksi Murid');

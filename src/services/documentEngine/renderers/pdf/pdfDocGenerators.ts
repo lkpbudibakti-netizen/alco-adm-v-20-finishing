@@ -744,63 +744,55 @@ export async function generatePdfDocument(
           : `Tujuan Pembelajaran:\n${tpStatements}\n\nPemahaman Bermakna:\n${matchedPlan?.meaningfulUnderstanding || '-'}\n\nPertanyaan Pemantik:\n${matchedPlan?.triggerQuestions && matchedPlan.triggerQuestions.length > 0 ? matchedPlan.triggerQuestions.map((q, i) => `${i + 1}. ${q}`).join('\n') : '-'}`,
       });
 
-      const experiences = matchedPlan?.learningExperiences || [];
-      const hasExperiences = experiences.length > 0;
-      const isMerdekaCurriculum = !academicSetting?.curriculumType || academicSetting.curriculumType === 'KURIKULUM_MERDEKA';
+      sections.push({
+        type: 'heading',
+        text: 'III. RENCANA PERTEMUAN',
+        level: 1,
+      });
+      sections.push({
+        type: 'paragraph',
+        text: '........................................................................................................................',
+      });
 
-      if (hasExperiences || (isBlankMode && isMerdekaCurriculum)) {
-        sections.push({
-          type: 'heading',
-          text: 'III. PENGALAMAN BELAJAR',
-          level: 1,
-        });
+      sections.push({
+        type: 'heading',
+        text: 'IV. ASESMEN + KKTP',
+        level: 1,
+      });
+      sections.push({
+        type: 'paragraph',
+        text: '1. Rencana Asesmen: ........................................................\n2. Kriteria Ketercapaian Tujuan Pembelajaran (KKTP): ........................................................',
+      });
 
-        const understandStr = experiences.filter((e) => e.phase === 'UNDERSTAND').map((s) => `• ${s.description}${s.durationMinutes ? ` (${s.durationMinutes} Menit)` : ''}`).join('\n') || '-';
-        const applyStr = experiences.filter((e) => e.phase === 'APPLY').map((s) => `• ${s.description}${s.durationMinutes ? ` (${s.durationMinutes} Menit)` : ''}`).join('\n') || '-';
-        const reflectStr = experiences.filter((e) => e.phase === 'REFLECT').map((s) => `• ${s.description}${s.durationMinutes ? ` (${s.durationMinutes} Menit)` : ''}`).join('\n') || '-';
+      sections.push({
+        type: 'heading',
+        text: 'V. DIFERENSIASI',
+        level: 1,
+      });
+      sections.push({
+        type: 'paragraph',
+        text: '........................................................................................................................',
+      });
 
-        sections.push({
-          type: 'paragraph',
-          text: isBlankMode
-            ? '1. Memahami (Understand): ........................................................................................................................................................\n2. Mengaplikasi (Apply): ........................................................................................................................................................\n3. Merefleksi (Reflect): ........................................................................................................................................................'
-            : `1. Memahami (Understand):\n${understandStr}\n\n2. Mengaplikasi (Apply):\n${applyStr}\n\n3. Merefleksi (Reflect):\n${reflectStr}`,
-        });
-      } else {
-        sections.push({
-          type: 'heading',
-          text: 'III. KEGIATAN PEMBELAJARAN',
-          level: 1,
-        });
+      sections.push({
+        type: 'heading',
+        text: 'VI. PENGAYAAN/REMEDIAL',
+        level: 1,
+      });
+      sections.push({
+        type: 'paragraph',
+        text: '1. Rencana Pengayaan: ........................................................\n2. Rencana Remedial: ........................................................',
+      });
 
-        const openingStr = (matchedPlan?.learningSteps?.opening || []).map((s) => `• ${s.description}${s.durationMinutes ? ` (${s.durationMinutes} Menit)` : ''}`).join('\n') || '-';
-        const coreStr = (matchedPlan?.learningSteps?.core || []).map((s) => `• ${s.description}${s.durationMinutes ? ` (${s.durationMinutes} Menit)` : ''}`).join('\n') || '-';
-        const closingStr = (matchedPlan?.learningSteps?.closing || []).map((s) => `• ${s.description}${s.durationMinutes ? ` (${s.durationMinutes} Menit)` : ''}`).join('\n') || '-';
-
-        sections.push({
-          type: 'paragraph',
-          text: isBlankMode
-            ? '1. Kegiatan Pendahuluan: ........................................................................................................................................................\n2. Kegiatan Inti: ........................................................................................................................................................\n3. Kegiatan Penutup: ........................................................................................................................................................'
-            : `1. Kegiatan Pendahuluan:\n${openingStr}\n\n2. Kegiatan Inti:\n${coreStr}\n\n3. Kegiatan Penutup:\n${closingStr}`,
-        });
-      }
-
-      if (matchedPlan?.assessmentPlan || isBlankMode) {
-        sections.push({
-          type: 'heading',
-          text: 'IV. ASESMEN PEMBELAJARAN',
-          level: 1,
-        });
-        const initialAsm = (matchedPlan?.assessmentPlan?.initial || []).map((a) => `• ${a.description || a.technique || 'Asesmen Awal'}`).join('\n') || '-';
-        const formativeAsm = (matchedPlan?.assessmentPlan?.formative || []).map((a) => `• ${a.description || a.technique || 'Asesmen Formatif'}`).join('\n') || '-';
-        const summativeAsm = (matchedPlan?.assessmentPlan?.summative || []).map((a) => `• ${a.description || a.technique || 'Asesmen Sumatif'}`).join('\n') || '-';
-
-        sections.push({
-          type: 'paragraph',
-          text: isBlankMode
-            ? '1. Asesmen Awal (Diagnostik): ........................................................\n2. Asesmen Formatif: ........................................................\n3. Asesmen Sumatif: ........................................................'
-            : `1. Asesmen Awal (Diagnostik):\n${initialAsm}\n\n2. Asesmen Formatif:\n${formativeAsm}\n\n3. Asesmen Sumatif:\n${summativeAsm}`,
-        });
-      }
+      sections.push({
+        type: 'heading',
+        text: 'VII. REFLEKSI',
+        level: 1,
+      });
+      sections.push({
+        type: 'paragraph',
+        text: '1. Refleksi Guru: ........................................................\n2. Refleksi Murid: ........................................................',
+      });
       break;
     }
 

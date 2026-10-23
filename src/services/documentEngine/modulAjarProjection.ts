@@ -243,20 +243,15 @@ function buildSections(plan: LearningPlan, meetings: ModulAjarMeeting[], tps: Mo
       'Pemahaman Bermakna: ' + (plan.meaningfulUnderstanding || '-'),
       'Pertanyaan Pemantik: ' + (plan.triggerQuestions || []).join('; '),
       ...Object.entries(plan.learningSteps || {}).flatMap(([phase, steps]) => (steps || []).filter(step => step.learningMeetingId === undefined).map(step => phase + ': ' + (step.title || '') + ' ' + step.description + (step.durationMinutes ? ' (' + step.durationMinutes + ' Menit)' : '')))] },
-    { title: 'III. PENGALAMAN BELAJAR UNIT', lines: [
-      ['UNDERSTAND', 'Memahami'], ['APPLY', 'Mengaplikasi'], ['REFLECT', 'Merefleksi'],
-    ].flatMap(([phase, label]) => [label + ':',
-      ...(plan.learningExperiences || []).filter(e => e.phase === phase && e.learningMeetingId === undefined)
-        .map(e => e.description + (e.durationMinutes ? ' (' + e.durationMinutes + ' Menit)' : ''))]) },
-    { title: 'IV. RENCANA PERTEMUAN', lines: meetings.flatMap(m => [
+    { title: 'III. RENCANA PERTEMUAN', lines: meetings.flatMap(m => [
       'Pertemuan ' + m.order + ': ' + m.title + ' | ' + m.date + ' | ' + m.jp + ' JP',
       'Materi: ' + m.materials.map(x => x.title).join('; '),
       'TP:', ...m.resolvedTPs.map(t => (t.code || t.id) + ': ' + t.statement),
       'Kegiatan Pembelajaran:', ...m.activityLines,
       'Asesmen:', ...assessmentLines(m.assessments), 'KKTP ringkas:', ...m.kktpSummaryLines]) },
-    { title: 'V. ASESMEN + KKTP', lines: [...assessmentLines(assessments), ...criterionLines(criteria)] },
-    { title: 'VI. DIFERENSIASI', lines: Object.entries(plan.differentiation || {}).map(([key,value]) => key + ': ' + value) },
-    { title: 'VII. PENGAYAAN/REMEDIAL', lines: ['Pengayaan: ' + (plan.enrichmentPlan || '-'), 'Remedial: ' + (plan.remedialPlan || '-')] },
-    { title: 'VIII. REFLEKSI', lines: ['Guru: ' + (plan.reflection?.teacherReflection || '-'), 'Murid: ' + (plan.reflection?.studentReflection || '-')] },
+    { title: 'IV. ASESMEN + KKTP', lines: [...assessmentLines(assessments), ...criterionLines(criteria)] },
+    { title: 'V. DIFERENSIASI', lines: Object.entries(plan.differentiation || {}).map(([key,value]) => key + ': ' + value) },
+    { title: 'VI. PENGAYAAN/REMEDIAL', lines: ['Pengayaan: ' + (plan.enrichmentPlan || '-'), 'Remedial: ' + (plan.remedialPlan || '-')] },
+    { title: 'VII. REFLEKSI', lines: ['Guru: ' + (plan.reflection?.teacherReflection || '-'), 'Murid: ' + (plan.reflection?.studentReflection || '-')] },
   ];
 }

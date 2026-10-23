@@ -38,7 +38,7 @@ assert.equal(projection.isReady,true,projection.error);
 assert.deepEqual(projection.meetings?.map(m=>m.id),['m1','m2','m3']);
 assert.deepEqual(projection.meetings?.map(m=>m.KKTP.map(c=>c.tpId)),[['t1'],['t2'],['t1']]);
 assert.deepEqual(projection.meetings?.map(m=>m.assessments.length),[1,0,0]);
-assert.equal(projection.sections?.length,8);
+assert.equal(projection.sections?.length,7);
 assert.deepEqual(projection.meetings!.map(m => m.activities.filter(a=>a.phase==='core').map(a => a.description)),
   [['Aktivitas khusus 1'], ['Aktivitas khusus 2'], ['Aktivitas khusus 3']]);
 assert(projection.meetings!.every(m => m.activitiesStatus === 'COMPLETE'));
@@ -55,7 +55,7 @@ const scopedExperience = structuredClone(context);
 scopedExperience.learningPlans[0].learningExperiences.push({id:'meeting-exp', phase:'APPLY', description:'Pengalaman khusus m2', learningMeetingId:'m2'});
 const withScopedExperience = buildModulAjarProjection(scopedExperience);
 assert.equal(withScopedExperience.meetings!.find(m=>m.id==='m2')!.activities.at(-1)!.description, 'Pengalaman khusus m2');
-assert(!withScopedExperience.sections!.find(s=>s.title.includes('PENGALAMAN BELAJAR UNIT'))!.lines.includes('Pengalaman khusus m2'));
+assert(!withScopedExperience.sections!.some(s => s.title.includes('PENGALAMAN BELAJAR')));
 assert(!JSON.stringify(projection.sections).includes('unrelated'));
 for (const mutation of [
   (c:any)=>c.learningPlans[0].learningMeetingIds.push('dangling'),
@@ -81,9 +81,16 @@ for (const type of ['CP','TP','ATP','PROTA','PROMES','KKTP'] as const) {
 const unspecified = createDocumentSnapshot(context);
 assert(!('learningPlanId' in unspecified));
 assert(!('learningPlanUpdatedAt' in unspecified.sourceVersions!));
-const unitExperiences = projection.sections!.find(s => s.title.includes('PENGALAMAN BELAJAR UNIT'))!;
-assert(unitExperiences);
-assert.deepEqual(unitExperiences.lines, ['Memahami:', 'Kegiatan UNDERSTAND', 'Mengaplikasi:', 'Kegiatan APPLY', 'Merefleksi:', 'Kegiatan REFLECT']);
+assert(!projection.sections!.some(s => s.title.includes('PENGALAMAN BELAJAR')));
+assert.deepEqual(projection.sections!.map(s => s.title), [
+  'I. INFORMASI UMUM',
+  'II. KOMPONEN INTI',
+  'III. RENCANA PERTEMUAN',
+  'IV. ASESMEN + KKTP',
+  'V. DIFERENSIASI',
+  'VI. PENGAYAAN/REMEDIAL',
+  'VII. REFLEKSI',
+]);
 assert(!projection.sections!.some(s => s.title.includes('PENGESAHAN')));
 const meetingSection = projection.sections!.find(s => s.title.includes('RENCANA PERTEMUAN'))!;
 assert(!meetingSection.lines.some(line => line.includes('Mandiri')));
@@ -93,7 +100,7 @@ for (const label of ['Materi:', 'TP:', 'Kegiatan Pembelajaran:', 'Asesmen:', 'KK
 }
 for (const experience of plan.learningExperiences) {
   assert(!meetingSection.lines.some(line => line.includes(experience.description)));
-  assert.equal(projection.sections!.flatMap(s => s.lines).filter(line => line.includes(experience.description)).length, 1);
+  assert.equal(projection.sections!.flatMap(s => s.lines).filter(line => line.includes(experience.description)).length, 0);
 }
 const snap=createDocumentSnapshot(context, 'docx', 'data', 'MODUL_AJAR');
 assert.equal(snap.learningPlanId,plan.id);
@@ -140,7 +147,7 @@ assert(xml.includes('w:jc w:val="both"'), 'narrative paragraph justified');
 assert(xml.includes('Satuan Pendidikan') && xml.includes('Mengetahui'), 'identity/signoff tetap rapi');
 for(const section of projection.sections || []) assert(xml.includes(section.title.replace('&','&amp;')));
 // Only the unit assessment section contains full rubric levels.
-const wordMeetings = xml.slice(xml.indexOf('IV. RENCANA PERTEMUAN'), xml.indexOf('V. ASESMEN + KKTP'));
+const wordMeetings = xml.slice(xml.indexOf('III. RENCANA PERTEMUAN'), xml.indexOf('IV. ASESMEN + KKTP'));
 assert(wordMeetings.includes('Kegiatan Pembelajaran'));
 assert(!wordMeetings.includes('Perlu Bimbingan'));
 assert(!wordMeetings.includes('Mandiri'));
@@ -154,10 +161,10 @@ for (const order of [1,2,3]) {
 const pdf = await generatePdfDocument('MODUL_AJAR',{...context,skipDownload:true});
 assert(pdf.blob.size > 0);
 assert.equal(pdf.snapshot.learningPlanId,'lp');
-assert.equal(xml.split('Kegiatan UNDERSTAND').length - 1, 1);
-assert(xml.includes('PENGALAMAN BELAJAR UNIT'));
+assert.equal(xml.split('Kegiatan UNDERSTAND').length - 1, 0);
+assert(!xml.includes('PENGALAMAN BELAJAR'));
 assert(!xml.includes('VIII. PENGESAHAN'));
-console.log('PASS: real DOCX/PDF generation; DOCX ordered meeting text and all 8 sections; PDF snapshot lineage.');
+console.log('PASS: real DOCX/PDF generation; DOCX ordered meeting text and all 7 sections; PDF snapshot lineage.');
 const { getDocument } = await import('pdfjs-dist/legacy/build/pdf.mjs');
 const pdfTask = getDocument({ data:new Uint8Array(await pdf.blob.arrayBuffer()), useSystemFonts:true });
 const parsedPdf = await pdfTask.promise;
@@ -172,11 +179,12 @@ for(const section of projection.sections || []) assert(pdfText.includes(section.
 for(const meeting of projection.meetings || []) assert(pdfText.includes('Pertemuan '+meeting.order+': '+meeting.title));
 assert(pdfText.indexOf('Pertemuan 1: Judul 1') < pdfText.indexOf('Pertemuan 2: Judul 2'));
 assert(pdfText.indexOf('Pertemuan 2: Judul 2') < pdfText.indexOf('Pertemuan 3: Judul 3'));
-assert.equal(pdfText.split('Kegiatan UNDERSTAND').length - 1, 1);
+assert.equal(pdfText.split('Kegiatan UNDERSTAND').length - 1, 0);
+assert(!pdfText.includes('PENGALAMAN BELAJAR'));
 assert(!pdfText.includes('VIII. PENGESAHAN'));
 assert(xml.includes('Kepala Sekolah'));
 assert(pdfText.includes('Kepala Sekolah'));
-const pdfMeetings=pdfText.slice(pdfText.indexOf('IV. RENCANA PERTEMUAN'),pdfText.indexOf('V. ASESMEN + KKTP'));
+const pdfMeetings=pdfText.slice(pdfText.indexOf('III. RENCANA PERTEMUAN'),pdfText.indexOf('IV. ASESMEN + KKTP'));
 assert(!pdfMeetings.includes('Mandiri'));
 for(const order of [1,2,3]) {
   const start=pdfMeetings.indexOf('Pertemuan '+order+':');
@@ -186,5 +194,75 @@ for(const order of [1,2,3]) {
   for(const other of [1,2,3].filter(n=>n!==order)) assert(!block.includes('Aktivitas khusus '+other));
 }
 await pdfTask.destroy();
-console.log('PASS: extracted PDF text contains all 8 sections and the same 3 ordered meetings.');
+console.log('PASS: extracted PDF text contains all 7 sections and the same 3 ordered meetings.');
+
+// Mandatory Regression:
+// 1. Modul dengan learningExperiences meeting-linked -> tidak ada section kosong.
+// 2. Semua learningExperiences tetap muncul di pertemuan terkait.
+// 3. DOCX dan PDF punya struktur nomor yang sama.
+// 4. Tidak ada duplikasi Pengalaman Belajar.
+// 5. Modul valid existing tetap lolos.
+const meetingLinkedContext = structuredClone(context);
+meetingLinkedContext.learningPlans[0].learningExperiences = [
+  { id: 'me1', phase: 'UNDERSTAND', description: 'Memahami konsep dasar gerak', learningMeetingId: 'm1', durationMinutes: 20 },
+  { id: 'me2', phase: 'APPLY', description: 'Mempraktikkan gerak spesifik', learningMeetingId: 'm2', durationMinutes: 30 },
+  { id: 'me3', phase: 'REFLECT', description: 'Refleksi pengalaman gerak', learningMeetingId: 'm3', durationMinutes: 15 },
+];
+const mlProj = buildModulAjarProjection(meetingLinkedContext);
+assert.equal(mlProj.isReady, true);
+assert.equal(mlProj.sections!.length, 7);
+assert(!mlProj.sections!.some(s => s.title.includes('PENGALAMAN BELAJAR')));
+assert.deepEqual(mlProj.sections!.map(s => s.title), [
+  'I. INFORMASI UMUM',
+  'II. KOMPONEN INTI',
+  'III. RENCANA PERTEMUAN',
+  'IV. ASESMEN + KKTP',
+  'V. DIFERENSIASI',
+  'VI. PENGAYAAN/REMEDIAL',
+  'VII. REFLEKSI',
+]);
+
+// All meeting-linked learningExperiences appear in their respective meetings
+assert(mlProj.meetings!.find(m => m.id === 'm1')!.activityLines.some(l => l.includes('Memahami konsep dasar gerak')));
+assert(mlProj.meetings!.find(m => m.id === 'm2')!.activityLines.some(l => l.includes('Mempraktikkan gerak spesifik')));
+assert(mlProj.meetings!.find(m => m.id === 'm3')!.activityLines.some(l => l.includes('Refleksi pengalaman gerak')));
+
+// Generate DOCX with meeting-linked experiences
+const mlDoc = await generateModulAjar({ ...meetingLinkedContext, skipDownload: true });
+const mlXml = await (await JSZip.loadAsync(await mlDoc.blob!.arrayBuffer())).file('word/document.xml')!.async('string');
+assert(!mlXml.includes('PENGALAMAN BELAJAR'));
+assert(mlXml.includes('Memahami: Memahami konsep dasar gerak (pendekatan kegiatan inti)'));
+assert(mlXml.includes('Mengaplikasi: Mempraktikkan gerak spesifik (pendekatan kegiatan inti)'));
+assert(mlXml.includes('Merefleksi: Refleksi pengalaman gerak (pendekatan kegiatan inti)'));
+// No duplication: each description appears exactly once in the entire document
+assert.equal(mlXml.split('Memahami konsep dasar gerak').length - 1, 1);
+assert.equal(mlXml.split('Mempraktikkan gerak spesifik').length - 1, 1);
+assert.equal(mlXml.split('Refleksi pengalaman gerak').length - 1, 1);
+
+// Generate PDF with meeting-linked experiences
+const mlPdf = await generatePdfDocument('MODUL_AJAR', { ...meetingLinkedContext, skipDownload: true });
+const mlPdfTask = getDocument({ data: new Uint8Array(await mlPdf.blob.arrayBuffer()), useSystemFonts: true });
+const parsedMlPdf = await mlPdfTask.promise;
+const mlPdfLines: string[] = [];
+for (let i = 1; i <= parsedMlPdf.numPages; i++) {
+  const page = await parsedMlPdf.getPage(i);
+  const content = await page.getTextContent();
+  mlPdfLines.push(content.items.map((item: any) => item.str || '').join(' '));
+}
+const mlPdfText = mlPdfLines.join(' ');
+assert(!mlPdfText.includes('PENGALAMAN BELAJAR'));
+assert(mlPdfText.includes('Memahami konsep dasar gerak'));
+assert(mlPdfText.includes('Mempraktikkan gerak spesifik'));
+assert(mlPdfText.includes('Refleksi pengalaman gerak'));
+assert.equal(mlPdfText.split('Memahami konsep dasar gerak').length - 1, 1);
+assert.equal(mlPdfText.split('Mempraktikkan gerak spesifik').length - 1, 1);
+assert.equal(mlPdfText.split('Refleksi pengalaman gerak').length - 1, 1);
+
+// Parity: DOCX and PDF have identical 7 section titles
+for (const section of mlProj.sections || []) {
+  assert(mlXml.includes(section.title.replace('&', '&amp;')), 'DOCX missing section: ' + section.title);
+  assert(mlPdfText.includes(section.title), 'PDF missing section: ' + section.title);
+}
+await mlPdfTask.destroy();
+console.log('PASS: meeting-linked learning experiences render cleanly in meetings without duplicate or empty standalone sections; DOCX and PDF 7-section parity verified.');
 console.log('PASS: exact meeting activities, dangling ID rejection, incomplete activities marker, no unit duplication, compact meeting KKTP and DOCX/PDF parity.');
