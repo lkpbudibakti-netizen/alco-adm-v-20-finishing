@@ -2,7 +2,7 @@ import { applyATPMappingActions } from './atpMappingActionApplyService';
 import type { ATPData, TPData, ATPUnitMapping } from '../types';
 import type { MappingActionItem } from './atpMappingActionApplyService';
 import type { MappingAnalysisResult } from './aiService';
-import { ALIGNMENT_PRIORITY, applyMinimalAlignment, type AlignmentAction, type AlignmentActionType } from './mappingAlignmentService';
+import { ALIGNMENT_PRIORITY, alignmentProposalStatus, applyMinimalAlignment, type AlignmentAction, type AlignmentActionType } from './mappingAlignmentService';
 
 export interface ActionValidityCheckResult {
   valid: boolean;
@@ -46,7 +46,7 @@ export function extractSelectedMappingActions(
 
   const actions: MappingActionItem[] = [];
   (analysisResult.alignmentProposals || []).forEach(proposal => {
-    if (proposal.action && selectedActionIds.has(proposal.id)) actions.push({ ...proposal.action });
+    if (alignmentProposalStatus(proposal) === 'READY' && proposal.action && selectedActionIds.has(proposal.id)) actions.push({ ...proposal.action });
   });
 
   (analysisResult.atpFindings || []).forEach((f) => {

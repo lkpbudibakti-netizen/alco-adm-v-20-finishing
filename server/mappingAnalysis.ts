@@ -164,6 +164,10 @@ ADD_MATERIAL: boleh pada Bab yang SUDAH memiliki materi jika gap tidak dapat dit
 MOVE_MATERIAL: sourceUnitId dan targetUnitId existing, targetMaterialId exact. Jangan pindahkan ATP canonical atau ubah Bab.
 RESTRUCTURE_UNIT adalah opsi terakhir: hanya mengurutkan materi existing di satu Bab, materialOrder berisi seluruh ID materi; before = JSON.stringify(urutan ID materi saat ini). Tidak membuat/menghapus/mengurutkan Bab.
 Setiap action memerlukan linkedTpIds canonical, alasan pedagogis spesifik, evidence per TP berupa tpQuote substring exact pernyataan TP dan materialQuote substring exact materi ASLI (atau judul baru untuk ADD_MATERIAL).
+Untuk menghindari kutipan terlalu pendek, COPY pernyataan TP utuh ke tpQuote dan judul materi asli utuh ke materialQuote (ADD_MATERIAL: copy judul after utuh). Jangan parafrase, ubah tanda baca atau rapikan spasi kutipan.
+Minimum kutipan validator: tpQuote >= min(12, panjang pernyataan TP), materialQuote >= min(8, panjang judul sumber). Tetap harus substring exact, bukan keyword generik.
+Gunakan ID tpId/unitId/materialId dari JSON sumber, bukan kode TP atau nomor Bab. before LINK_TP/EDIT_MATERIAL/MOVE_MATERIAL wajib judul asli exact; after EDIT/ADD wajib judul revisi/baru, bukan object atau penjelasan. MOVE sourceUnitId wajib Bab induk asli.
+Gunakan satu type literal (contoh "LINK_TP"), bukan gabungan nama type dengan tanda |. Setiap proposal adalah action flat sesuai schema di bawah; envelope {id, action:{...}} juga didukung jika field yang sama tidak bertentangan. Semua penolakan validator tetap ditampilkan dan tidak dapat dipilih.
 AI hanya mengusulkan, guru memilih melalui diff. Server menurunkan ATP induk, menghitung coverage dan memvalidasi lineage/progression/ID/substansi eksplisit.
 Jangan memaksakan relasi demi Z=0. Untuk SETIAP TP uncovered, ATP unmapped, dan materi review, berikan proposal konkret atau alasan spesifik dalam gapFindings. Jangan mengarang ID.
 Usulkan alternatif terpisah dan terurut prioritas; hindari beberapa perubahan bertentangan pada materi sama. Action harus mandiri/atomic; coverage dari data aktual, bukan klaim AI.

@@ -21,6 +21,9 @@ export interface AlignmentAction {
 export interface AlignmentProposal {
   id: string;
   action?: AlignmentAction;
+  validationStatus?: 'READY' | 'REJECTED' | 'ALREADY_APPLIED';
+  validationIssues?: string[];
+  proposalType?: string;
   reason: string;
   before: string;
   after: string;
@@ -28,6 +31,32 @@ export interface AlignmentProposal {
   targetMaterialId?: string;
   tpIds: string[];
   impact: { newlyCoveredTpIds: string[]; newlyMappedAtpIds: string[] };
+}
+
+export function alignmentProposalStatus(proposal: AlignmentProposal): 'READY' | 'REJECTED' | 'ALREADY_APPLIED' {
+  if (proposal.validationStatus === 'ALREADY_APPLIED') return 'ALREADY_APPLIED';
+  if (proposal.action && proposal.validationStatus !== 'REJECTED') return 'READY';
+  return 'REJECTED';
+}
+
+export function alignmentProposalDiagnostics(proposals: AlignmentProposal[]) {
+  const reasons = new Map<string, number>();
+  for (const proposal of proposals.filter(p => alignmentProposalStatus(p) === 'REJECTED')) {
+    for (const issue of proposal.validationIssues?.length ? proposal.validationIssues : [proposal.reason]) reasons.set(issue, (reasons.get(issue) || 0) + 1);
+  }
+  return { ready: proposals.filter(p => alignmentProposalStatus(p) === 'READY').length,
+    rejected: proposals.filter(p => alignmentProposalStatus(p) === 'REJECTED').length,
+    alreadyApplied: proposals.filter(p => alignmentProposalStatus(p) === 'ALREADY_APPLIED').length,
+    rejectionReasons: [...reasons].map(([reason, count]) => ({ reason, count })) };
+}
+
+/** Used by the checkbox and regression; rejected IDs cannot enter the selection. */
+export function toggleAlignmentProposalSelection(proposals: AlignmentProposal[], previous: Set<string>, id: string) {
+  const ready = new Set(proposals.filter(p => alignmentProposalStatus(p) === 'READY').map(p => p.id));
+  const next = new Set([...previous].filter(selected => ready.has(selected)));
+  if (!ready.has(id)) return next;
+  if (next.has(id)) next.delete(id); else next.add(id);
+  return next;
 }
 
 export function mappingCoverage(units: ATPUnitMapping[], atp: ATPData, tp: TPData) {

@@ -1,3 +1,4 @@
+import { AlignmentProposalReview } from './AlignmentProposalReview';
 import { deriveMappingAtpIds } from '../services/atpMappingLineageService';
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
@@ -37,7 +38,7 @@ import {
   MappingAnalysisResult,
 } from '../services/aiService';
 import { validateATPUnitMappingCanonical } from '../services/atpUnitMappingValidationService';
-import { mappingCoverage } from '../services/mappingAlignmentService';
+import { mappingCoverage, alignmentProposalStatus } from '../services/mappingAlignmentService';
 import { proceedWithATPUnitMapping, resolveATPUnitMappingReadiness } from '../services/atpMappingReadinessService';
 import {
   applyATPMappingActions,
@@ -880,9 +881,9 @@ export const ATPUnitMappingManager: React.FC<ATPUnitMappingManagerProps> = ({
     if (!analysisResult) return;
     setApplyIssues([]);
     const allActionIds = new Set<string>();
-    if (analysisResult.alignmentProposals?.some(p => p.action)) {
+    if (analysisResult.alignmentProposals?.some(p => alignmentProposalStatus(p) === 'READY')) {
       const materialKeys = new Set<string>();
-      analysisResult.alignmentProposals.filter(p => p.action).forEach(p => {
+      analysisResult.alignmentProposals.filter(p => alignmentProposalStatus(p) === 'READY').forEach(p => {
         const key = p.targetMaterialId || `${p.targetUnitId}:${p.action?.after || p.action?.type}`;
         if (!materialKeys.has(key)) { allActionIds.add(p.id); materialKeys.add(key); }
       });
@@ -1584,24 +1585,10 @@ export const ATPUnitMappingManager: React.FC<ATPUnitMappingManagerProps> = ({
           {(analysisResult.alignmentProposals?.length || analysisResult.gapFindings?.length) ? (
             <div className="space-y-3">
               <h4 className="font-bold text-sm">Preview perubahan minimal — pilih hanya perubahan yang disetujui</h4>
-              {analysisResult.alignmentProposals?.map(proposal => (
-                <div key={proposal.id} className="border rounded-lg p-3 text-xs space-y-1">
-                  {proposal.action && <label className="font-semibold"><input type="checkbox" checked={selectedAnalysisActionIds.has(proposal.id)} onChange={() => {
-                    setSelectedAnalysisActionIds(previous => {
-                      const ids = new Set(analysisResult.alignmentProposals?.filter(p => previous.has(p.id)).map(p => p.id));
-                      if (ids.has(proposal.id)) ids.delete(proposal.id); else ids.add(proposal.id); return ids;
-                    }); setApplyIssues([]);
-                  }} /> Setujui {proposal.action.type}</label>}
-                  <div>Bab: {proposal.targetUnitId} · Materi: {proposal.targetMaterialId || '(baru)'}</div>
-                  <div>Sebelum: {proposal.before || '(materi baru)'}</div>
-                  <div>Sesudah: {proposal.after || proposal.before}</div>
-                  {proposal.action?.materialOrder && <div>Urutan materi: {proposal.action.materialOrder.join(' → ')}</div>}
-                  {proposal.action?.sourceUnitId && <div>Bab sumber: {proposal.action.sourceUnitId}</div>}
-                  <div>TP: {proposal.tpIds.join(', ')}</div>
-                  <p>{proposal.reason}</p>
-                  <div>Dampak: TP baru tercakup [{proposal.impact.newlyCoveredTpIds.join(', ')}]; ATP baru terpetakan [{proposal.impact.newlyMappedAtpIds.join(', ')}]</div>
-                </div>
-              ))}
+              <AlignmentProposalReview proposals={analysisResult.alignmentProposals || []}
+                selectedIds={selectedAnalysisActionIds} onSelectionChange={ids => {
+                  setSelectedAnalysisActionIds(ids); setApplyIssues([]);
+                }} />
               <details><summary>Gap yang masih memerlukan penyelarasan</summary>
                 {analysisResult.gapFindings?.map(gap => <p key={gap.kind+gap.id} className="text-xs">{gap.kind} {gap.id}: {gap.reason}</p>)}
               </details>
