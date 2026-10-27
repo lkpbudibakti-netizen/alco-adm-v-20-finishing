@@ -229,7 +229,7 @@ runTest('7. Multiple TP dari satu CPAnalysisItem tidak salah bertukar ID tanpa s
   const existing: TPItem[] = [
     {
       id: 'tp-1',
-      code: 'E1-A',
+      code: 'E1-AA-01',
       elementName: 'Elem',
       statement: 'Statement 1',
       competence: 'K1',
@@ -239,7 +239,7 @@ runTest('7. Multiple TP dari satu CPAnalysisItem tidak salah bertukar ID tanpa s
     },
     {
       id: 'tp-2',
-      code: 'E1-B',
+      code: 'E1-BB-01',
       elementName: 'Elem',
       statement: 'Statement 2',
       competence: 'K2',
@@ -251,7 +251,7 @@ runTest('7. Multiple TP dari satu CPAnalysisItem tidak salah bertukar ID tanpa s
 
   const generated: Partial<TPItem>[] = [
     {
-      code: 'E1-B',
+      code: 'E1-BB-01',
       elementName: 'Elem',
       statement: 'Statement 2 Modified',
       competence: 'K2',
@@ -259,7 +259,7 @@ runTest('7. Multiple TP dari satu CPAnalysisItem tidak salah bertukar ID tanpa s
       cpAnalysisItemIds: ['ana-1'],
     },
     {
-      code: 'E1-A',
+      code: 'E1-AA-01',
       elementName: 'Elem',
       statement: 'Statement 1 Modified',
       competence: 'K1',
@@ -270,8 +270,8 @@ runTest('7. Multiple TP dari satu CPAnalysisItem tidak salah bertukar ID tanpa s
 
   const merged = mergeGeneratedTPsWithExisting(generated, existing, activeAnalysisItems, 'ALIGN_EXISTING');
   assert.strictEqual(merged.length, 2);
-  const m1 = merged.find((m) => m.code === 'E1-A');
-  const m2 = merged.find((m) => m.code === 'E1-B');
+  const m1 = merged.find((m) => m.code === 'E1-AA-01');
+  const m2 = merged.find((m) => m.code === 'E1-BB-01');
   assert.strictEqual(m1?.id, 'tp-1');
   assert.strictEqual(m2?.id, 'tp-2');
 });

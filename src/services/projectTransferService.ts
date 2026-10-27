@@ -1,3 +1,5 @@
+import { CANONICAL_MERDEKA_TP_CODE_REGEX } from './tpCodeContract';
+export { CANONICAL_MERDEKA_TP_CODE_REGEX } from './tpCodeContract';
 import { CurriculumType } from '../types';
 import {
   PROJECT_TRANSFER_SCHEMA_VERSION_V1,
@@ -42,7 +44,7 @@ export function normalizeTransferCode(val: unknown): string {
   return normalizeSingleLineText(val).toUpperCase();
 }
 
-export const CANONICAL_MERDEKA_TP_CODE_REGEX = /^E\d+-[A-Z0-9]{2,5}-\d{2}$/;
+
 
 /**
  * Validates and normalizes schema version.

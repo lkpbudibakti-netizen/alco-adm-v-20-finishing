@@ -1,3 +1,5 @@
+import { assignGeneratedTPCodes, canonicalScopeCode } from '../src/services/tpCodeContract';
+import { checkAggregateTPCoverage } from '../src/services/tpSemanticFidelity';
 /**
  * Pedagogical Rule-Based Engine & Fallback Generator for Kurikulum Merdeka
  * Used when GEMINI_API_KEY is not configured or when AI services are temporarily unreachable.
@@ -363,7 +365,7 @@ function resolveAtomicTPStatementAndCompetence(
   const contentScope = rawScope.trim();
   let statement = '';
 
-  if (suggestedTp && suggestedTp.trim().length > 15) {
+  if (suggestedTp && suggestedTp.trim().length > 15 && checkAggregateTPCoverage([{ statement: suggestedTp }], { cpCompetence: rawComp, materialScope: rawScope })) {
     statement = suggestedTp.trim();
   } else {
     let cleanScope = contentScope;
@@ -425,7 +427,7 @@ export function fallbackGenerateTP(params: FallbackGenerateTPParams) {
       const foundIdx = validElements.findIndex((e) => e.name && elemName && e.name.toLowerCase().trim() === elemName.toLowerCase().trim());
       elemCode = foundIdx !== -1 ? (validElements[foundIdx].code || `E${foundIdx + 1}`) : 'E1';
     }
-    const scopeCode = providedScopeCode || deriveScopeCode(scopeText);
+    const scopeCode = canonicalScopeCode(providedScopeCode, scopeText);
     const key = `${elemCode}-${scopeCode}`;
     const seq = (sequenceCounters.get(key) || 0) + 1;
     sequenceCounters.set(key, seq);
@@ -553,6 +555,8 @@ export function fallbackGenerateTP(params: FallbackGenerateTPParams) {
     });
   }
 
+  const codedItems = assignGeneratedTPCodes(rawGeneratedItems, cpAnalysisItems, validElements);
+  rawGeneratedItems.splice(0, rawGeneratedItems.length, ...codedItems);
   // Safe merge with existingTps if provided
   if (existingTps.length > 0) {
     const matchedExistingIds = new Set<string>();

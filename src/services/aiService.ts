@@ -21,6 +21,7 @@ import {
   normalizeAIResources,
 } from './learningPlanService';
 import { recordDiagnosticEvent } from './diagnosticService';
+import { assignGeneratedTPCodes, CANONICAL_MERDEKA_TP_CODE_REGEX } from './tpCodeContract';
 
 export interface CanonicalCPAnalysisResult {
   generalSummary: string;
@@ -621,7 +622,8 @@ export async function generateTPWithAI(params: GenerateTPParams): Promise<Genera
         data.items,
         params.existingTps || [],
         params.cpAnalysisItems || [],
-        mode
+        mode,
+        params.cpElements
       ),
       engine: resolvedEngine,
     };
@@ -638,8 +640,9 @@ export async function generateTPWithAI(params: GenerateTPParams): Promise<Genera
 export function mergeGeneratedTPsWithExisting(
   generatedItems: Array<Partial<TPItem>>,
   existingItems: TPItem[] = [],
-  activeAnalysisItems: Array<{ id: string }> = [],
-  mode: 'ALIGN_EXISTING' | 'REBUILD_FROM_UPSTREAM' = 'ALIGN_EXISTING'
+  activeAnalysisItems: Array<{ id: string; elementId?: string; elementName?: string; scopeCode?: string; materialScope?: string }> = [],
+  mode: 'ALIGN_EXISTING' | 'REBUILD_FROM_UPSTREAM' = 'ALIGN_EXISTING',
+  cpElements: CPElem[] = []
 ): TPItem[] {
   const activeAnalysisItemIds = new Set<string>(
     activeAnalysisItems.map((a) => String(a.id)).filter(Boolean)
@@ -649,7 +652,7 @@ export function mergeGeneratedTPsWithExisting(
   const normalizeText = (s?: string) => (s || '').trim().toLowerCase().replace(/\s+/g, ' ');
 
   if (!existingItems || existingItems.length === 0) {
-    return generatedItems.map((g, idx) => {
+    return assignGeneratedTPCodes(generatedItems.map((g, idx) => {
       const stmt = g.statement || (g as any).description || '';
       return {
         id: g.id || `tp-item-${Date.now()}-${idx + 1}-${Math.random().toString(36).substring(2, 6)}`,
@@ -664,7 +667,7 @@ export function mergeGeneratedTPsWithExisting(
         order: idx + 1,
         cpAnalysisItemIds: Array.isArray(g.cpAnalysisItemIds) ? g.cpAnalysisItemIds.map(String) : [],
       };
-    });
+    }), activeAnalysisItems, cpElements);
   }
 
   const matchedExistingIds = new Set<string>();
@@ -677,12 +680,14 @@ export function mergeGeneratedTPsWithExisting(
     const genAnalysisIds = Array.isArray(gen.cpAnalysisItemIds)
       ? gen.cpAnalysisItemIds.map(String).filter(Boolean)
       : [];
+    let bestScore = 0;
+    let ambiguousMatch = false;
 
     for (const exist of existingItems) {
       if (matchedExistingIds.has(exist.id)) continue;
-      const existAnalysisIds = Array.isArray(exist.cpAnalysisItemIds)
+      const existAnalysisIds = Array.isArray(exist.cpAnalysisItemIds) && exist.cpAnalysisItemIds.length
         ? exist.cpAnalysisItemIds.map(String).filter(Boolean)
-        : [];
+        : exist.cpAnalysisId ? [exist.cpAnalysisId] : [];
 
       // 1. Lineage condition: overlap in cpAnalysisItemIds, valid in active analysis items
       const hasLineageOverlap = genAnalysisIds.some(
@@ -704,17 +709,21 @@ export function mergeGeneratedTPsWithExisting(
       const existStmt = normalizeText(exist.statement || exist.description);
       const isStmtMatch = genStmt && existStmt && genStmt === existStmt;
 
-      if (isCodeMatch || isScopeMatch || isStmtMatch) {
+      const score = isStmtMatch ? 4 : isScopeMatch ? (normalizeText(gen.competence) === normalizeText(exist.competence) ? 3 : 2) : isCodeMatch ? 1 : 0;
+      if (score > bestScore) {
         bestMatch = exist;
-        break;
+        bestScore = score; ambiguousMatch = false;
+      } else if (score > 0 && score === bestScore) {
+        ambiguousMatch = true;
       }
     }
+    if (ambiguousMatch) bestMatch = null;
 
     if (bestMatch) {
       matchedExistingIds.add(bestMatch.id);
 
       // Generated semantics always win
-      const finalCode = gen.code || bestMatch.code || `TP ${result.length + 1}`;
+      const finalCode = CANONICAL_MERDEKA_TP_CODE_REGEX.test(bestMatch.code) ? bestMatch.code : gen.code || bestMatch.code;
       const finalScopeCode = gen.scopeCode || bestMatch.scopeCode || '';
       const finalElementName = gen.elementName || bestMatch.elementName || '';
       const finalStatement = gen.statement || (gen as any).description || bestMatch.statement || bestMatch.description || '';
@@ -784,7 +793,7 @@ export function mergeGeneratedTPsWithExisting(
   }
   // If mode === 'REBUILD_FROM_UPSTREAM', unmatched existing TPs are dropped entirely.
 
-  return result.map((item, idx) => ({ ...item, order: idx + 1 }));
+  return assignGeneratedTPCodes(result.map((item, idx) => ({ ...item, order: idx + 1 })), activeAnalysisItems, cpElements, new Set(existingItems.map(item => item.id)));
 }
 
 export interface GenerateLearningPlanParams {

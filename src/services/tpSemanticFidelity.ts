@@ -41,14 +41,18 @@ export function checkIndividualTPRelevance(tpItem: any, analysisItem: any): bool
 }
 
 export function checkAggregateTPCoverage(tpItemsForAnalysis: any[], analysisItem: any): boolean {
-  if (!analysisItem) return false;
+  return getUncoveredTPChunks(tpItemsForAnalysis, analysisItem).length === 0;
+}
+
+export function getUncoveredTPChunks(tpItemsForAnalysis: any[], analysisItem: any): string[] {
+  if (!analysisItem) return ['Butir Analisis CP tidak tersedia'];
   const materialScope = analysisItem.materialScope || '';
   const cpCompetence = analysisItem.cpCompetence || '';
   const canonicalText = `${cpCompetence}; ${materialScope}`;
 
   // Split conservative chunks: ';', newline, '\n', and '\b(serta)\b'
   const chunks = canonicalText.split(/;|\n|\bserta\b/i).map(c => c.trim()).filter(Boolean);
-  if (chunks.length === 0) return true;
+  if (chunks.length === 0) return [];
 
   const unionText = tpItemsForAnalysis.map(i => [
     i.competence || i.competency || '',
@@ -58,6 +62,7 @@ export function checkAggregateTPCoverage(tpItemsForAnalysis: any[], analysisItem
 
   const unionTokens = new Set(getSubstantiveTokens(unionText));
 
+  const missing: string[] = [];
   for (const chunk of chunks) {
     const chunkTokens = getSubstantiveTokens(chunk);
     if (chunkTokens.length === 0) continue;
@@ -65,17 +70,17 @@ export function checkAggregateTPCoverage(tpItemsForAnalysis: any[], analysisItem
     const matched = chunkTokens.filter(t => unionTokens.has(t));
     if (chunkTokens.length <= 5) {
       if (matched.length < chunkTokens.length) {
-        return false;
+        missing.push(chunk);
       }
     } else {
       const minOverlap = Math.max(2, Math.ceil(0.7 * chunkTokens.length));
       if (matched.length < minOverlap) {
-        return false;
+        missing.push(chunk);
       }
     }
   }
 
-  return true;
+  return missing;
 }
 
 export function checkTPSemanticFidelity(tpItems: any[], analysisItems: any[]): { isValid: boolean; issues: string[] } {
@@ -111,11 +116,12 @@ export function checkTPSemanticFidelity(tpItems: any[], analysisItems: any[]): {
   for (const [anaId, analysisItem] of analysisMap.entries()) {
     const associatedTPs = tpMapByAnalysisId.get(anaId) || [];
     if (associatedTPs.length === 0) {
+      issues.push(`Butir Analisis CP "${analysisItem.elementName || 'Elemen'}" (${anaId}) belum memiliki TP rujukan.`);
       continue;
     }
     const isCovered = checkAggregateTPCoverage(associatedTPs, analysisItem);
     if (!isCovered) {
-      issues.push(`Butir Analisis CP "${analysisItem.elementName || 'Elemen'}" (${analysisItem.cpCompetence || anaId}) belum terwakili penuh secara semantis oleh TP rujukan.`);
+      issues.push(`Butir Analisis CP "${analysisItem.elementName || 'Elemen'}" (${analysisItem.cpCompetence || anaId}) belum terwakili penuh secara semantis oleh TP rujukan. Bagian belum tercakup: ${getUncoveredTPChunks(associatedTPs, analysisItem).join('; ')}.`);
     }
   }
 

@@ -349,7 +349,8 @@ assertCase(!checkATPSemanticFidelity('Menerapkan gerak', majemukTp).isValid, 'Ma
 // 10. PJOK FASE B KELAS 3 END-TO-END REGRESSION (10 TPs FIXTURE)
 // ---------------------------------------------------------
 
-// D1. TP Atomic baru tidak otomatis membawa seluruh kompetensi Analisis CP
+// D1. Incomplete suggestions must express missing source competence in the statement,
+// rather than laundering coverage through competence metadata alone.
 const cpaBloated = [
   {
     id: 'ana-fairplay',
@@ -365,9 +366,11 @@ const generatedTps = fallbackGenerateTP({
 });
 assertCase(
   generatedTps.length === 1 &&
-  !generatedTps[0].competence.toLowerCase().includes('berpartisipasi') &&
-  generatedTps[0].competence.toLowerCase().includes('menerapkan'),
-  'D1: TP Atomic baru tidak otomatis membawa seluruh kompetensi Analisis CP yang tidak dirumuskan'
+  generatedTps[0].competence.split(' & ').every(competence =>
+    generatedTps[0].statement.toLowerCase().includes(competence.toLowerCase())) &&
+  ['menerapkan', 'berpartisipasi', 'merancang', 'menyusun'].every(competence =>
+    generatedTps[0].statement.toLowerCase().includes(competence)),
+  'D1: Saran parsial dilengkapi dari sumber dalam rumusan TP nyata, bukan metadata saja'
 );
 
 // D2. Rumusan TP baru tidak mengulang kata kerja

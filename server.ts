@@ -1,3 +1,4 @@
+import { assignGeneratedTPCodes, TP_CODE_FORMAT_DESCRIPTION } from './src/services/tpCodeContract';
 import { validateLearningPlanActivityMeetings } from './src/services/learningPlanActivityMeetingService';
 import express from 'express';
 import { validateATPUnitMappingCanonical } from './src/services/atpUnitMappingValidationService';
@@ -768,8 +769,9 @@ PRINSIP PEDAGOGIS & KONTRAK ATOMIK TP (WAJIB DIPATUHI - ATOMIC TP CONTRACT):
    - Gunakan kompetensi yang benar-benar dituntut oleh substansi materi TP.
    - JANGAN mengulang kompetensi yang sama dalam satu TP (misalnya: "menerapkan menerapkan").
    - Jika satu Analisis CP memiliki beberapa kompetensi/materi yang berbeda secara pedagogis, DEKOMPOSISI menjadi beberapa TP atomik terfokus.
+   - Gabungan TP untuk SETIAP ID Analisis CP wajib mencakup seluruh kompetensi dan lingkupnya. Untuk Berbicara dan Mempresentasikan jangan berhenti pada berbicara: turunkan juga tuntutan presentasi, alasan, pilihan kata, gestur/intonasi atau tuntutan lain yang secara eksplisit terdapat dalam analisis sumber. Jangan menambah kompetensi di luar sumber.
 3. FORMAT KODE TP:
-   - Format: [elementCode]-[scopeCode]-[sequence 2 digit] (misal: E1-PGD-01).
+   - Kontrak kanonikal: ${TP_CODE_FORMAT_DESCRIPTION}. Server membentuk kode secara deterministik; jangan menyalin scopeCode bersegmen seperti INF-LIS secara literal.
    - JANGAN sertakan kelas/fase dalam kode TP.
 
 DATA PEMBELAJARAN:
@@ -847,69 +849,12 @@ Kembalikan respon dalam format JSON sesuai schema:`;
         if (!isAtomicContractValid) {
           console.warn('AI TP output failed atomic contract (each TP must reference exactly 1 valid CPAnalysisItem). Falling back to pedagogical engine.');
         } else {
-          // Lineage & code sanitization
-          const sequenceCounters = new Map<string, number>();
-          const elemCodeMap = new Map<string, string>();
-          if (Array.isArray(cpElements)) {
-            cpElements.forEach((e: any, idx: number) => {
-              const code = e.code || `E${idx + 1}`;
-              if (e.id) elemCodeMap.set(String(e.id), code);
-              if (e.name) elemCodeMap.set(e.name.toLowerCase().trim(), code);
-            });
-          }
-
-          const analysisScopeCodeMap = new Map<string, { elemCode: string; scopeCode: string }>();
-          validAnalysisItems.forEach((a: any, idx: number) => {
-            if (a.id) {
-              const eCode = (a.elementId && elemCodeMap.get(String(a.elementId))) ||
-                            (a.elementName && elemCodeMap.get(a.elementName.toLowerCase().trim())) ||
-                            `E${idx + 1}`;
-              const sCode = a.scopeCode || deriveScopeCode(a.materialScope);
-              analysisScopeCodeMap.set(String(a.id), { elemCode: eCode, scopeCode: sCode });
-            }
-          });
-
-          const sanitizedItems = parsed.map((item: any) => {
-            const rawIds = Array.isArray(item.cpAnalysisItemIds) ? item.cpAnalysisItemIds : [];
-            const singleId = rawIds.length === 1 && validAnalysisIdSet.has(String(rawIds[0]))
-              ? String(rawIds[0])
-              : null;
-
-            // Resolve semantic code format: E1-PGD-01
-            let elemCode = 'E1';
-            let scopeCode = 'MAT';
-
-            if (singleId && analysisScopeCodeMap.has(singleId)) {
-              const info = analysisScopeCodeMap.get(singleId)!;
-              elemCode = info.elemCode;
-              scopeCode = info.scopeCode;
-            } else {
-              const itemElem = (item.elementName || '').toLowerCase().trim();
-              elemCode = elemCodeMap.get(itemElem) || 'E1';
-              scopeCode = item.scopeCode && typeof item.scopeCode === 'string' && item.scopeCode.trim().length >= 2
-                ? item.scopeCode.trim().toUpperCase()
-                : deriveScopeCode(item.contentScope || item.elementName);
-            }
-
-            const key = `${elemCode}-${scopeCode}`;
-            const seq = (sequenceCounters.get(key) || 0) + 1;
-            sequenceCounters.set(key, seq);
-
-            const generatedCode = `${elemCode}-${scopeCode}-${String(seq).padStart(2, '0')}`;
-
-            const cleanStmt = (item.statement || item.description || '')
-              .replace(/\b([a-zA-Z]+)\s+\1\b/gi, '$1')
-              .replace(/\s+/g, ' ')
-              .trim();
-
-            return {
-              ...item,
-              statement: cleanStmt || item.statement,
-              code: generatedCode,
-              scopeCode,
-              cpAnalysisItemIds: singleId ? [singleId] : [],
-            };
-          });
+          // AI chooses semantic content and exact source IDs; one shared service owns codes.
+          const sanitizedItems = assignGeneratedTPCodes(parsed.map((item: any) => ({
+            ...item,
+            statement: (item.statement || item.description || '').replace(/\b([a-zA-Z]+)\s+\1\b/gi, '$1').replace(/\s+/g, ' ').trim(),
+            cpAnalysisItemIds: item.cpAnalysisItemIds.map(String),
+          })), validAnalysisItems, cpElements || []);
 
           const semanticFidelityCheck = checkTPSemanticFidelity(sanitizedItems, validAnalysisItems);
           if (!semanticFidelityCheck.isValid) {
@@ -934,7 +879,8 @@ Kembalikan respon dalam format JSON sesuai schema:`;
     phase,
     curriculum,
   });
-
+  const fallbackFidelity = checkTPSemanticFidelity(fallbackItems, validAnalysisItems);
+  if (!fallbackFidelity.isValid) return res.status(422).json({ success: false, code: 'TP_SOURCE_COVERAGE_INCOMPLETE', error: fallbackFidelity.issues.join('; ') });
   return res.json({ success: true, items: fallbackItems, engine: 'pedagogical_engine' });
 });
 

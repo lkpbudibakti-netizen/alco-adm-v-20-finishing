@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+import { CANONICAL_MERDEKA_TP_CODE_REGEX } from '../services/tpCodeContract';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Target,
   Sparkles,
@@ -73,6 +74,9 @@ export const TPManager: React.FC<TPManagerProps> = ({
   const [items, setItems] = useState<TPItem[]>(tp.items || []);
   const [isGenerating, setIsGenerating] = useState(false);
   const [generationError, setGenerationError] = useState<string | null>(null);
+  const [pendingGeneration, setPendingGeneration] = useState<{ tp: TPData; source: string } | null>(null);
+  const generationSourceRef = useRef('');
+  generationSourceRef.current = JSON.stringify({ items, cp, cpAnalysis, academicSetting });
   const [saveNotice, setSaveNotice] = useState<string | null>(null);
   const [isDirty, setIsDirty] = useState(false);
 
@@ -291,6 +295,7 @@ export const TPManager: React.FC<TPManagerProps> = ({
     });
 
     try {
+      const expectedSource = generationSourceRef.current;
       const regenerationMode = (isCPOutdated || isAnalysisOutdated || tp.needsReview) ? 'REBUILD_FROM_UPSTREAM' : 'ALIGN_EXISTING';
       const generatedResult = await generateTPWithAI({
         cpGeneral: cp.generalDescription,
@@ -304,8 +309,8 @@ export const TPManager: React.FC<TPManagerProps> = ({
         mode: regenerationMode,
       });
       const generated = generatedResult.items;
+      if (generationSourceRef.current !== expectedSource) throw new Error('Sumber TP/CP/Analisis CP berubah selama generate. Hasil tidak diterapkan; jalankan ulang.');
 
-      setItems(generated);
       const isGemini = generatedResult.engine === 'gemini';
       const candidateTP: TPData = {
         ...tp,
@@ -337,6 +342,11 @@ export const TPManager: React.FC<TPManagerProps> = ({
         ...candidateTP,
         workflowStatus: val.status,
       };
+      if (items.length > 0) {
+        setPendingGeneration({ tp: updatedTP, source: expectedSource });
+        return; // Existing/manual TP is changed only after the teacher reviews the diff below.
+      }
+      setItems(generated);
       onSaveTP(updatedTP);
       setIsDirty(false);
       recordDiagnosticEvent({
@@ -498,7 +508,7 @@ export const TPManager: React.FC<TPManagerProps> = ({
       return;
     }
 
-    const tpCodeRegex = /^E\d+-[A-Z0-9]{2,5}-\d{2}$/;
+    const tpCodeRegex = CANONICAL_MERDEKA_TP_CODE_REGEX;
     if (!tpCodeRegex.test(code)) {
       alert(`Format Kode TP "${code}" tidak sah! Format harus sesuai pola kanonikal seperti E1-PGD-01 (huruf E kapital, angka, singkatan materi kapital 2-5 karakter, dan nomor urut 2 digit).`);
       return;
@@ -783,6 +793,31 @@ export const TPManager: React.FC<TPManagerProps> = ({
           </div>
         </div>
 
+        {pendingGeneration && (
+          <div className="border rounded-xl p-3 space-y-2 text-xs" id="tp-regeneration-preview">
+            <strong>Preview regenerasi TP — belum mengubah TP tersimpan</strong>
+            {pendingGeneration.tp.items.map(item => {
+              const previous = items.find(old => old.id === item.id);
+              return <div key={item.id} className="border-b py-1">
+                <div>ID: {item.id} · Analisis CP: {(item.cpAnalysisItemIds || []).join(', ')}</div>
+                <div>Sebelum: {previous ? `${previous.code}: ${previous.statement}` : '(TP baru)'}</div>
+                <div>Sesudah: {item.code}: {item.statement}</div>
+              </div>;
+            })}
+            {items.filter(old => !pendingGeneration.tp.items.some(item => item.id === old.id)).map(old => <div key={old.id}>Akan dihapus dari daftar: {old.code}: {old.statement}</div>)}
+            <div>Validasi: {pendingGeneration.tp.workflowStatus}. Cakupan yang belum lengkap tetap memblokir ATP.</div>
+            <button type="button" className="font-bold text-indigo-700" onClick={() => {
+              if (pendingGeneration.source !== JSON.stringify({ items, cp, cpAnalysis, academicSetting })) {
+                setGenerationError('Sumber TP/CP/Analisis CP berubah sejak preview. Jalankan regenerasi ulang.'); return;
+              }
+              const verified = validateTPDataWorkflow(pendingGeneration.tp, cp, cpAnalysis, academicSetting);
+              const approved = { ...pendingGeneration.tp, workflowStatus: verified.status };
+              setItems(approved.items); onSaveTP(approved); setIsDirty(false); setPendingGeneration(null);
+              showSaveNotice(verified.isSiap ? 'Hasil regenerasi disetujui dan TP SIAP.' : `Hasil regenerasi disetujui sebagai draf. ${verified.issues.join('; ')}`);
+            }}>Setujui perubahan TP pada preview</button>
+            <button type="button" className="ml-3" onClick={() => setPendingGeneration(null)}>Batalkan</button>
+          </div>
+        )}
         {generationError && (
           <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs flex items-center gap-2">
             <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
