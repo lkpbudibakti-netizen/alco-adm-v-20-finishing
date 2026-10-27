@@ -814,6 +814,7 @@ export type {
 // MODUL B: PELAKSANAAN & ASESMEN
 // ==========================================
 export interface AttendanceSession {
+  meetingId?: string;
   id: string;
   academicSettingId: string;
   date: string; // YYYY-MM-DD
@@ -824,6 +825,20 @@ export interface AttendanceSession {
 }
 
 export type AttendanceStatus = 'H' | 'S' | 'I' | 'A' | 'D'; // Hadir, Sakit, Izin, Alpa, Dispensasi
+
+export interface JournalRealization {
+  meetingId: string;
+  semesterPlanId: string;
+  actualDate?: string;
+  actualJP?: number;
+  activities?: string;
+  outcome?: string;
+  obstacles?: string;
+  reflection?: string;
+  followUp?: string;
+  attendanceSessionId?: string;
+  updatedAt: string;
+}
 
 export interface AttendanceRecord {
   id: string;
@@ -1603,6 +1618,8 @@ export interface K13KKM {
 }
 
 export interface DocumentSnapshot {
+  /** Optional frozen journal content; historical snapshots may lack this field. */
+  jurnalProjection?: import('../services/documentEngine/jurnalProjection').JurnalProjection;
   schoolName: string;
   npsn?: string;
   schoolNpsn?: string;

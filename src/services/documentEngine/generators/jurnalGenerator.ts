@@ -1,13 +1,13 @@
+import { buildJurnalProjection, JURNAL_COLUMNS, JURNAL_WIDTHS, jurnalTableRows } from '../jurnalProjection';
 import {
   Document,
   Packer,
   Paragraph,
   Table,
-  TableCell,
   TableRow,
-  TextRun,
   AlignmentType,
   WidthType,
+  TableLayoutType,
 } from 'docx';
 import saveAs from 'file-saver';
 import { DocumentGenerationContext, GeneratedDocumentResult } from '../types';
@@ -19,12 +19,12 @@ import {
   createSignoffBlock,
   createSectionHeading,
   createDocxSectionProperties,
-  DOCX_FONT,
-  DOCX_COLOR_BLACK,
 } from '../docxStyles';
 
 export async function generateJurnal(context: DocumentGenerationContext): Promise<GeneratedDocumentResult> {
-  const { school, profile, academicSetting, atp } = context;
+  const { school, profile, academicSetting } = context;
+  const projection = buildJurnalProjection(context);
+  if (!projection.isReady) throw new Error(projection.reasons.join("; ") + " Gunakan format kosong.");
   const isBlankMode = context.documentMode === 'blank';
 
   const docChildren: (Paragraph | Table)[] = [];
@@ -56,79 +56,17 @@ export async function generateJurnal(context: DocumentGenerationContext): Promis
 
   const tableHeaderRow = new TableRow({
     tableHeader: true,
-    children: [
-      createTableHeaderCell('No', 4),
-      createTableHeaderCell('Hari / Tanggal', 12),
-      createTableHeaderCell('Jam Ke-', 6),
-      createTableHeaderCell('Kode & Tujuan Pembelajaran (TP)', 26, AlignmentType.LEFT),
-      createTableHeaderCell('Materi Pokok & Aktivitas Pembelajaran', 24, AlignmentType.LEFT),
-      createTableHeaderCell('Kehadiran & Catatan Kelas', 14, AlignmentType.LEFT),
-      createTableHeaderCell('Refleksi & Tindak Lanjut', 14, AlignmentType.LEFT),
-    ],
+    children: JURNAL_COLUMNS.map((label, index) => createTableHeaderCell(label, JURNAL_WIDTHS[index])),
   });
-
-  const items = atp?.items && atp.items.length > 0 ? atp.items : [];
-
-  const dataRows = isBlankMode
-    ? Array.from({ length: 15 }, (_, idx) =>
-        new TableRow({
-          children: [
-            createTableDataCell(`${idx + 1}`, 4, AlignmentType.CENTER),
-            createTableDataCell('..../..../20...', 12, AlignmentType.CENTER),
-            createTableDataCell('....', 6, AlignmentType.CENTER),
-            createTableDataCell(`TP ${idx + 1}\n..................................................`, 26),
-            createTableDataCell('Materi: ....................................\nAktivitas: ....................................', 24),
-            createTableDataCell('Hadir: .....\nIzin: .....\nSakit: .....\nAlpa: .....', 14),
-            createTableDataCell('Catatan: ....................................\nTindak lanjut: ....................................', 14),
-          ],
-        })
-      )
-    : items.map((item, idx) => {
-        return new TableRow({
-          children: [
-            createTableDataCell(`${idx + 1}`, 4, AlignmentType.CENTER),
-            createTableDataCell(`Minggu ${idx + 1}\n(....../....../202...)`, 12, AlignmentType.CENTER),
-            createTableDataCell(`1 - ${item.jp || 4}`, 6, AlignmentType.CENTER),
-            new TableCell({
-              width: { size: 26, type: WidthType.PERCENTAGE },
-              margins: { top: 100, bottom: 100, left: 120, right: 120 },
-              children: [
-                new Paragraph({
-                  spacing: { line: 240, after: 0 },
-                  children: [
-                    new TextRun({ text: `[${item.tpCode}] `, bold: true, size: 20, font: DOCX_FONT, color: DOCX_COLOR_BLACK }),
-                    new TextRun({ text: item.tpStatement, size: 20, font: DOCX_FONT, color: DOCX_COLOR_BLACK }),
-                  ],
-                }),
-              ],
-            }),
-            new TableCell({
-              width: { size: 24, type: WidthType.PERCENTAGE },
-              margins: { top: 100, bottom: 100, left: 120, right: 120 },
-              children: [
-                new Paragraph({
-                  spacing: { line: 240, after: 0 },
-                  children: [
-                    new TextRun({ text: `Materi: ${item.materialScope || '-'}\n`, bold: true, size: 20, font: DOCX_FONT, color: DOCX_COLOR_BLACK }),
-                    new TextRun({
-                      text: `Aktivitas: Eksplorasi konsep, diskusi terbimbing, dan pengerjaan lembar kerja aktif.`,
-                      size: 20,
-                      font: DOCX_FONT,
-                      color: DOCX_COLOR_BLACK,
-                    }),
-                  ],
-                }),
-              ],
-            }),
-            createTableDataCell('Hadir: ..... Siswa\nIzin: .....\nSakit: .....\nAlpa: .....', 14),
-            createTableDataCell('Ketercapaian: 100%\nTindak Lanjut: Penguatan pada konsep kunci pertemuan berikutnya.', 14),
-          ],
-        });
-      });
+  const dataRows = jurnalTableRows(projection, isBlankMode).map(cells => new TableRow({
+    cantSplit: false,
+    children: cells.map((value, index) => createTableDataCell(value, JURNAL_WIDTHS[index], index === 0 ? AlignmentType.CENTER : AlignmentType.LEFT)),
+  }));
 
   const jurnalTable = new Table({
     width: { size: 100, type: WidthType.PERCENTAGE },
     rows: [tableHeaderRow, ...dataRows],
+    layout: TableLayoutType.FIXED,
   });
 
   docChildren.push(jurnalTable);

@@ -1,3 +1,4 @@
+import { buildJurnalProjection, JURNAL_COLUMNS, JURNAL_WIDTHS, jurnalTableRows } from '../../jurnalProjection';
 import { buildPromesPresentation } from '../../promesPresentation';
 import { calendarDayLabel } from '../../calendarPresentation';
 import { ATP_DOCUMENT_COLUMNS, buildATPDocumentProjection, getATPDocumentRowCells } from '../../atpDocumentProjection';
@@ -1129,43 +1130,15 @@ export async function generatePdfDocument(
     }
 
     case 'JURNAL': {
-      title = 'Jurnal Harian Pelaksanaan Pembelajaran & Refleksi Guru';
-      subTitle = `${subject} — ${grade} — Semester ${semester}`;
-      fileName = `Jurnal_Mengajar_${cleanSubject}_${cleanGrade}.pdf`;
+      const projection = buildJurnalProjection(context);
+      if (!projection.isReady) throw new Error(projection.reasons.join('; ') + ' Gunakan format kosong.');
+      title = isBlankMode ? 'Jurnal Harian Pelaksanaan Pembelajaran (Format Kosong)' : 'Jurnal Harian Pelaksanaan Pembelajaran';
+      subTitle = subject + ' — ' + grade + ' — Semester ' + semester;
+      fileName = 'Jurnal_Mengajar_' + cleanSubject + '_' + cleanGrade + '.pdf';
       orientation = 'landscape';
-
-      const rows = isBlankMode
-        ? Array.from({ length: 15 }, (_, idx) => [
-            idx + 1,
-            `Pertemuan ${idx + 1}`,
-            `TP ${idx + 1}`,
-            '..........................................................................................',
-            '..........................................................................................',
-            '....................................................',
-            '.......',
-          ])
-        : (atp?.items || []).map((it, idx) => [
-            idx + 1,
-            `Pertemuan ${idx + 1}`,
-            it.tpCode || `TP ${idx + 1}`,
-            it.materialScope || '-',
-            'Diskusi interaktif, observasi, dan latihan terbimbing di kelas.',
-            'Siswa berpartisipasi aktif dan mampu menyelesaikan tugas tepat waktu.',
-            'Tuntas',
-          ]);
-
-      sections.push({
-        type: 'table',
-        columns: [
-          { header: 'No', dataKey: 'no', width: 12, align: 'center' },
-          { header: 'Pertemuan', dataKey: 'meet', width: 25, align: 'center' },
-          { header: 'Kode TP', dataKey: 'code', width: 22, align: 'center' },
-          { header: 'Materi Pembelajaran', dataKey: 'mat', width: 60 },
-          { header: 'Aktivitas Pembelajaran', dataKey: 'act', width: 75 },
-          { header: 'Catatan Refleksi & Kendala', dataKey: 'ref', width: 50 },
-          { header: 'Status', dataKey: 'stat', width: 20, align: 'center' },
-        ],
-        rows,
+      sections.push({ type: 'table',
+        columns: JURNAL_COLUMNS.map((header, index) => ({ header, dataKey: 'j'+index, width: JURNAL_WIDTHS[index]*2.52, align: index === 0 ? 'center' as const : 'left' as const })),
+        rows: jurnalTableRows(projection, isBlankMode),
       });
       break;
     }

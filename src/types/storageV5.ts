@@ -101,6 +101,7 @@ export interface SemesterGradeEntry {
  * Exact canonical shapes without union representations.
  */
 export interface SemesterDataStoreV5 {
+  journalRealizations?: SemesterScopedEntry<import('./index').JournalRealization[]>[];
   academicCalendar: SemesterScopedEntry<SemesterCalendarEntry>[];
   timeAllocation: SemesterScopedEntry<TimeAllocation[]>[];
   subjectWeeklySchedules?: SemesterScopedEntry<SubjectWeeklySchedule>[];

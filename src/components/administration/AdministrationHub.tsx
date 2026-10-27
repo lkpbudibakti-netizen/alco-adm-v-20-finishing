@@ -88,6 +88,8 @@ interface AdministrationHubProps {
   calendar: AcademicCalendar;
   calendarDays: CalendarDay[];
   timeAllocations: TimeAllocation[];
+  journalRealizations?: import('../../types').JournalRealization[];
+  onSaveJournalRealization?: (note: import('../../types').JournalRealization) => boolean;
   attendanceSessions: AttendanceSession[];
   attendanceRecords: AttendanceRecord[];
   assessmentCriteria: AssessmentCriterion[];
@@ -148,6 +150,8 @@ export const AdministrationHub: React.FC<AdministrationHubProps> = ({
   semesterJPSetting,
   attendanceSessions = [],
   attendanceRecords = [],
+  journalRealizations,
+  onSaveJournalRealization,
   assessmentCriteria = [],
   assessments = [],
   assessmentResults = [],
@@ -702,6 +706,8 @@ export const AdministrationHub: React.FC<AdministrationHubProps> = ({
             annualJPReference={annualJPReference}
             protaSemesterAllocations={protaSemesterAllocations}
             zipAnnualSource={zipAnnualSource}
+            journalRealizations={journalRealizations}
+            onSaveJournalRealization={onSaveJournalRealization}
             attendanceSessions={attendanceSessions}
             attendanceRecords={attendanceRecords}
             assessmentCriteria={assessmentCriteria}

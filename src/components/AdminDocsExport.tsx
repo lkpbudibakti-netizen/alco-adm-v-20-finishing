@@ -1,3 +1,5 @@
+import { JournalPreview, JournalRealizationEditor } from './JournalRealizationEditor';
+import { buildJurnalProjection } from '../services/documentEngine/jurnalProjection';
 import { APP_BUILD_SHA } from '../config/buildInfo';
 import { MODUL_AJAR_RENDERER_VERSION } from '../config/modulAjarRendererVersion';
 import { prepareModulAjarExportContext } from '../services/documentEngine/modulAjarExportContext';
@@ -113,6 +115,8 @@ interface AdminDocsExportProps {
   annualJPReference?: AnnualJPReference;
   protaSemesterAllocations?: ProtaSemesterAllocationBundle[];
   zipAnnualSource?: DocumentGenerationContext['zipAnnualSource'];
+  journalRealizations?: import('../types').JournalRealization[];
+  onSaveJournalRealization?: (note: import('../types').JournalRealization) => boolean;
   attendanceSessions?: AttendanceSession[];
   attendanceRecords?: AttendanceRecord[];
   assessmentCriteria?: AssessmentCriterion[];
@@ -152,6 +156,8 @@ export const AdminDocsExport: React.FC<AdminDocsExportProps> = ({
   zipAnnualSource,
   attendanceSessions,
   attendanceRecords,
+  journalRealizations,
+  onSaveJournalRealization,
   assessmentCriteria,
   assessments,
   assessmentResults,
@@ -232,6 +238,7 @@ export const AdminDocsExport: React.FC<AdminDocsExportProps> = ({
     zipAnnualSource,
     attendanceSessions,
     attendanceRecords,
+    journalRealizations,
     assessmentCriteria,
     assessments,
     assessmentResults,
@@ -246,7 +253,7 @@ export const AdminDocsExport: React.FC<AdminDocsExportProps> = ({
   };
 
   const getDocRecord = (type: DocumentType): AppDocumentRecord | undefined => {
-    return localDocs.find((d) => d.type === type && (!d.workspaceId || d.workspaceId === workspace?.id));
+    return localDocs.find((d) => d.type === type && (!d.workspaceId || d.workspaceId === workspace?.id) && (type !== 'JURNAL' || d.academicSettingId === academicSetting.id));
   };
 
   /**
@@ -280,8 +287,9 @@ export const AdminDocsExport: React.FC<AdminDocsExportProps> = ({
       case 'MODUL_AJAR':
         return learningPlanTime > docTime || atpTime > docTime || tpTime > docTime || cpTime > docTime;
       case 'ASESMEN':
-      case 'JURNAL':
         return atpTime > docTime || tpTime > docTime || cpTime > docTime;
+      case 'JURNAL':
+        return !doc.snapshot?.jurnalProjection || JSON.stringify(doc.snapshot.jurnalProjection) !== JSON.stringify(buildJurnalProjection({ ...context, snapshot: undefined }));
       default:
         return false;
     }
@@ -371,7 +379,7 @@ export const AdminDocsExport: React.FC<AdminDocsExportProps> = ({
       }
       if (type === 'MODUL_AJAR' && existingRec?.snapshot) setHistoricalModulSnapshot(existingRec.snapshot);
       const updatedList = [
-        ...localDocs.filter((d) => d.id !== record.id && !(d.type === type && (!d.workspaceId || d.workspaceId === workspace?.id))),
+        ...localDocs.filter((d) => d.id !== record.id && !(d.type === type && (!d.workspaceId || d.workspaceId === workspace?.id) && (type !== 'JURNAL' || d.academicSettingId === academicSetting.id))),
         record,
       ];
       setLocalDocs(updatedList);
@@ -471,7 +479,7 @@ export const AdminDocsExport: React.FC<AdminDocsExportProps> = ({
             const pdfRes = await generatePdfDocument(type, context);
             saveAs(pdfRes.blob, pdfRes.fileName);
             const finalSnapshot: DocumentSnapshot =
-              (type === 'ASESMEN' || type === 'MODUL_AJAR') && pdfRes.snapshot
+              (type === 'ASESMEN' || type === 'MODUL_AJAR' || type === 'JURNAL') && pdfRes.snapshot
                 ? pdfRes.snapshot
                 : snapshot;
             const rec: AppDocumentRecord = {
@@ -486,7 +494,7 @@ export const AdminDocsExport: React.FC<AdminDocsExportProps> = ({
               workspaceId: workspace?.id,
               snapshot: finalSnapshot,
             };
-            const existingIdx = newRecords.findIndex((d) => d.type === type && (!d.workspaceId || d.workspaceId === workspace?.id));
+            const existingIdx = newRecords.findIndex((d) => d.type === type && (!d.workspaceId || d.workspaceId === workspace?.id) && (type !== 'JURNAL' || d.academicSettingId === academicSetting.id));
             if (existingIdx >= 0) {
               newRecords[existingIdx] = rec;
             } else {
@@ -495,7 +503,7 @@ export const AdminDocsExport: React.FC<AdminDocsExportProps> = ({
           } else {
             const res = await generateDocument(type, context);
             const finalSnapshot: DocumentSnapshot =
-              (type === 'ASESMEN' || type === 'MODUL_AJAR') && res.record?.snapshot
+              (type === 'ASESMEN' || type === 'MODUL_AJAR' || type === 'JURNAL') && res.record?.snapshot
                 ? res.record.snapshot
                 : snapshot;
             const rec: AppDocumentRecord = {
@@ -504,7 +512,7 @@ export const AdminDocsExport: React.FC<AdminDocsExportProps> = ({
               lastGenerated: finalSnapshot.generatedAt,
               snapshot: finalSnapshot,
             };
-            const existingIdx = newRecords.findIndex((d) => d.type === type && (!d.workspaceId || d.workspaceId === workspace?.id));
+            const existingIdx = newRecords.findIndex((d) => d.type === type && (!d.workspaceId || d.workspaceId === workspace?.id) && (type !== 'JURNAL' || d.academicSettingId === academicSetting.id));
             if (existingIdx >= 0) {
               newRecords[existingIdx] = rec;
             } else {
@@ -1076,6 +1084,7 @@ export const AdminDocsExport: React.FC<AdminDocsExportProps> = ({
 
         {/* Right Column: Live Document Paper Preview with Switcher (7 cols) */}
         <div className="lg:col-span-7 space-y-3">
+          {activePreviewType === 'JURNAL' && onSaveJournalRealization && <JournalRealizationEditor key={academicSetting.id} context={context} onSave={onSaveJournalRealization} />}
           {(() => {
             const activeRecord = getDocRecord(activePreviewType);
             const storedSnapshot = activePreviewType === 'MODUL_AJAR'
@@ -2041,53 +2050,7 @@ export const AdminDocsExport: React.FC<AdminDocsExportProps> = ({
               );
             })()}
 
-            {/* 6. JURNAL PREVIEW */}
-            {activePreviewType === 'JURNAL' && (
-              <div className="space-y-4">
-                <div className="space-y-2">
-                  <h5 className="font-bold text-slate-900 uppercase">
-                    {documentMode === 'blank' ? 'Format Jurnal Harian Mengajar & Refleksi' : 'Jurnal Harian Mengajar & Refleksi'}
-                  </h5>
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-left text-[11px] border border-slate-300 border-collapse">
-                      <thead>
-                        <tr className="bg-blue-900 text-white font-semibold">
-                          <th className="p-1.5 border border-blue-800 text-center w-8">No</th>
-                          <th className="p-1.5 border border-blue-800 w-24">Hari / Tanggal</th>
-                          <th className="p-1.5 border border-blue-800 w-16 text-center">Kode TP</th>
-                          <th className="p-1.5 border border-blue-800">Aktivitas di Kelas</th>
-                          <th className="p-1.5 border border-blue-800 w-28 text-center">Kehadiran</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {documentMode === 'blank' ? (
-                          Array.from({ length: 6 }, (_, idx) => (
-                            <tr key={idx} className={idx % 2 === 0 ? 'bg-white' : 'bg-slate-50'}>
-                              <td className="p-1.5 border border-slate-300 text-center font-bold">{idx + 1}</td>
-                              <td className="p-1.5 border border-slate-300 text-center text-slate-400 text-[10px]">.... / .... / 20...</td>
-                              <td className="p-1.5 border border-slate-300 text-center text-slate-400 font-mono">TP .....</td>
-                              <td className="p-1.5 border border-slate-300 text-slate-400">......................................................................................</td>
-                              <td className="p-1.5 border border-slate-300 text-center text-slate-400 text-[10px]">H: ... S: ... I: ... A: ...</td>
-                            </tr>
-                          ))
-                        ) : (atp?.items || []).slice(0, 4).map((item, idx) => (
-                          <tr key={item.id} className={idx % 2 === 0 ? 'bg-white' : 'bg-slate-50'}>
-                            <td className="p-1.5 border border-slate-300 text-center font-bold">{idx + 1}</td>
-                            <td className="p-1.5 border border-slate-300 text-center text-[10px]">Minggu ke-{idx + 1}</td>
-                            <td className="p-1.5 border border-slate-300 font-mono font-bold text-blue-900 text-center">{item.tpCode}</td>
-                            <td className="p-1.5 border border-slate-300">
-                              <div className="font-medium">{item.materialScope}</div>
-                              <div className="text-[10px] text-slate-500">Eksplorasi konsep, diskusi aktif, dan LKPD.</div>
-                            </td>
-                            <td className="p-1.5 border border-slate-300 text-[10px] text-center">Hadir: Lengkap</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              </div>
-            )}
+            {activePreviewType === 'JURNAL' && <JournalPreview context={documentMode === 'blank' ? { ...context, snapshot: undefined } : resolveEffectiveContext(context, activeSnapshot)} onBlank={() => setDocumentMode('blank')} />}
 
             {/* 7. KKTP PREVIEW */}
             {activePreviewType === 'KKTP' && (

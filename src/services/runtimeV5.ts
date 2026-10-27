@@ -149,6 +149,7 @@ export function getRuntimeContextV5(): RuntimeContextV5 {
       attendance: state.semesterData.attendance.find(
         (e) => e.semesterPlanId === semesterPlanId
       )?.value,
+      journalRealizations: state.semesterData.journalRealizations?.find(entry => entry.semesterPlanId === semesterPlanId)?.value,
       grade: state.semesterData.grade.find(
         (e) => e.semesterPlanId === semesterPlanId
       )?.value,

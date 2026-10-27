@@ -75,6 +75,7 @@ export function resolveAnnualZipContexts(base: DocumentGenerationContext): {
         learningPlans: read(data.learningPlan) || [], assessmentPlans: read(data.assessmentPlan) || [],
         assessmentPackages: read(data.assessmentPackage) || [], assessmentCriteria: read(data.assessmentCriteria) || [],
         students: read(data.roster) || [], attendanceSessions: attendance?.sessions || [], attendanceRecords: attendance?.records || [],
+        journalRealizations: read(data.journalRealizations) || [],
         assessments: grade?.assessments || [], assessmentResults: grade?.results || [],
         remedials: read(data.remedial) || [], enrichments: read(data.enrichment) || [],
         activeLearningPlanId: undefined, activeAssessmentPackageId: undefined,

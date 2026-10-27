@@ -1,6 +1,7 @@
 import { DocumentSnapshot, DocumentMode, CurriculumType, DocumentType } from '../../types';
 import { DocumentGenerationContext } from './types';
 import { buildModulAjarProjection } from './modulAjarProjection';
+import { buildJurnalProjection } from './jurnalProjection';
 import { getCurriculumType } from '../curriculumRules';
 import { resolveDocumentDate, formatDocumentDate } from '../documentDateService';
 
@@ -35,6 +36,7 @@ export function createDocumentSnapshot(
   const projection = documentType === 'MODUL_AJAR' && docMode !== 'blank'
     ? buildModulAjarProjection(context) : undefined;
   return {
+    ...(documentType === 'JURNAL' ? { jurnalProjection: buildJurnalProjection({ ...context, snapshot: undefined, documentMode: docMode }) } : {}),
     ...(projection?.isReady && projection.plan ? { learningPlanId: projection.plan.id } : {}),
     schoolName: (school?.name || '').trim(),
     npsn: (school?.npsn || '').trim(),

@@ -15,6 +15,7 @@ import { generatePROMES } from './generators/promesGenerator';
 import { generateModulAjar } from './generators/modulAjarGenerator';
 import { generateAssessment } from './generators/assessmentGenerator';
 import { generateJurnal } from './generators/jurnalGenerator';
+import { buildJurnalProjection } from './jurnalProjection';
 import { generateKalenderAkademik } from './generators/kalenderGenerator';
 import { generateAlokasiWaktu } from './generators/alokasiWaktuGenerator';
 import { generateDaftarHadir } from './generators/daftarHadirGenerator';
@@ -353,6 +354,12 @@ export function validateDocumentRequirements(
     };
   }
 
+  if (type === 'JURNAL') {
+    const journal = buildJurnalProjection(context as DocumentGenerationContext);
+    if (!journal.isReady) missingFields.push(...journal.reasons, 'Gunakan Format Kosong untuk jurnal yang belum memiliki pertemuan/jadwal lengkap.');
+    return { isValid: missingFields.length === 0, missingFields, message: missingFields.join('; '), targetStep: 'academic' };
+  }
+
   if (curType === 'K13') {
     const k13AnalysisCount = context.k13Analysis?.items?.length || 0;
     const k13KkmCount = context.k13KKM?.items?.length || 0;
@@ -526,11 +533,6 @@ export function validateDocumentRequirements(
         }
         break;
 
-      case 'JURNAL':
-        if (tpCount === 0 && atpCount === 0 && !cpHasContent) {
-          missingFields.push('Data rancangan pembelajaran (CP/TP/ATP) belum tersedia');
-        }
-        break;
     }
 
     if (missingFields.length > 0) {

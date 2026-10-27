@@ -57,6 +57,7 @@ export interface AnnualDataV5Result {
 }
 
 export interface SemesterDataV5Result {
+  journalRealizations?: import('../types').JournalRealization[];
   semesterPlan: SemesterPlan;
   yearPlan: YearPlan;
   semesterJPSetting: SemesterJPSetting | undefined;
@@ -227,6 +228,7 @@ export function validateStorageStateV5(value: unknown): AppStorageStateV5 {
     semesterData.learningMeetingSchedules = [];
   }
   assertArray(semesterData, 'learningMeetingSchedules', 'data.semesterData');
+  if (semesterData.journalRealizations !== undefined) assertArray(semesterData, 'journalRealizations', 'data.semesterData');
   assertArray(semesterData, 'learningPlan', 'data.semesterData');
   assertArray(semesterData, 'assessmentCriteria', 'data.semesterData');
   assertArray(semesterData, 'assessmentPlan', 'data.semesterData');
@@ -613,6 +615,7 @@ export function validateStorageStateV5(value: unknown): AppStorageStateV5 {
       }
 
       const arrayValuedCollections = [
+        'semesterData.journalRealizations',
         'semesterData.timeAllocation',
         'semesterData.learningPlan',
         'semesterData.assessmentCriteria',
@@ -678,6 +681,16 @@ export function validateStorageStateV5(value: unknown): AppStorageStateV5 {
     state.semesterJPSettings as Array<Record<string, unknown>>,
     'semesterJPSettings'
   );
+  if (Array.isArray(semesterData.journalRealizations)) {
+    validateSemesterScopedCollection(semesterData.journalRealizations as Array<Record<string, unknown>>, 'semesterData.journalRealizations');
+    for (const entry of semesterData.journalRealizations as unknown as { semesterPlanId: string; value: import('../types').JournalRealization[] }[]) {
+      const ids = new Set<string>();
+      for (const note of entry.value) {
+        if (!note.meetingId || note.semesterPlanId !== entry.semesterPlanId || ids.has(note.meetingId)) throw new Error('Catatan jurnal memiliki pertemuan/semester tidak valid atau ganda.');
+        ids.add(note.meetingId);
+      }
+    }
+  }
   validateSemesterScopedCollection(
     semesterData.academicCalendar as Array<Record<string, unknown>>,
     'semesterData.academicCalendar'
@@ -1614,6 +1627,7 @@ export function getSemesterDataV5(semesterPlanId: string): SemesterDataV5Result 
   return {
     semesterPlan,
     yearPlan,
+    journalRealizations: state.semesterData.journalRealizations?.find(entry => entry.semesterPlanId === semesterPlanId)?.value,
     semesterJPSetting,
     academicCalendar,
     timeAllocation,
@@ -2003,6 +2017,32 @@ export function saveAttendanceV5(
   upsertSemesterScopedEntry(state.semesterData.attendance, semesterPlanId, value);
   saveStorageV5(state);
   return value;
+}
+
+/** Upsert one meeting only; preserve all other notes, presensi and canonical sources. */
+export function saveJournalRealizationV5(semesterPlanId: string, note: import('../types').JournalRealization): void {
+  const state = loadStorageV5();
+  const { semesterPlan, yearPlan } = assertSemesterPlanAndParentExist(state, semesterPlanId);
+  if (note.semesterPlanId !== semesterPlanId || state.activeProfileId !== yearPlan.profileId || state.activeSemesterPlanId !== semesterPlanId) throw new Error('Konteks guru/semester berubah. Buka ulang catatan jurnal.');
+  const plan = state.annualData.unitExecutionPlans?.find(entry => entry.yearPlanId === yearPlan.id)?.value;
+  const mapping = state.annualData.atpUnitMappings?.find(entry => entry.yearPlanId === yearPlan.id)?.value;
+  const meetings = plan?.units.flatMap(unit => unit.meetings.filter(meeting => meeting.id === note.meetingId)) || [];
+  const placement = plan && mapping ? resolveUnitSemesterPlacement(plan, mapping) : undefined;
+  if (meetings.length !== 1 || !placement?.isValid || placement.isStale || !placement.resolvedUnits.some(unit => unit.unitId === meetings[0].unitId && unit.semester === semesterPlan.semester)) throw new Error('Pertemuan tidak ditemukan atau berbeda semester.');
+  if (note.actualDate && (!/^\d{4}-\d{2}-\d{2}$/.test(note.actualDate) || !Number.isFinite(Date.parse(note.actualDate)) || new Date(note.actualDate).toISOString().slice(0,10) !== note.actualDate)) throw new Error('Tanggal realisasi tidak valid.');
+  if (note.actualJP !== undefined && (!Number.isFinite(note.actualJP) || note.actualJP <= 0)) throw new Error('JP realisasi harus bernilai positif.');
+  state.semesterData.journalRealizations ||= [];
+  const existing = state.semesterData.journalRealizations.find(entry => entry.semesterPlanId === semesterPlanId)?.value || [];
+  const previous = existing.find(item => item.meetingId === note.meetingId);
+  if (previous && note.updatedAt !== previous.updatedAt) throw new Error('Catatan jurnal telah berubah. Buka ulang pertemuan sebelum menyimpan.');
+  if (note.attendanceSessionId) {
+    const schedule = state.semesterData.learningMeetingSchedules?.find(entry => entry.semesterPlanId === semesterPlanId)?.value;
+    const date = note.actualDate || schedule?.entries.find(entry => entry.meetingId === note.meetingId)?.date;
+    const sessions = state.semesterData.attendance.find(entry => entry.semesterPlanId === semesterPlanId)?.value.sessions.filter(session => session.id === note.attendanceSessionId && session.academicSettingId === semesterPlanId && session.date === date && (!session.meetingId || session.meetingId === note.meetingId)) || [];
+    if (sessions.length !== 1) throw new Error('Presensi yang dipilih tidak cocok dengan tanggal/pertemuan jurnal.');
+  }
+  upsertSemesterScopedEntry(state.semesterData.journalRealizations, semesterPlanId, [...existing.filter(item => item.meetingId !== note.meetingId), { ...note, updatedAt: new Date().toISOString() }]);
+  saveStorageV5(state);
 }
 
 export function saveGradeV5(
@@ -2606,6 +2646,7 @@ function performDeleteYearHierarchyInState(
   state.semesterData.assessmentPackage = state.semesterData.assessmentPackage.filter((e) => !targetSemesterPlanIds.has(e.semesterPlanId));
   state.semesterData.roster = state.semesterData.roster.filter((e) => !targetSemesterPlanIds.has(e.semesterPlanId));
   state.semesterData.attendance = state.semesterData.attendance.filter((e) => !targetSemesterPlanIds.has(e.semesterPlanId));
+  if (state.semesterData.journalRealizations) state.semesterData.journalRealizations = state.semesterData.journalRealizations.filter(entry => !targetSemesterPlanIds.has(entry.semesterPlanId));
   state.semesterData.grade = state.semesterData.grade.filter((e) => !targetSemesterPlanIds.has(e.semesterPlanId));
   state.semesterData.remedial = state.semesterData.remedial.filter((e) => !targetSemesterPlanIds.has(e.semesterPlanId));
   state.semesterData.enrichment = state.semesterData.enrichment.filter((e) => !targetSemesterPlanIds.has(e.semesterPlanId));

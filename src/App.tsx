@@ -76,6 +76,7 @@ import {
   saveGradeV5,
   saveRosterV5,
   saveAttendanceV5,
+  saveJournalRealizationV5,
   saveRemedialV5,
   saveEnrichmentV5,
 } from './services/storageV5';
@@ -1820,6 +1821,12 @@ export function App() {
               } : undefined}
               attendanceSessions={runtimeContext.semesterData?.attendance?.sessions || []}
               attendanceRecords={runtimeContext.semesterData?.attendance?.records || []}
+              journalRealizations={runtimeContext.semesterData?.journalRealizations || []}
+              onSaveJournalRealization={note => {
+                if (!activeSemesterPlan || note.semesterPlanId !== activeSemesterPlan.id) return false;
+                try { saveJournalRealizationV5(activeSemesterPlan.id, note); refreshV5(); return true; }
+                catch (error) { setAppNotice({ type: 'error', message: error instanceof Error ? error.message : 'Catatan jurnal belum tersimpan.' }); return false; }
+              }}
               assessmentCriteria={runtimeContext.semesterData?.assessmentCriteria || []}
               assessments={runtimeContext.semesterData?.grade?.assessments || []}
               assessmentResults={runtimeContext.semesterData?.grade?.results || []}

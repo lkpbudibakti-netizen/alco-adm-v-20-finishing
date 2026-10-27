@@ -45,6 +45,7 @@ export interface ProtaSemesterAllocationBundle {
 }
 
 export interface DocumentGenerationContext {
+  journalRealizations?: import('../../types').JournalRealization[];
   subjectWeeklySchedule?: import('../../types').SubjectWeeklySchedule;
   /** Read-only canonical annual data exposure for ZIP packaging only. */
   zipAnnualSource?: Pick<AppStorageStateV5, 'semesterData' | 'semesterJPSettings'> & {
