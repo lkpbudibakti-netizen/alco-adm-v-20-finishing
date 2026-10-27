@@ -2,10 +2,11 @@ import { deriveMappingAtpIds } from './atpMappingLineageService';
 import type { ATPData, TPData, ATPUnitMapping, ATPUnitMaterial, ATPUnitMappingData } from '../types';
 import { validateATPUnitMappingCanonical } from './atpUnitMappingValidationService';
 import { checkMappingSemanticEvidence } from '../../server/mappingSemanticEvidence';
+import { applyMinimalAlignment, type AlignmentAction, type AlignmentActionType } from './mappingAlignmentService';
 
 export interface MappingActionItem {
   id: string;
-  type: 'ASSIGN_ATP_TO_UNIT' | 'ADD_MATERIAL_TO_UNIT' | 'ALIGN_EXISTING_MATERIAL' | 'RECOVER_ATP_LINEAGE';
+  type: 'ASSIGN_ATP_TO_UNIT' | 'ADD_MATERIAL_TO_UNIT' | 'ALIGN_EXISTING_MATERIAL' | 'RECOVER_ATP_LINEAGE' | AlignmentActionType;
   atpItemId?: string;
   targetUnitId?: string;
   targetMaterialId?: string;
@@ -13,6 +14,12 @@ export interface MappingActionItem {
   linkedAtpItemIds?: string[];
   linkedTpIds?: string[];
   removeAtpItemIds?: string[];
+  sourceUnitId?: string;
+  before?: string;
+  after?: string;
+  materialOrder?: string[];
+  reason?: string;
+  evidence?: AlignmentAction['evidence'];
 }
 
 export interface ApplyATPMappingActionsInput {
@@ -30,6 +37,7 @@ export interface ApplyATPMappingActionsResult {
   success: boolean;
   nextUnits?: ATPUnitMapping[];
   issues: string[];
+  rollbackUnits?: ATPUnitMapping[];
 }
 
 function getCanonicalTpsForAtpItem(atpItem: any): string[] {
@@ -78,6 +86,11 @@ export function computeMappingFingerprint(units: ATPUnitMapping[], atp: ATPData,
     atpItems: atpSummary,
     tpItems: tpSummary,
   });
+}
+
+export function rollbackATPMappingActions(units: ATPUnitMapping[], rollbackUnits: ATPUnitMapping[], expectedFingerprint: string, atp: ATPData, tp: TPData): ApplyATPMappingActionsResult {
+  if (computeMappingFingerprint(units, atp, tp) !== expectedFingerprint) return { success: false, issues: ['Rollback ditolak: draf atau canonical berubah setelah apply.'] };
+  return { success: true, nextUnits: structuredClone(rollbackUnits), issues: [] };
 }
 
 export function computeAtpSubstantiveFingerprint(atp: ATPData | undefined): string {
@@ -185,6 +198,15 @@ export function buildMappingDraftFromUnits(
 }
 
 export function applyATPMappingActions(input: ApplyATPMappingActionsInput): ApplyATPMappingActionsResult {
+  const actualFingerprint = computeMappingFingerprint(input.units, input.atp, input.tp);
+  if (input.expectedFingerprint !== actualFingerprint || input.currentFingerprint !== actualFingerprint) {
+    return { success: false, issues: ['Analisis tidak tersedia atau sudah kedaluwarsa. Jalankan analisis ulang.'] };
+  }
+  const minimalTypes = ['LINK_TP', 'EDIT_MATERIAL', 'ADD_MATERIAL', 'MOVE_MATERIAL', 'RESTRUCTURE_UNIT'];
+  if (input.selectedActions.some(action => minimalTypes.includes(action?.type))) {
+    if (input.selectedActions.some(action => !minimalTypes.includes(action?.type))) return { success: false, issues: ['Pilih proposal perubahan minimal atau bundle lama secara terpisah; tidak ada perubahan parsial diterapkan.'] };
+    return applyMinimalAlignment(input.units, input.selectedActions as AlignmentAction[], input.atp, input.tp);
+  }
   const {
     units,
     selectedActions: proposedActions,

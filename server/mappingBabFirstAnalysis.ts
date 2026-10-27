@@ -28,7 +28,11 @@ export function analyzeBabFirstMapping(raw: any, params: AnalyzeATPUnitMappingSe
       const matches = proposals.filter(finding => finding.materialId === material.id || finding.action?.targetMaterialId === material.id);
       targets.push({ material, title: material.title, proposal: matches[0], conflict: matches.length > 1 });
     }
-    // Never invent materials in a Bab that already has teacher-owned materials.
+    // Explicit additions are proposals, including in populated Bab; nothing is applied without approval.
+    if ((unit.materials || []).length) {
+      const additions = proposals.filter(finding => finding.status === 'MISSING_MATERIAL' && !finding.materialId && !finding.action?.targetMaterialId);
+      for (const proposal of additions) targets.push({ proposal, title: proposal.action?.title || proposal.suggestedTitle || '' });
+    }
     if (!(unit.materials || []).length) {
       const additions = proposals.filter(finding => finding.status === 'MISSING_MATERIAL' && !finding.materialId);
       for (const proposal of additions) targets.push({ proposal, title: proposal.action?.title || proposal.suggestedTitle || '' });
@@ -69,7 +73,9 @@ export function analyzeBabFirstMapping(raw: any, params: AnalyzeATPUnitMappingSe
       if (geminiProposal && !noHardConflict(title, tpIds)) {
         manual('Konflik domain gerak eksplisit antara materi dan TP pilihan Gemini; tinjau manual.'); continue;
       }
-      if (!geminiProposal && !evidence(title, tpIds)) {
+      const approvedLineage = !!material && sameIds(existingTpIds, tpIds) && sameIds(material.linkedAtpItemIds || [], parents.atpItemIds) &&
+        parents.atpItemIds.every(id => unit.linkedAtpItemIds.includes(id)) && tpIds.every(id => unit.linkedTpIds.includes(id)) && noHardConflict(title, tpIds);
+      if (!geminiProposal && !approvedLineage && !evidence(title, tpIds)) {
         manual('Keselarasan TP belum dapat dipastikan: label tidak memuat kata kunci substansi yang cukup untuk TP pilihan. ' + parents.issues.join('; ')); continue;
       }
       const unitEvidence = checkMappingSemanticEvidence({ label: unit.title, tpItems: tp.items.filter(item => tpIds.includes(item.id)) });

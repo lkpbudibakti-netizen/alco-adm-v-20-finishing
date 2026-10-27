@@ -2,6 +2,7 @@ import { applyATPMappingActions } from './atpMappingActionApplyService';
 import type { ATPData, TPData, ATPUnitMapping } from '../types';
 import type { MappingActionItem } from './atpMappingActionApplyService';
 import type { MappingAnalysisResult } from './aiService';
+import { ALIGNMENT_PRIORITY, applyMinimalAlignment, type AlignmentAction, type AlignmentActionType } from './mappingAlignmentService';
 
 export interface ActionValidityCheckResult {
   valid: boolean;
@@ -44,6 +45,9 @@ export function extractSelectedMappingActions(
   }
 
   const actions: MappingActionItem[] = [];
+  (analysisResult.alignmentProposals || []).forEach(proposal => {
+    if (proposal.action && selectedActionIds.has(proposal.id)) actions.push({ ...proposal.action });
+  });
 
   (analysisResult.atpFindings || []).forEach((f) => {
     if (f.action && selectedActionIds.has(f.id)) {
@@ -77,6 +81,10 @@ export function validateActionAgainstDraft(
 ): ActionValidityCheckResult {
   if (!action || !action.type) {
     return { valid: false, issue: 'Action tidak dikenal atau kosong.' };
+  }
+  if (ALIGNMENT_PRIORITY.includes(action.type as AlignmentActionType)) {
+    const preview = applyMinimalAlignment(units, [action as AlignmentAction], atp, tp);
+    return { valid: preview.success, issue: preview.issues[0] };
   }
 
   const validTypes = [

@@ -3222,7 +3222,7 @@ app.post('/api/ai/analyze-atp-unit-mapping', async (req, res) => {
           }
         }
 
-        if (parsed && (Array.isArray(parsed.atpFindings) || Array.isArray(parsed.materialFindings))) {
+        if (parsed && (Array.isArray(parsed.atpFindings) || Array.isArray(parsed.materialFindings) || Array.isArray(parsed.alignmentProposals))) {
           const sanitized = sanitizeMappingAnalysisResult(parsed, serverParams);
           return res.json({
             success: true,

@@ -37,9 +37,11 @@ import {
   MappingAnalysisResult,
 } from '../services/aiService';
 import { validateATPUnitMappingCanonical } from '../services/atpUnitMappingValidationService';
+import { mappingCoverage } from '../services/mappingAlignmentService';
 import { proceedWithATPUnitMapping, resolveATPUnitMappingReadiness } from '../services/atpMappingReadinessService';
 import {
   applyATPMappingActions,
+  rollbackATPMappingActions,
   computeAtpSubstantiveFingerprint,
   computeMappingFingerprint,
   computeTpSubstantiveFingerprint,
@@ -684,6 +686,7 @@ export const ATPUnitMappingManager: React.FC<ATPUnitMappingManagerProps> = ({
   const [appliedNotice, setAppliedNotice] = useState<string | null>(null);
   const [analysisFingerprint, setAnalysisFingerprint] = useState<string | null>(null);
   const [applyIssues, setApplyIssues] = useState<string[]>([]);
+  const [alignmentRollback, setAlignmentRollback] = useState<{ units: ATPUnitMapping[]; fingerprint: string } | null>(null);
 
   const unitsRef = useRef(units);
   useEffect(() => {
@@ -866,7 +869,8 @@ export const ATPUnitMappingManager: React.FC<ATPUnitMappingManagerProps> = ({
     const target = findings.find(finding => finding.id === findingId)?.action?.targetUnitId;
     const bundle = findings.filter(finding => finding.action && finding.action.targetUnitId === target);
     setSelectedAnalysisActionIds(prev => {
-      const next = new Set(prev); const remove = prev.has(findingId);
+      const legacyIds = new Set(findings.map(f => f.id));
+      const next = new Set([...prev].filter(id => legacyIds.has(id))); const remove = prev.has(findingId);
       for (const finding of bundle) { if (remove) next.delete(finding.id); else next.add(finding.id); }
       return next;
     });
@@ -876,6 +880,15 @@ export const ATPUnitMappingManager: React.FC<ATPUnitMappingManagerProps> = ({
     if (!analysisResult) return;
     setApplyIssues([]);
     const allActionIds = new Set<string>();
+    if (analysisResult.alignmentProposals?.some(p => p.action)) {
+      const materialKeys = new Set<string>();
+      analysisResult.alignmentProposals.filter(p => p.action).forEach(p => {
+        const key = p.targetMaterialId || `${p.targetUnitId}:${p.action?.after || p.action?.type}`;
+        if (!materialKeys.has(key)) { allActionIds.add(p.id); materialKeys.add(key); }
+      });
+      setSelectedAnalysisActionIds(allActionIds);
+      return;
+    }
     analysisResult.atpFindings.forEach((f) => {
       if (f.action) allActionIds.add(f.id);
     });
@@ -949,6 +962,7 @@ export const ATPUnitMappingManager: React.FC<ATPUnitMappingManagerProps> = ({
       return;
     }
 
+    setAlignmentRollback({ units: result.rollbackUnits || structuredClone(units), fingerprint: computeMappingFingerprint(result.nextUnits, atp, tp) });
     setUnits(result.nextUnits);
     setHasChanges(true);
     setLastAppliedActionIds([...selectedAnalysisActionIds]);
@@ -957,7 +971,8 @@ export const ATPUnitMappingManager: React.FC<ATPUnitMappingManagerProps> = ({
     setAnalysisResult(null);
     setSaveSuccessNotice(false);
     setAnalysisFingerprint(null);
-    setAppliedNotice('Saran diterapkan ke draf. Klik Simpan Pemetaan untuk menyimpan.');
+    const actualCoverage = mappingCoverage(result.nextUnits, atp, tp);
+    setAppliedNotice(`Saran diterapkan ke draf. Sisa ATP belum dipetakan: ${actualCoverage.unmappedAtpIds.length}; TP belum tercakup: ${actualCoverage.uncoveredTpIds.length}. Klik Simpan Pemetaan untuk menyimpan.`);
   };
 
   const handleCopyDiagnostic = async () => {
@@ -1555,8 +1570,43 @@ export const ATPUnitMappingManager: React.FC<ATPUnitMappingManagerProps> = ({
       </div>
 
       {/* AI Analysis Findings Panel */}
+      {alignmentRollback && (
+        <button type="button" className="text-sm font-semibold text-amber-800" onClick={() => {
+          const restored = rollbackATPMappingActions(unitsRef.current, alignmentRollback.units, alignmentRollback.fingerprint, atpRef.current, tpRef.current);
+          if (!restored.success || !restored.nextUnits) { setApplyIssues(restored.issues); return; }
+          setUnits(restored.nextUnits); setHasChanges(true);
+          setAnalysisResult(null); setAnalysisFingerprint(null); setSelectedAnalysisActionIds(new Set());
+          setAlignmentRollback(null); setAppliedNotice('Batch terakhir dibatalkan; materi asli dipulihkan ke draf. Simpan Pemetaan untuk menyimpan.');
+        }}>Batalkan batch penyelarasan terakhir</button>
+      )}
       {analysisResult && (
         <div className="bg-white rounded-2xl border-2 border-indigo-300 shadow-md p-5 space-y-5 animate-fadeIn">
+          {(analysisResult.alignmentProposals?.length || analysisResult.gapFindings?.length) ? (
+            <div className="space-y-3">
+              <h4 className="font-bold text-sm">Preview perubahan minimal — pilih hanya perubahan yang disetujui</h4>
+              {analysisResult.alignmentProposals?.map(proposal => (
+                <div key={proposal.id} className="border rounded-lg p-3 text-xs space-y-1">
+                  {proposal.action && <label className="font-semibold"><input type="checkbox" checked={selectedAnalysisActionIds.has(proposal.id)} onChange={() => {
+                    setSelectedAnalysisActionIds(previous => {
+                      const ids = new Set(analysisResult.alignmentProposals?.filter(p => previous.has(p.id)).map(p => p.id));
+                      if (ids.has(proposal.id)) ids.delete(proposal.id); else ids.add(proposal.id); return ids;
+                    }); setApplyIssues([]);
+                  }} /> Setujui {proposal.action.type}</label>}
+                  <div>Bab: {proposal.targetUnitId} · Materi: {proposal.targetMaterialId || '(baru)'}</div>
+                  <div>Sebelum: {proposal.before || '(materi baru)'}</div>
+                  <div>Sesudah: {proposal.after || proposal.before}</div>
+                  {proposal.action?.materialOrder && <div>Urutan materi: {proposal.action.materialOrder.join(' → ')}</div>}
+                  {proposal.action?.sourceUnitId && <div>Bab sumber: {proposal.action.sourceUnitId}</div>}
+                  <div>TP: {proposal.tpIds.join(', ')}</div>
+                  <p>{proposal.reason}</p>
+                  <div>Dampak: TP baru tercakup [{proposal.impact.newlyCoveredTpIds.join(', ')}]; ATP baru terpetakan [{proposal.impact.newlyMappedAtpIds.join(', ')}]</div>
+                </div>
+              ))}
+              <details><summary>Gap yang masih memerlukan penyelarasan</summary>
+                {analysisResult.gapFindings?.map(gap => <p key={gap.kind+gap.id} className="text-xs">{gap.kind} {gap.id}: {gap.reason}</p>)}
+              </details>
+            </div>
+          ) : null}
           {/* Analysis Header & Summary Metrics */}
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 pb-3 border-b border-indigo-100">
             <div>
