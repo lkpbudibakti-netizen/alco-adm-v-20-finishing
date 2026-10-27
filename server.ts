@@ -1530,7 +1530,10 @@ app.post('/api/ai/generate-canonical-atp-unit-mapping', async (req, res) => {
   const atpMap = new Map<string, (typeof validAtpItems)[0]>();
   validAtpItems.forEach((atp) => atpMap.set(atp.id, atp));
 
-  const count = targetUnitCount ? Math.max(1, Math.min(20, Number(targetUnitCount))) : undefined;
+  if (targetUnitCount !== undefined && (!Number.isInteger(targetUnitCount) || targetUnitCount < 1 || targetUnitCount > 20)) {
+    return res.status(400).json({ error: 'Target jumlah Bab harus bilangan bulat 1–20.' });
+  }
+  const count = targetUnitCount;
 
   const apiKey = resolveApiKey(req);
   if (apiKey) {
@@ -1558,7 +1561,7 @@ PRINSIP & ATURAN GENERATOR CANONICAL (WAJIB DIPATUHI):
 8. JANGAN menentukan alokasi JP, semester, pertemuan, rencana asesmen, atau Modul Ajar/LearningPlan pada tahap ini.
 9. ${
   count
-    ? `Target jumlah Bab adalah ${count} Bab sebagai panduan organisasi.`
+    ? `Jumlah Bab wajib TEPAT ${count} Bab. Jika tidak dapat disusun dengan lineage autentik dan cakupan penuh, jangan klaim hasil lengkap.`
     : `Jumlah Bab ditentukan secara alami berdasarkan kesamaan semantik (Semantic Clustering) dari materi TP/ATP tanpa memaksakan jumlah tertentu.`
 }
 
@@ -1952,6 +1955,7 @@ Kembalikan respon JSON dengan skema:
         };
 
         const finalizedResult = enforceCanonicalMappingInvariants(canonicalResult, validTpItems, validAtpItems);
+        if (count !== undefined && finalizedResult.units.length !== count) throw new Error(`Jumlah Bab hasil AI harus tepat ${count}.`);
         const finalValidation = validateATPUnitMappingCanonical(finalizedResult, atpData, tpData);
         if (!finalValidation.isValid || !finalValidation.isComplete) {
           return res.status(400).json({ success: false, code: 'SOURCE_LINEAGE_MISSING',
@@ -1984,6 +1988,9 @@ Kembalikan respon JSON dengan skema:
   });
 
   const fallbackValidation = validateATPUnitMappingCanonical(fallbackResult, atpData, tpData);
+  if (count !== undefined && fallbackResult.units.length !== count) {
+    return res.status(422).json({ success: false, error: `Tidak dapat menyusun tepat ${count} Bab dengan cakupan canonical yang valid. Draf tidak diubah.` });
+  }
   if (!fallbackValidation.isValid || !fallbackValidation.isComplete) {
     return res.status(400).json({ success: false, code: 'SOURCE_LINEAGE_MISSING',
       error: fallbackValidation.issues.join(' '), diagnostic: fallbackValidation });
