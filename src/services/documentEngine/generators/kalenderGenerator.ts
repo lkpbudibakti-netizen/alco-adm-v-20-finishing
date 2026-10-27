@@ -18,7 +18,9 @@ import {
   createSectionHeading,
   createDocxSectionProperties,
 } from '../docxStyles';
-import { getSubjectJP, calculateAvailableJP, calculateEffectiveDays } from '../../jpEngine';
+import { getSubjectJP, resolveCalendarSubjectCapacity, calculateEffectiveDays } from '../../jpEngine';
+import { resolveSemesterJPFromValues } from '../../semesterJPResolver';
+import { calendarDayLabel } from '../calendarPresentation';
 
 export async function generateKalenderAkademik(context: DocumentGenerationContext): Promise<GeneratedDocumentResult> {
   const { school, profile, academicSetting, calendar, calendarDays } = context;
@@ -31,9 +33,10 @@ export async function generateKalenderAkademik(context: DocumentGenerationContex
     level: academicSetting.level,
     grade: academicSetting.grade,
     subject: academicSetting.subject,
+    academicYear: academicSetting.academicYear,
   });
 
-  const weeklyJP = academicSetting.subjectWeeklyJP || calendar?.jpPerWeek || academicSetting.totalHoursPerWeek || officialRule.weeklyJP || null;
+  const weeklyJP = resolveSemesterJPFromValues(context.semesterJPSetting, context.annualJPReference).weeklyJP ?? academicSetting.subjectWeeklyJP ?? calendar?.jpPerWeek ?? academicSetting.totalHoursPerWeek ?? officialRule.weeklyJP ?? null;
 
   // Header
   docChildren.push(...createDocumentHeader('KALENDER AKADEMIK & JADWAL PENDIDIKAN', academicSetting.curriculum));
@@ -54,8 +57,9 @@ export async function generateKalenderAkademik(context: DocumentGenerationContex
   );
 
   const daysList = calendarDays || [];
-  const holidayCount = daysList.filter((d) => d.status === 'holiday').length;
-  const eventCount = daysList.filter((d) => d.status === 'schoolEvent').length;
+  const effectiveSummary = calendar ? calculateEffectiveDays(calendar, daysList) : undefined;
+  const holidayCount = effectiveSummary?.holidayDays || 0;
+  const eventCount = effectiveSummary?.schoolEventDays || 0;
 
   let effectiveDaysCount = 0;
   let effectiveWeeksCount = 0;
@@ -64,15 +68,8 @@ export async function generateKalenderAkademik(context: DocumentGenerationContex
   if (calendar?.startDate && calendar?.endDate && (calendar.schoolDaysPerWeek === 5 || calendar.schoolDaysPerWeek === 6)) {
     const eff = calculateEffectiveDays(calendar, daysList);
     effectiveDaysCount = eff.effectiveLearningDays;
-    const avail = calculateAvailableJP({
-      subjectWeeklyJP: weeklyJP,
-      effectiveLearningDays: eff.status === 'RESOLVED' ? effectiveDaysCount : null,
-      schoolDaysPerWeek: calendar.schoolDaysPerWeek,
-      calendarStatus: eff.status,
-      effectiveDayStatus: eff.status,
-      semester: calendar.semester,
-      academicYear: calendar.academicYear,
-    });
+    const avail = resolveCalendarSubjectCapacity({ semesterPlanId: academicSetting.id,
+      calendar, calendarDays: daysList, weeklyJP, schedule: context.subjectWeeklySchedule });
     effectiveWeeksCount = avail.effectiveWeeksRounded ?? 0;
     availableJPCount = avail.availableJP;
   }
@@ -173,7 +170,7 @@ export async function generateKalenderAkademik(context: DocumentGenerationContex
     );
   } else {
     daysList.forEach((d, idx) => {
-      const typeLabel = d.status === 'holiday' ? 'Libur' : d.status === 'schoolEvent' ? 'Kegiatan Sekolah' : 'Hari Efektif';
+      const typeLabel = calendarDayLabel(d.status);
       eventRows.push(
         new TableRow({
           children: [

@@ -1,4 +1,5 @@
 import { buildPromesPresentation } from '../../promesPresentation';
+import { calendarDayLabel } from '../../calendarPresentation';
 import { ATP_DOCUMENT_COLUMNS, buildATPDocumentProjection, getATPDocumentRowCells } from '../../atpDocumentProjection';
 import { recordModulAjarExportDiagnostic } from '../../modulAjarExportDiagnostics';
 import {
@@ -602,16 +603,16 @@ export async function generatePdfDocument(
           `• Alokasi Semester 1: ${projection.semester1AllocatedJP} JP`,
           `• Alokasi Semester 2: ${projection.semester2AllocatedJP} JP`,
           `• Total Alokasi Tahunan: ${projection.totalAllocatedJP} JP`,
-          `• Kapasitas JP Tahunan Resmi: ${projection.officialAnnualJP !== null ? `${projection.officialAnnualJP} JP` : 'Belum Diverifikasi'}`,
-          `• Sisa / Selisih JP: ${projection.remainingAnnualJP !== null ? `${projection.remainingAnnualJP} JP` : '—'}`,
-          `• Status Alokasi: ${projection.validationStatus}`,
+          `• Acuan Intrakurikuler Tahunan: ${projection.officialAnnualJP !== null ? `${projection.officialAnnualJP} JP` : 'Belum Diverifikasi'}`,
+          `• Selisih terhadap Acuan JP: ${projection.remainingAnnualJP !== null ? `${projection.remainingAnnualJP} JP` : '—'}`,
+          `• Kapasitas kalender tahunan: ${projection.availableAnnualJP ?? 'belum tersedia'} JP; sisa/defisit kapasitas: ${projection.unallocatedAnnualJP ?? 'belum tersedia'} JP`,
         ];
         if (projection.referenceWeeklyEquivalentJP !== null) {
           lines.push(`• Referensi Ekuivalen JP per Minggu: ${projection.referenceWeeklyEquivalentJP} JP / Minggu`);
         }
         sections.push({
           type: 'heading',
-          text: 'Status Alokasi Waktu Tahunan',
+          text: 'Ringkasan Alokasi Waktu Tahunan',
           level: 2,
         });
         sections.push({
@@ -633,7 +634,7 @@ export async function generatePdfDocument(
       }
 
       title = 'Program Semester (PROMES)';
-      subTitle = `${subject} — ${grade} — Semester ${projection.semester} — T.A ${academicYear} | Total ${projection.totalAllocatedJP} JP (${projection.validationStatus})`;
+      subTitle = `${subject} — ${grade} — Semester ${projection.semester} — T.A ${academicYear} | Total ${projection.totalAllocatedJP} JP`;
       fileName = `PROMES_${cleanSubject}_${cleanGrade}.pdf`;
       orientation = 'landscape';
 
@@ -992,7 +993,7 @@ export async function generatePdfDocument(
         ? days.map((d, idx) => [
             idx + 1,
             d.date,
-            d.status === 'schoolEvent' ? 'Kegiatan Sekolah' : d.status === 'holiday' ? 'Hari Libur' : 'Hari Efektif',
+            calendarDayLabel(d.status),
             d.notes || '-',
           ])
         : [

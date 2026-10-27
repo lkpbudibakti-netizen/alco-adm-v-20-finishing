@@ -1,3 +1,5 @@
+import { resolveCalendarSubjectCapacity } from '../jpEngine';
+import { resolveSemesterJPFromValues } from '../semesterJPResolver';
 import type { DocumentGenerationContext, DocumentType, ZipExportItemStatus, LearningPlan } from './types';
 import { resolveUnitSemesterPlacement } from '../unitSemesterPlanningService';
 
@@ -68,6 +70,7 @@ export function resolveAnnualZipContexts(base: DocumentGenerationContext): {
       const context: DocumentGenerationContext = { ...annual,
         academicSetting: { ...setting, id: sp.id, semester: semester === 1 ? '1 (Ganjil)' : '2 (Genap)', updatedAt: sp.updatedAt },
         calendar: calendar?.calendar, calendarDays: calendar?.days || [],
+        subjectWeeklySchedule: read(data.subjectWeeklySchedules),
         timeAllocations: read(data.timeAllocation) || [], semesterJPSetting: read(source.semesterJPSettings),
         learningPlans: read(data.learningPlan) || [], assessmentPlans: read(data.assessmentPlan) || [],
         assessmentPackages: read(data.assessmentPackage) || [], assessmentCriteria: read(data.assessmentCriteria) || [],
@@ -86,7 +89,8 @@ export function resolveAnnualZipContexts(base: DocumentGenerationContext): {
     return [{ semester, semesterPlanId: context.academicSetting.id, schedule: entries[0].value }];
   });
   annual.learningMeetingSchedules = schedules;
-  annual.protaSemesterAllocations = semesters.map(({ semester, context }) => ({ semester, semesterPlanId: context.academicSetting.id, allocations: context.timeAllocations || [] }));
+  annual.protaSemesterAllocations = semesters.map(({ semester, context }) => ({ semester, semesterPlanId: context.academicSetting.id, allocations: context.timeAllocations || [],
+    capacityJP: context.calendar?.workflowStatus === 'CONFIRMED' ? resolveCalendarSubjectCapacity({ semesterPlanId: context.academicSetting.id, calendar: context.calendar, calendarDays: context.calendarDays, schedule: context.subjectWeeklySchedule, weeklyJP: resolveSemesterJPFromValues(context.semesterJPSetting, context.annualJPReference).weeklyJP }).availableJP : null }));
   semesters.forEach(({ context }) => {
     context.learningMeetingSchedules = schedules;
     context.protaSemesterAllocations = annual.protaSemesterAllocations;

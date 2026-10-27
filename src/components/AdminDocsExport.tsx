@@ -97,6 +97,7 @@ interface AdminDocsExportProps {
   tp?: TPData;
   atp?: ATPData;
   atpUnitMapping?: ATPUnitMappingData;
+  subjectWeeklySchedule?: import('../types').SubjectWeeklySchedule;
   unitExecutionPlan?: UnitExecutionPlanData;
   learningMeetingSchedules?: {
     semesterPlanId: string;
@@ -139,6 +140,7 @@ export const AdminDocsExport: React.FC<AdminDocsExportProps> = ({
   atpUnitMapping,
   unitExecutionPlan,
   learningMeetingSchedules = [],
+  subjectWeeklySchedule,
   documents = [],
   students,
   calendar,
@@ -219,6 +221,7 @@ export const AdminDocsExport: React.FC<AdminDocsExportProps> = ({
     atpUnitMapping,
     unitExecutionPlan,
     learningMeetingSchedules,
+    subjectWeeklySchedule,
     students,
     calendar,
     calendarDays,

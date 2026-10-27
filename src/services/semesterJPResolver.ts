@@ -13,13 +13,13 @@ export function resolveSemesterJPFromValues(
   annualReference?: AnnualJPReference | null
 ): ResolvedSemesterJP {
   const defaultAnnualWeeklyJP =
-    typeof annualReference?.referenceWeeklyEquivalentJP === 'number' && annualReference.referenceWeeklyEquivalentJP > 0
+    typeof annualReference?.referenceWeeklyEquivalentJP === 'number' && Number.isFinite(annualReference.referenceWeeklyEquivalentJP) && annualReference.referenceWeeklyEquivalentJP > 0
       ? annualReference.referenceWeeklyEquivalentJP
       : null;
 
   const explicitVal = semesterSetting?.actualScheduledWeeklyJP;
-  if (typeof explicitVal === 'number' && explicitVal > 0) {
-    const isOverride = defaultAnnualWeeklyJP !== null && explicitVal !== defaultAnnualWeeklyJP;
+  if (typeof explicitVal === 'number' && Number.isFinite(explicitVal) && explicitVal > 0) {
+    const isOverride = semesterSetting?.source === 'SEMESTER_OVERRIDE' || defaultAnnualWeeklyJP === null || explicitVal !== defaultAnnualWeeklyJP;
     return {
       weeklyJP: explicitVal,
       source: isOverride ? 'SEMESTER_OVERRIDE' : (semesterSetting?.source === 'SEMESTER_OVERRIDE' ? 'SEMESTER_OVERRIDE' : 'DEFAULT_ANNUAL'),
@@ -79,7 +79,8 @@ export function resolveSemesterJPFromState(
   overrideSetting?: SemesterJPSetting
 ): ResolvedSemesterJP {
   const sp = state.semesterPlans?.find((s) => s.id === semesterPlanId);
-  const parentYearPlanId = sp?.yearPlanId;
+  if (!sp || (overrideSetting && overrideSetting.semesterPlanId !== semesterPlanId)) return resolveSemesterJPFromValues();
+  const parentYearPlanId = sp.yearPlanId;
   const annualJPRef =
     parentYearPlanId && state.annualJPReferences
       ? state.annualJPReferences.find((e: any) => e.yearPlanId === parentYearPlanId)?.value
@@ -90,5 +91,5 @@ export function resolveSemesterJPFromState(
       ? overrideSetting
       : state.semesterJPSettings?.find((e: any) => e.semesterPlanId === semesterPlanId)?.value;
 
-  return resolveSemesterJPFromValues(jpSetting, annualJPRef);
+  return resolveSemesterJPFromValues(jpSetting?.semesterPlanId === semesterPlanId ? jpSetting : undefined, annualJPRef);
 }

@@ -47,6 +47,7 @@ export const TeacherTeachingLoadModal: React.FC<TeacherTeachingLoadModalProps> =
       level: currentSetting.level,
       grade: currentSetting.grade,
       subject: currentSetting.subject,
+      academicYear: currentSetting.academicYear,
     }).weeklyJP;
   }, [currentSetting]);
 
@@ -83,6 +84,7 @@ export const TeacherTeachingLoadModal: React.FC<TeacherTeachingLoadModalProps> =
       level: lvl,
       grade: grd,
       subject: sub,
+      academicYear: currentSetting.academicYear,
     });
     setNewWeeklyJP(lookup.weeklyJP ?? 0);
   };

@@ -42,7 +42,8 @@ export function lookupOfficialWeeklyJP(
   curriculum?: string,
   level?: string,
   grade?: string,
-  subject?: string
+  subject?: string,
+  academicYear?: string
 ): JPRuleLookupResult {
   if (!curriculum || !level || !grade || !subject) {
     return {
@@ -59,6 +60,7 @@ export function lookupOfficialWeeklyJP(
     level,
     grade,
     subject,
+    academicYear,
   });
 
   return {

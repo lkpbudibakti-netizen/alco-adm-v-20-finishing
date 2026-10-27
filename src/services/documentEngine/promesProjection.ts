@@ -1,3 +1,4 @@
+import { resolveCalendarSubjectCapacity } from '../jpEngine';
 import { DocumentGenerationContext } from './types';
 import { EffectiveWeekInfo, TimeAllocation } from '../../types';
 import {
@@ -148,19 +149,9 @@ export function buildPromesProjection(context: DocumentGenerationContext): Prome
         ? Math.ceil(effWeeksRes.effectiveWeeksEquivalent)
         : 18;
 
-    if (actualScheduledWeeklyJP && actualScheduledWeeklyJP > 0) {
-      const availRes = calculateAvailableJP({
-        subjectWeeklyJP: actualScheduledWeeklyJP,
-        effectiveLearningDays,
-        schoolDaysPerWeek,
-        weeklyJPSource: 'ACTUAL_SCHEDULE',
-        calendarStatus: 'RESOLVED',
-        effectiveDayStatus: 'RESOLVED',
-      });
-      if (availRes.status === 'RESOLVED') {
-        availableJP = availRes.availableJP;
-      }
-    }
+    const capacity = resolveCalendarSubjectCapacity({ semesterPlanId: academicSetting.id, calendar, calendarDays,
+      weeklyJP: actualScheduledWeeklyJP, schedule: context.subjectWeeklySchedule });
+    availableJP = capacity.availableJP;
   }
 
   // Data Mode Readiness Validation
@@ -171,6 +162,9 @@ export function buildPromesProjection(context: DocumentGenerationContext): Prome
     if (!hasCalendar || !isCalendarConfirmed) {
       isReady = false;
       unreadyReason = 'Program Semester belum dapat dibuat karena kalender pendidikan semester aktif belum dikonfirmasi.';
+    } else if (availableJP === null) {
+      isReady = false;
+      unreadyReason = 'Kapasitas JP belum dapat dihitung: kalender parsial atau jadwal mapel tidak valid.';
     } else if (!actualScheduledWeeklyJP || actualScheduledWeeklyJP <= 0) {
       isReady = false;
       unreadyReason = 'Program Semester belum dapat dibuat karena Jam Pelajaran (JP) aktual semester aktif belum ditetapkan.';

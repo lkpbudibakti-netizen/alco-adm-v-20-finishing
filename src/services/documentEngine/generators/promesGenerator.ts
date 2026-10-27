@@ -67,7 +67,6 @@ export async function generatePROMES(context: DocumentGenerationContext): Promis
       ['Alokasi Intrakurikuler per Minggu', `: ${weeklyJpText}`],
       ['Minggu Efektif Semester', `: ${weeksText}`],
       ['Total Kapasitas JP Tersedia', `: ${availableJpText}`],
-      ['Status Alokasi Waktu', `: ${projection.validationStatus}`],
     ])
   );
   docChildren.push(new Paragraph({ spacing: { after: 180 } }));

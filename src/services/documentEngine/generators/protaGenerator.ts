@@ -72,9 +72,8 @@ export async function generatePROTA(context: DocumentGenerationContext): Promise
       ['Alokasi Semester 1', `: ${isBlankMode ? '—' : `${projection.semester1AllocatedJP} JP`}`],
       ['Alokasi Semester 2', `: ${isBlankMode ? '—' : `${projection.semester2AllocatedJP} JP`}`],
       ['Total Alokasi Tahunan', `: ${isBlankMode ? '—' : `${projection.totalAllocatedJP} JP`}`],
-      ['Kapasitas JP Tahunan Resmi', `: ${projection.officialAnnualJP !== null ? `${projection.officialAnnualJP} JP` : 'Belum Diverifikasi'}`],
-      ['Sisa / Selisih JP', `: ${projection.remainingAnnualJP !== null ? `${projection.remainingAnnualJP} JP` : '—'}`],
-      ['Status Alokasi', `: ${isBlankMode ? '—' : projection.validationStatus}`]
+      ['Acuan Intrakurikuler Tahunan', `: ${projection.officialAnnualJP !== null ? `${projection.officialAnnualJP} JP` : 'Belum Diverifikasi'}`],
+      ['Selisih terhadap Acuan JP', `: ${projection.remainingAnnualJP !== null ? `${projection.remainingAnnualJP} JP` : '—'}`],
     );
     if (projection.referenceWeeklyEquivalentJP !== null) {
       metadataRows.push(['Referensi Ekuivalen JP per Minggu', `: ${projection.referenceWeeklyEquivalentJP} JP / Minggu`]);
@@ -275,24 +274,10 @@ export async function generatePROTA(context: DocumentGenerationContext): Promise
 
   // Status Alokasi Waktu
   if (!isK13Curriculum && !isBlankMode) {
-    let allocationStatusText = 'Belum ada data alokasi waktu.';
-    if (projection.officialAnnualJP !== null) {
-      const remainingJP = projection.remainingAnnualJP;
-      if (remainingJP !== null) {
-        if (remainingJP > 0) {
-          allocationStatusText = `Sisa JP Belum Dialokasikan: ${remainingJP} JP dari standar tahunan (${projection.officialAnnualJP} JP/tahun).`;
-        } else if (remainingJP === 0) {
-          allocationStatusText = `Alokasi Seimbang: Tepat ${projection.totalAllocatedJP} JP sesuai kapasitas tahunan resmi (${projection.officialAnnualJP} JP).`;
-        } else {
-          allocationStatusText = `Defisit JP: Total alokasi (${projection.totalAllocatedJP} JP) melampaui kapasitas tahunan resmi (${projection.officialAnnualJP} JP) sebesar ${Math.abs(remainingJP)} JP.`;
-        }
-      }
-    } else {
-      allocationStatusText = 'Kapasitas tahunan resmi belum diverifikasi.';
-    }
+    const allocationStatusText = 'Kapasitas kalender tahunan: '+(projection.availableAnnualJP ?? 'belum tersedia')+' JP; alokasi: '+projection.totalAllocatedJP+' JP; sisa/defisit kapasitas: '+(projection.unallocatedAnnualJP ?? 'belum tersedia')+' JP. Acuan intrakurikuler: '+(projection.officialAnnualJP ?? 'belum terverifikasi')+' JP; selisih terhadap acuan: '+(projection.remainingAnnualJP ?? 'belum tersedia')+' JP.';
 
     docChildren.push(
-      createSectionHeading('Status Alokasi Waktu Tahunan', 2),
+      createSectionHeading('Ringkasan Alokasi Waktu Tahunan', 2),
       createProseParagraph(
         `• ${allocationStatusText}\n• Angka alokasi waktu berasal dari data perencanaan pembelajaran nyata yang telah disusun guru.\n• Item bertanda strip (-) menunjukkan unit kompetensi yang belum dialokasikan beban jam pelajarannya.`,
         { firstLineIndent: false, italics: true }

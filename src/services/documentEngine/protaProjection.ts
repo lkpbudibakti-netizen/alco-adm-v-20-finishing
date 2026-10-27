@@ -1,6 +1,7 @@
 import { DocumentGenerationContext } from './types';
 import { TimeAllocation } from '../../types';
 import { resolveMerdekaCanonicalTimeProjection } from './meetingTimeProjection';
+import { getSubjectJP } from '../jpEngine';
 
 export interface ProtaProjectionRow {
   id: string;
@@ -17,6 +18,10 @@ export interface ProtaProjectionRow {
 }
 
 export interface ProtaProjection {
+  storedReferenceJP?: number | null;
+  availableAnnualJP?: number | null;
+  unallocatedAnnualJP?: number | null;
+  referenceDifferenceJP?: number | null;
   isReady: boolean;
   unreadyReason?: string;
   academicYear: string;
@@ -60,7 +65,9 @@ export function buildProtaProjection(context: DocumentGenerationContext): ProtaP
   const academicYear = context.academicSetting?.academicYear || '-';
   const isBlankMode = context.documentMode === 'blank';
 
-  const officialAnnualJP = context.annualJPReference?.officialAnnualJP ?? null;
+  const storedReferenceJP = context.annualJPReference?.officialAnnualJP ?? null;
+  const reference = getSubjectJP({ ...context.academicSetting, allocationType: 'INTRAKURIKULER' });
+  const officialAnnualJP = reference.isOfficial ? reference.referenceAnnualJP ?? null : null;
   const referenceWeeklyEquivalentJP = context.annualJPReference?.referenceWeeklyEquivalentJP ?? null;
   const regulationReference = context.annualJPReference?.regulationReference;
 
@@ -258,16 +265,13 @@ export function buildProtaProjection(context: DocumentGenerationContext): ProtaP
   const remainingAnnualJP =
     officialAnnualJP !== null ? officialAnnualJP - totalAllocatedJP : null;
 
-  let validationStatus: ProtaProjection['validationStatus'] = 'BALANCED';
-  if (officialAnnualJP === null) {
-    validationStatus = 'UNVERIFIED_CAPACITY';
-  } else if (totalAllocatedJP < officialAnnualJP) {
-    validationStatus = 'UNDER_ALLOCATED';
-  } else if (totalAllocatedJP === officialAnnualJP) {
-    validationStatus = 'BALANCED';
-  } else {
-    validationStatus = 'OVER_ALLOCATED';
-  }
+  const capacities = context.protaSemesterAllocations || [];
+  const hasBothCapacities = capacities.length === 2 && new Set(capacities.map(c => c.semester)).size === 2 &&
+    capacities.every(c => typeof c.capacityJP === 'number' && Number.isFinite(c.capacityJP) && c.capacityJP >= 0);
+  const availableAnnualJP = hasBothCapacities ? capacities.reduce((sum, c) => sum + c.capacityJP!, 0) : null;
+  const unallocatedAnnualJP = availableAnnualJP === null ? null : availableAnnualJP - totalAllocatedJP;
+  const validationStatus: ProtaProjection['validationStatus'] = unallocatedAnnualJP === null ? 'UNVERIFIED_CAPACITY'
+    : unallocatedAnnualJP > 0 ? 'UNDER_ALLOCATED' : unallocatedAnnualJP < 0 ? 'OVER_ALLOCATED' : 'BALANCED';
 
   return {
     isReady: true,
@@ -282,6 +286,8 @@ export function buildProtaProjection(context: DocumentGenerationContext): ProtaP
     referenceWeeklyEquivalentJP,
     regulationReference,
     remainingAnnualJP,
+    availableAnnualJP, unallocatedAnnualJP, referenceDifferenceJP: remainingAnnualJP,
+    storedReferenceJP,
     validationStatus,
   };
 }

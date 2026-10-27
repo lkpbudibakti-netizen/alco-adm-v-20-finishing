@@ -88,8 +88,9 @@ const AcademicSettingsForm: React.FC<AcademicSettingsFormProps> = ({
       level: formData.level,
       grade: formData.grade,
       subject: formData.subject,
+      academicYear: formData.academicYear,
     });
-  }, [formData.curriculum, formData.level, formData.grade, formData.subject]);
+  }, [formData.curriculum, formData.level, formData.grade, formData.subject, formData.academicYear]);
 
   // Sync state if prop changes (e.g. on workspace or profile switch)
   useEffect(() => {

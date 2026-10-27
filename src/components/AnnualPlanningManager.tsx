@@ -1,3 +1,4 @@
+import { assessAnnualJP, sumSemesterAllocatedJP } from '../services/annualJPAssessment';
 import React, { useState, useMemo, useEffect } from 'react';
 import {
   CalendarRange,
@@ -117,6 +118,7 @@ export const AnnualPlanningManager: React.FC<AnnualPlanningManagerProps> = ({
       level: academicSetting.level,
       grade: academicSetting.grade,
       subject: academicSetting.subject,
+      academicYear: academicSetting.academicYear,
     });
   }, [academicSetting]);
 
@@ -171,9 +173,16 @@ export const AnnualPlanningManager: React.FC<AnnualPlanningManagerProps> = ({
   const totalAnnualAvailableJP = useMemo(() => {
     const s1 = s1Capacity?.availableJP ?? 0;
     const s2 = s2Capacity?.availableJP ?? 0;
-    if (!s1Capacity?.isReady && !s2Capacity?.isReady) return null;
+    if (!s1Capacity?.isReady || !s2Capacity?.isReady) return null;
     return s1 + s2;
   }, [s1Capacity, s2Capacity]);
+
+  const annualJPAssessment = assessAnnualJP(officialRule, [
+    { semester: 1, capacityJP: s1Capacity?.availableJP ?? null, calendarLostJP: s1Capacity?.calendarLostJP,
+      allocatedJP: sumSemesterAllocatedJP(s1Data) },
+    { semester: 2, capacityJP: s2Capacity?.availableJP ?? null, calendarLostJP: s2Capacity?.calendarLostJP,
+      allocatedJP: sumSemesterAllocatedJP(s2Data) },
+  ]);
 
   const activeSelectedPlan = activeTabSemester === 1 ? sem1Plan : sem2Plan;
   const activeSelectedData = activeTabSemester === 1 ? s1Data : s2Data;
@@ -638,6 +647,13 @@ export const AnnualPlanningManager: React.FC<AnnualPlanningManagerProps> = ({
 
         <div className="min-w-0 flex-1 space-y-6">
           {/* Annual Summary & Both Semesters Overview Bar */}
+          <div className="text-xs p-3 border rounded-xl space-y-1" id="annual-jp-assessment">
+            <div>Acuan intrakurikuler resmi: {annualJPAssessment.officialJP ?? 'Belum terverifikasi'} JP/tahun. Pemeriksaan acuan: {annualJPAssessment.referenceCheck}.</div>
+            <div>Kapasitas S1 + S2: {annualJPAssessment.capacityJP ?? 'Belum lengkap'} JP. Sisa/defisit alokasi: {annualJPAssessment.unallocatedJP ?? 'Belum lengkap'} JP ({annualJPAssessment.capacityStatus || 'Belum lengkap'}).</div>
+            <div>JP berkurang karena hari nonpembelajaran: {annualJPAssessment.calendarLostJP ?? 'Belum lengkap'}. Selisih kapasitas di bawah acuan: {annualJPAssessment.capacityBelowReferenceJP ?? 'Belum lengkap'} JP.</div>
+            <div>Basis: S1 {s1Capacity?.capacitySource}; S2 {s2Capacity?.capacitySource}. Nilai estimasi hari efektif bukan slot mapel aktual.</div>
+            {annualJPAssessment.semesterImbalance && <div>Alokasi melebihi kapasitas pada salah satu semester; saldo tahunan tidak menghapus ketidakseimbangan ini.</div>}
+          </div>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             {/* Semester 1 Overview Card */}
             <div className="p-4 rounded-2xl border bg-white border-slate-200 shadow-2xs">

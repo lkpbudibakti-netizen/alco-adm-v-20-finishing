@@ -4,7 +4,7 @@ import {
   CalendarDay,
   SubjectScheduleDay,
 } from '../types';
-import { getEffectiveWeeksList, normalizeCalendarDayStatus } from './jpEngine';
+import { getEffectiveWeeksList, normalizeCalendarDayStatus, validateCalendarCompleteness } from './jpEngine';
 
 export interface SubjectScheduleValidationResult {
   isValid: boolean;
@@ -243,7 +243,9 @@ export function resolveEffectiveSubjectSlots(params: {
     };
   }
 
-  const isReady = validation.isComplete && calendarReady;
+  const calendarComplete = calendar ? validateCalendarCompleteness(calendar, calendarDays).complete : false;
+  const schoolWeekValid = !schedule?.sessions.some(s => s.dayOfWeek === 6 && calendar?.schoolDaysPerWeek === 5);
+  const isReady = validation.isComplete && calendarReady && calendarComplete && schoolWeekValid;
 
   if (!isReady || !schedule || !calendar) {
     return {

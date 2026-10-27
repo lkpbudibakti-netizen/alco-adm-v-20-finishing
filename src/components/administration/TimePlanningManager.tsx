@@ -1,3 +1,4 @@
+import { resolveCalendarSubjectCapacity } from '../../services/jpEngine';
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import {
   SchoolData,
@@ -161,6 +162,7 @@ export const TimePlanningManager: React.FC<TimePlanningManagerProps> = ({
       level: academicSetting.level,
       grade: academicSetting.grade,
       subject: academicSetting.subject,
+      academicYear: academicSetting.academicYear,
     });
   }, [academicSetting]);
 
@@ -443,13 +445,11 @@ export const TimePlanningManager: React.FC<TimePlanningManagerProps> = ({
 
   const totalAvailableJP = useMemo(() => {
     if (effectiveWeeks === null || jpPerWeek === null || !schoolDaysPerWeek) return null;
-    const res = calculateAvailableJP({
-      subjectWeeklyJP: jpPerWeek,
-      effectiveLearningDays: effectiveResult.effectiveLearningDays,
-      schoolDaysPerWeek,
-    });
+    const res = resolveCalendarSubjectCapacity({ semesterPlanId: effectiveSemesterPlanId || academicSetting.id,
+      calendar: { ...calendar, startDate, endDate, schoolDaysPerWeek } as AcademicCalendar,
+      calendarDays: days, weeklyJP: jpPerWeek, schedule: subjectWeeklySchedule });
     return res.availableJP;
-  }, [effectiveResult, jpPerWeek, schoolDaysPerWeek, effectiveWeeks]);
+  }, [effectiveResult, jpPerWeek, schoolDaysPerWeek, effectiveWeeks, subjectWeeklySchedule, calendar, startDate, endDate, days, effectiveSemesterPlanId, academicSetting.id]);
 
   const totalPlannedJP = useMemo(() => {
     if (isK13Curriculum) {
@@ -478,7 +478,7 @@ export const TimePlanningManager: React.FC<TimePlanningManagerProps> = ({
     } catch {
       return null;
     }
-  }, [effectiveSemesterPlanId, calendar, semesterJPSetting]);
+  }, [effectiveSemesterPlanId, calendar, semesterJPSetting, subjectWeeklySchedule]);
 
   const isCapacityCanonical = Boolean(
     canonicalCapacity?.isReady &&

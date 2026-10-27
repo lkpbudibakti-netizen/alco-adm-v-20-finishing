@@ -1,3 +1,4 @@
+import { resolveEffectiveSubjectSlots } from './subjectScheduleService';
 import {
   CurriculumType,
   CurriculumStructureRule,
@@ -19,6 +20,7 @@ import {
   CanonicalDayStatus,
   CalendarCompletenessResult,
   SemesterJPSetting,
+  SubjectWeeklySchedule,
 } from '../types';
 import {
   calculateTeacherWorkload,
@@ -30,6 +32,7 @@ import {
   resolveCurriculumContext,
   findSubjectByCode,
   getRegulationSources,
+  parseAcademicYear,
 } from '../data/curriculum';
 import {
   resolveSemesterJPFromState,
@@ -47,7 +50,7 @@ export type { ResolvedSemesterJP };
 export const MASTER_CURRICULUM_STRUCTURE: CurriculumStructureRule[] = ALL_CURRICULUM_STRUCTURE_RULES.map((rule) => {
   const subj = findSubjectByCode(rule.subjectCode);
   const regs = getRegulationSources(rule.regulationIds);
-  const mainReg = regs[0];
+  const mainReg = [...regs].sort((a, b) => b.year - a.year)[0];
   return {
     id: rule.id,
     curriculum: rule.curriculumType === 'K13' ? 'Kurikulum 2013' : 'Kurikulum Merdeka',
@@ -111,7 +114,7 @@ export function getSubjectJP(query: SubjectJPQuery): SubjectJPResult {
       isOfficial: false,
       verificationStatus: 'UNVERIFIED',
       statusLabel: 'Kurikulum belum ditentukan',
-      sourceType: 'OFFICIAL',
+      sourceType: 'UNVERIFIED',
       regulation: undefined,
       regulationYear: undefined,
       source: undefined,
@@ -120,19 +123,24 @@ export function getSubjectJP(query: SubjectJPQuery): SubjectJPResult {
   }
 
   // Parse nomor kelas jika tersedia (e.g. "Kelas 4" -> 4, "4" -> 4, 4 -> 4)
-  const gradeNum = parseInt(String(query.grade || '').replace(/[^0-9]/g, ''), 10);
+  const gradeMatch = String(query.grade || '').trim().match(/^(?:kelas\s*)?(\d{1,2})$/i);
+  const gradeNum = gradeMatch ? Number(gradeMatch[1]) : NaN;
+  const year = query.academicYear ? parseAcademicYear(query.academicYear) : undefined;
+  const validYear = !query.academicYear || !!year && year.endYear === year.startYear + 1;
 
   // 1. Delegasi ke Central Resolver jika nomor kelas terdeteksi
-  if (!isNaN(gradeNum) && gradeNum > 0 && query.subject) {
+  if (!isNaN(gradeNum) && gradeNum > 0 && query.subject && validYear) {
     const resolvedContext = resolveCurriculumContext({
       curriculumType: resolvedCurriculumType,
       grade: gradeNum,
+      level: query.level,
+      academicYear: query.academicYear,
       subjectInput: query.subject,
     });
 
     if (resolvedContext && resolvedContext.rule) {
       const { rule, regulationSources } = resolvedContext;
-      const mainReg = regulationSources[0];
+      const mainReg = [...regulationSources].sort((a, b) => b.year - a.year)[0];
       const matchedLegacyRule = MASTER_CURRICULUM_STRUCTURE.find((r) => r.id === rule.id);
 
       return {
@@ -142,6 +150,7 @@ export function getSubjectJP(query: SubjectJPQuery): SubjectJPResult {
         kokurikulerAnnualJP: rule.kokurikulerAnnualJP ?? undefined,
         totalAnnualJP: rule.totalAnnualJP ?? undefined,
         annualJP: rule.intrakurikulerAnnualJP ?? undefined,
+        referenceAnnualJP: query.allocationType === 'KOKURIKULER' ? rule.kokurikulerAnnualJP ?? undefined : query.allocationType === 'TOTAL' ? rule.totalAnnualJP ?? undefined : rule.intrakurikulerAnnualJP ?? undefined,
         kokurikulerJP: rule.kokurikulerAnnualJP ?? undefined,
         isOfficial: rule.verificationStatus === 'VERIFIED',
         verificationStatus: rule.verificationStatus === 'VERIFIED' ? 'VERIFIED' : 'UNVERIFIED',
@@ -157,85 +166,6 @@ export function getSubjectJP(query: SubjectJPQuery): SubjectJPResult {
         explanation: `Alokasi intrakurikuler resmi: ${rule.derivedWeeklyJP} JP/minggu (${rule.intrakurikulerAnnualJP} JP/tahun${rule.kokurikulerAnnualJP ? `, Kokurikuler/P5: ${rule.kokurikulerAnnualJP} JP/tahun` : ''}) berdasarkan ${mainReg?.title || 'Regulasi Resmi'}.`,
       };
     }
-  }
-
-  // 2. Fallback fuzzy search pada MASTER_CURRICULUM_STRUCTURE jika query tanpa kelas spesifik
-  const normSubject = normalizeText(query.subject);
-  const normGrade = normalizeText(query.grade);
-  const normLevel = normalizeText(query.level);
-
-  const candidates = MASTER_CURRICULUM_STRUCTURE.filter(
-    (rule) => rule.curriculumType === resolvedCurriculumType
-  );
-
-  let matchedRule = candidates.find((rule) => {
-    const rSubject = normalizeText(rule.subject);
-    const rGrade = normalizeText(rule.grade);
-    const rLevel = normalizeText(rule.level);
-
-    const subjectMatch =
-      rSubject === normSubject ||
-      normSubject.includes(rSubject) ||
-      rSubject.includes(normSubject) ||
-      (normSubject.includes('pjok') && rSubject.includes('jasmani')) ||
-      (normSubject.includes('pancasila') && rSubject.includes('pancasila')) ||
-      (normSubject.includes('agama') && rSubject.includes('agama')) ||
-      (normSubject.includes('matematika') && rSubject.includes('matematika')) ||
-      (normSubject.includes('bahasa indonesia') && rSubject.includes('bahasa indonesia')) ||
-      (normSubject.includes('ipas') && rSubject.includes('ipas'));
-
-    const gradeMatch = !normGrade || rGrade === normGrade || normGrade.includes(rGrade) || rGrade.includes(normGrade);
-    const levelMatch = !normLevel || rLevel === normLevel;
-
-    return subjectMatch && gradeMatch && levelMatch;
-  });
-
-  if (!matchedRule) {
-    matchedRule = candidates.find((rule) => {
-      const rSubject = normalizeText(rule.subject);
-      const rLevel = normalizeText(rule.level);
-
-      const subjectMatch =
-        rSubject === normSubject ||
-        normSubject.includes(rSubject) ||
-        rSubject.includes(normSubject) ||
-        (normSubject.includes('pjok') && rSubject.includes('jasmani')) ||
-        (normSubject.includes('pancasila') && rSubject.includes('pancasila')) ||
-        (normSubject.includes('matematika') && rSubject.includes('matematika')) ||
-        (normSubject.includes('bahasa indonesia') && rSubject.includes('bahasa indonesia'));
-
-      const levelMatch = !normLevel || rLevel === normLevel;
-      return subjectMatch && levelMatch;
-    });
-  }
-
-  if (matchedRule && matchedRule.verificationStatus === 'VERIFIED') {
-    const weeklyJP = matchedRule.intrakurikulerWeeklyJP ?? matchedRule.weeklyJP ?? null;
-    const annualJP = matchedRule.intrakurikulerAnnualJP ?? matchedRule.annualJP;
-    const kokurikulerJP = matchedRule.kokurikulerAnnualJP ?? matchedRule.kokurikulerJP;
-    const totalAnnualJP = matchedRule.totalAnnualJP;
-
-    return {
-      weeklyJP,
-      intrakurikulerWeeklyJP: weeklyJP,
-      intrakurikulerAnnualJP: annualJP,
-      kokurikulerAnnualJP: kokurikulerJP,
-      totalAnnualJP,
-      annualJP,
-      kokurikulerJP,
-      isOfficial: true,
-      verificationStatus: 'VERIFIED',
-      statusLabel: 'Terverifikasi Resmi',
-      sourceType: 'OFFICIAL',
-      regulation: matchedRule.regulation,
-      regulationYear: matchedRule.regulationYear,
-      source: matchedRule.source,
-      sourceUrl: matchedRule.sourceUrl,
-      effectiveFrom: matchedRule.effectiveFrom,
-      curriculumType: matchedRule.curriculumType,
-      matchedRule,
-      explanation: `Alokasi intrakurikuler resmi: ${weeklyJP ?? '-'} JP/minggu (${annualJP ? `${annualJP} JP/tahun` : ''}${kokurikulerJP ? `, Kokurikuler/P5: ${kokurikulerJP} JP/tahun` : ''}) berdasarkan ${matchedRule.regulation}.`,
-    };
   }
 
   // 3. JANGAN MENGARANG: Mapel tidak ditemukan dalam master resmi
@@ -818,7 +748,7 @@ export function calculateAvailableJP(params: {
   if (
     params.subjectWeeklyJP === null ||
     params.subjectWeeklyJP === undefined ||
-    isNaN(Number(params.subjectWeeklyJP)) ||
+    !Number.isFinite(Number(params.subjectWeeklyJP)) ||
     Number(params.subjectWeeklyJP) <= 0
   ) {
     return {
@@ -848,7 +778,7 @@ export function calculateAvailableJP(params: {
   if (
     params.effectiveLearningDays === null ||
     params.effectiveLearningDays === undefined ||
-    isNaN(Number(params.effectiveLearningDays))
+    !Number.isFinite(Number(params.effectiveLearningDays))
   ) {
     return {
       status: 'UNRESOLVED',
@@ -885,16 +815,9 @@ export function calculateAvailableJP(params: {
   const exactAvailableJP = subjectWeeklyJP * (effectiveLearningDays / validDays);
   const availableJP = Math.round(exactAvailableJP);
 
-  // Batasi / validasi terhadap kapasitas struktur tahunan resmi
-  let isCapacityExceeded = false;
-  let capacityWarning: string | undefined;
-  if (params.officialAnnualJP && params.officialAnnualJP > 0) {
-    const projectedAnnualJP = availableJP * 2;
-    if (projectedAnnualJP > params.officialAnnualJP * 1.15) {
-      isCapacityExceeded = true;
-      capacityWarning = `Perhatian: Proyeksi JP tahunan (${projectedAnnualJP} JP) melampaui alokasi struktur kurikulum resmi (${params.officialAnnualJP} JP/tahun). Periksa kembali kalender akademik.`;
-    }
-  }
+  // Annual comparison requires both real semesters; never project one semester × 2.
+  const isCapacityExceeded = false;
+  const capacityWarning = undefined;
 
   const formula = 'JP Mingguan × (Hari Efektif Belajar ÷ Hari Sekolah/Minggu)';
   const formulaCalculation = `${subjectWeeklyJP} JP/minggu × (${effectiveLearningDays} hari ÷ ${validDays} hari/minggu) = ${subjectWeeklyJP} × ${effectiveWeeksRounded} = ${availableJP} JP`;
@@ -1070,6 +993,7 @@ export function validateTimeAllocations(
  * Menurunkan nilai JP intrakurikuler mata pelajaran dengan pelacakan provenance yang jelas
  */
 export function deriveEffectiveJP(setting: {
+  academicYear?: string;
   curriculum?: string;
   curriculumType?: CurriculumType;
   level?: string;
@@ -1093,6 +1017,7 @@ export function deriveEffectiveJP(setting: {
     level: setting.level,
     grade: setting.grade,
     subject: setting.subject,
+    academicYear: setting.academicYear,
   });
 
   const customValue = setting.subjectWeeklyJP ?? setting.totalHoursPerWeek;
@@ -1173,6 +1098,8 @@ export function validateTeacherTeachingLoad(
  * Kapasitas dan Kesiapan Semester untuk Auto-Allocation ATP
  */
 export interface SemesterCapacityInfo {
+  capacitySource?: 'ACTUAL_SLOTS' | 'EFFECTIVE_DAY_ESTIMATE' | 'UNRESOLVED';
+  calendarLostJP?: number | null;
   semesterPlanId: string;
   semester: '1' | '2';
   isCalendarConfirmed: boolean;
@@ -1538,6 +1465,7 @@ export function resolveSemesterCapacityV5(
     semesterPlans?: Array<{ id: string; semester: number; yearPlanId: string }>;
     semesterData?: {
       academicCalendar?: Array<{ semesterPlanId: string; value?: { calendar?: AcademicCalendar; days?: CalendarDay[] } }>;
+      subjectWeeklySchedules?: Array<{ semesterPlanId: string; value: SubjectWeeklySchedule }>;
     };
     semesterJPSettings?: Array<{ semesterPlanId: string; value?: SemesterJPSetting }>;
     annualJPReferences?: Array<{ yearPlanId: string; value?: any }>;
@@ -1591,26 +1519,10 @@ export function resolveSemesterCapacityV5(
   const isJPOverridden = resolvedJP.isOverride;
   const defaultAnnualWeeklyJP = resolvedJP.defaultAnnualWeeklyJP;
 
-  let availableJP: number | null = null;
-  if (
-    isCalendarConfirmed &&
-    actualScheduledWeeklyJP !== null &&
-    actualScheduledWeeklyJP > 0 &&
-    effectiveLearningDays !== null &&
-    schoolDaysPerWeek !== null
-  ) {
-    const availRes = calculateAvailableJP({
-      subjectWeeklyJP: actualScheduledWeeklyJP,
-      effectiveLearningDays,
-      schoolDaysPerWeek,
-      weeklyJPSource: jpSource === 'SEMESTER_OVERRIDE' ? 'SEMESTER_OVERRIDE' : 'DEFAULT_ANNUAL',
-      calendarStatus: 'RESOLVED',
-      effectiveDayStatus: 'RESOLVED',
-    });
-    if (availRes.status === 'RESOLVED') {
-      availableJP = availRes.availableJP;
-    }
-  }
+  const capacity = resolveCalendarSubjectCapacity({ semesterPlanId, calendar: cal, calendarDays: days,
+    weeklyJP: actualScheduledWeeklyJP,
+    schedule: state.semesterData?.subjectWeeklySchedules?.find(e => e.semesterPlanId === semesterPlanId)?.value });
+  const availableJP = sp && isCalendarConfirmed ? capacity.availableJP : null;
 
   const isReady = Boolean(
     isCalendarConfirmed &&
@@ -1634,8 +1546,37 @@ export function resolveSemesterCapacityV5(
     isJPOverridden,
     defaultAnnualWeeklyJP,
     availableJP,
+    capacitySource: capacity.capacitySource,
+    calendarLostJP: capacity.calendarLostJP,
     isReady,
   };
+}
+
+/** One capacity authority: dated subject slots when available, otherwise an explicitly marked day estimate. */
+export function resolveCalendarSubjectCapacity(params: {
+  semesterPlanId: string; calendar?: AcademicCalendar; calendarDays?: CalendarDay[];
+  weeklyJP: number | null; schedule?: SubjectWeeklySchedule;
+}) {
+  const { semesterPlanId, calendar, calendarDays = [], weeklyJP, schedule } = params;
+  const days = calendar ? calculateEffectiveDays(calendar, calendarDays) : null;
+  const estimate = calculateAvailableJP({ subjectWeeklyJP: weeklyJP, effectiveLearningDays: days?.effectiveLearningDays,
+    schoolDaysPerWeek: calendar?.schoolDaysPerWeek, calendarStatus: days?.status || 'UNRESOLVED',
+    effectiveDayStatus: days?.status || 'UNRESOLVED', weeklyJPSource: 'DEFAULT_ANNUAL' });
+  const unresolved = { ...estimate, status: 'UNRESOLVED' as const, availableJP: null,
+    capacitySource: 'UNRESOLVED' as const, calendarLostJP: null as number | null };
+  if (!calendar || days?.status !== 'RESOLVED' || estimate.availableJP === null) return unresolved;
+  const dated = schedule?.sessions.some(session => session.dayOfWeek !== undefined);
+  if (dated) {
+    const slots = resolveEffectiveSubjectSlots({ semesterPlanId, schedule, expectedWeeklyJP: weeklyJP, calendar, calendarDays });
+    if (!slots.isReady || schedule?.semesterPlanId !== semesterPlanId) return { ...unresolved, unresolvedReason: slots.errors.join('; ') || 'Jadwal mapel tidak cocok dengan semester.' };
+    return { ...estimate, availableJP: slots.totalJP, capacitySource: 'ACTUAL_SLOTS' as const,
+      calendarLostJP: slots.excludedOccurrences.reduce((sum, occurrence) => sum + occurrence.jp, 0),
+      formula: 'Jumlah JP slot mapel pada hari pembelajaran', formulaCalculation: `${slots.totalJP} JP` };
+  }
+  // Legacy session patterns without weekdays cannot identify actual dates; preserve the estimate.
+  const nominal = Math.round((weeklyJP || 0) * days.scheduledSchoolDays / calendar.schoolDaysPerWeek!);
+  return { ...estimate, capacitySource: 'EFFECTIVE_DAY_ESTIMATE' as const,
+    calendarLostJP: Math.max(0, nominal - estimate.availableJP) };
 }
 
 /**

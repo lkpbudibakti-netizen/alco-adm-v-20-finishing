@@ -166,13 +166,16 @@ export function App() {
       const allocations = v5State.semesterData.timeAllocation.find(
         (e) => e.semesterPlanId === sp.id
       )?.value || [];
+      const capacity = resolveSemesterCapacityV5(sp.id, v5State);
       return {
         semesterPlanId: sp.id,
         semester: sp.semester,
         allocations,
+        capacityJP: capacity.availableJP,
+        calendarLostJP: capacity.calendarLostJP,
       };
     });
-  }, [semesterPlansForActiveYear, v5State.semesterData.timeAllocation]);
+  }, [semesterPlansForActiveYear, v5State]);
 
   const learningMeetingSchedulesForActiveYear = useMemo(() => {
     return semesterPlansForActiveYear
@@ -705,6 +708,7 @@ export function App() {
         level: setting.level || 'SD',
         grade: setting.grade,
         subject: setting.subject,
+        academicYear: setting.academicYear,
       });
 
       const rawWeeklyVal = setting.totalHoursPerWeek;
@@ -1807,6 +1811,7 @@ export function App() {
               semesterJPSetting={runtimeContext.semesterJPSetting}
               annualJPReference={runtimeContext.annualData?.annualJPReference}
               protaSemesterAllocations={protaSemesterAllocations}
+              subjectWeeklySchedule={runtimeContext.semesterData?.subjectWeeklySchedule}
               zipAnnualSource={activeYearPlan ? {
                 yearPlan: activeYearPlan,
                 semesterPlans: semesterPlansForActiveYear,

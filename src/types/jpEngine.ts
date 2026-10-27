@@ -58,6 +58,7 @@ export type MasterCurriculumStructure = CurriculumStructureRule;
  * Parameter Query Pencarian JP Mata Pelajaran
  */
 export interface SubjectJPQuery {
+  allocationType?: 'INTRAKURIKULER' | 'KOKURIKULER' | 'TOTAL';
   curriculum?: string;
   curriculumType?: CurriculumType;
   level?: string;
@@ -70,6 +71,7 @@ export interface SubjectJPQuery {
  * Hasil Lookup JP Mata Pelajaran
  */
 export interface SubjectJPResult {
+  referenceAnnualJP?: number;
   weeklyJP: number | null;
   intrakurikulerWeeklyJP?: number | null;
   intrakurikulerAnnualJP?: number;

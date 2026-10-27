@@ -135,7 +135,7 @@ export async function generateAlokasiWaktu(context: DocumentGenerationContext): 
         ['Beban JP Intrakurikuler per Minggu', `: ${weeklyJP !== null ? `${weeklyJP} JP / Minggu` : 'Input Manual Diperlukan'}`],
         ['Kapasitas JP Semester', `: ${projection.availableJP !== null ? `${projection.availableJP} Jam Pelajaran` : 'Belum Ditentukan'}`],
         ['Total Alokasi Pembelajaran Terdata', `: ${totalAllocatedJP} Jam Pelajaran (JP)`],
-        ['Sisa & Status Alokasi', `: ${projection.remainingJP !== null ? `${projection.remainingJP} JP` : '-'} (${projection.validationStatus})`],
+        ['Sisa / Defisit Kapasitas', `: ${projection.remainingJP !== null ? `${projection.remainingJP} JP` : '-'}`],
         ['Dasar Regulasi Struktur', `: ${officialRule.regulation || 'Struktur Kustom Guru'}`],
       ])
     );
@@ -255,7 +255,7 @@ export async function generateAlokasiWaktu(context: DocumentGenerationContext): 
           createTableHeaderCell('TOTAL', 26, AlignmentType.CENTER),
           createTableHeaderCell('Total Alokasi Waktu Pembelajaran Terjadwal', 38, AlignmentType.LEFT),
           createTableHeaderCell(`${totalAllocatedJP} JP`, 14, AlignmentType.CENTER),
-          createTableHeaderCell(projection.validationStatus, 14, AlignmentType.CENTER),
+          createTableHeaderCell(projection.remainingJP === null ? '—' : `${projection.remainingJP} JP`, 14, AlignmentType.CENTER),
         ],
       });
 

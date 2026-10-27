@@ -37,12 +37,15 @@ import type { AppStorageStateV5 } from '../../types/storageV5';
 export type { DocumentType, DocumentMode, DocumentSnapshot, AppDocumentRecord, LearningPlan };
 
 export interface ProtaSemesterAllocationBundle {
+  capacityJP?: number | null;
+  calendarLostJP?: number | null;
   semesterPlanId: string;
   semester: 1 | 2;
   allocations: TimeAllocation[];
 }
 
 export interface DocumentGenerationContext {
+  subjectWeeklySchedule?: import('../../types').SubjectWeeklySchedule;
   /** Read-only canonical annual data exposure for ZIP packaging only. */
   zipAnnualSource?: Pick<AppStorageStateV5, 'semesterData' | 'semesterJPSettings'> & {
     yearPlan: import('../../types').YearPlan;

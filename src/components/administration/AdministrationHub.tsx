@@ -76,6 +76,7 @@ interface AdministrationHubProps {
   tp?: TPData;
   atp?: ATPData;
   atpUnitMapping?: ATPUnitMappingData;
+  subjectWeeklySchedule?: import('../../types').SubjectWeeklySchedule;
   unitExecutionPlan?: UnitExecutionPlanData;
   learningMeetingSchedules?: {
     semesterPlanId: string;
@@ -138,6 +139,7 @@ export const AdministrationHub: React.FC<AdministrationHubProps> = ({
   atpUnitMapping,
   unitExecutionPlan,
   learningMeetingSchedules = [],
+  subjectWeeklySchedule,
   documents = [],
   students = [],
   calendar,
@@ -497,6 +499,7 @@ export const AdministrationHub: React.FC<AdministrationHubProps> = ({
       <div className="min-h-[500px]">
         {isK13Active && activeTab === 'time_planning' && (
           <TimePlanningManager
+            subjectWeeklySchedule={subjectWeeklySchedule}
             school={school}
             profile={profile}
             academicSetting={academicSetting}
@@ -679,6 +682,7 @@ export const AdministrationHub: React.FC<AdministrationHubProps> = ({
 
         {activeTab === 'export_docs' && (
           <AdminDocsExport
+            subjectWeeklySchedule={subjectWeeklySchedule}
             profile={profile}
             school={school}
             workspace={workspace}

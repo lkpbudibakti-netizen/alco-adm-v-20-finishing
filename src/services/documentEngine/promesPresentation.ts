@@ -42,10 +42,8 @@ export function buildPromesPresentation(projection: PromesProjection, blank = fa
     ['-', '-', 'TOTAL JP SEMESTER', '-', blank ? '-' : `${totalJP} JP`, '-', ...monthlyTotals.map(total => blank ? '-' : String(total))],
     ['-', '-', 'KAPASITAS JP TERSEDIA', '-', blank || projection.availableJP === null ? '-' : `${projection.availableJP} JP`, '-', ...months.map(() => '-')],
     ['-', '-', 'SISA / DEFISIT JP', '-', blank || remainingJP === null ? '-' : `${remainingJP} JP`, '-', ...months.map(() => '-')],
-    ['-', '-', 'STATUS ALOKASI', '-', blank ? '-' : status, '-', ...months.map(() => '-')],
   ].map(row => isK13 ? row.filter((_, index) => index !== 3) : row);
   const notes = [
-    `Status Alokasi Waktu: ${blank ? '-' : status}.`,
     'Angka pada kolom bulan menunjukkan Jam Pelajaran (JP) intrakurikuler tatap muka yang telah dijadwalkan guru.',
     'Item tanpa alokasi bulan diberi tanda strip (-) yang berarti belum dijadwalkan pada kalender aktif.',
     'Sisa / defisit bernilai negatif menunjukkan alokasi melebihi kapasitas JP tersedia.',
