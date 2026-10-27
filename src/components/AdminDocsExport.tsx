@@ -1,5 +1,6 @@
 import { JournalPreview, JournalRealizationEditor } from './JournalRealizationEditor';
 import { buildJurnalProjection } from '../services/documentEngine/jurnalProjection';
+import { formatClassLabel } from '../services/academicScope';
 import { APP_BUILD_SHA } from '../config/buildInfo';
 import { MODUL_AJAR_RENDERER_VERSION } from '../config/modulAjarRendererVersion';
 import { prepareModulAjarExportContext } from '../services/documentEngine/modulAjarExportContext';
@@ -1101,7 +1102,7 @@ export const AdminDocsExport: React.FC<AdminDocsExportProps> = ({
             const previewCurriculum = activeSnapshot?.curriculum || academicSetting.curriculum || '-';
             const previewAcademicYear = activeSnapshot?.academicYear || academicSetting.academicYear || '-';
             const previewSemester = activeSnapshot?.semester || academicSetting.semester || '-';
-            const previewGrade = activeSnapshot?.grade || academicSetting.grade || '-';
+            const previewGrade = formatClassLabel({ grade: activeSnapshot?.grade || academicSetting.grade, classSection: activeSnapshot ? activeSnapshot.classSection : academicSetting.classSection });
             const previewPhase = activeSnapshot?.phase || academicSetting.phase || '-';
             const previewSubject = activeSnapshot?.subject || academicSetting.subject || '-';
             const previewDate = activeSnapshot?.generatedAt

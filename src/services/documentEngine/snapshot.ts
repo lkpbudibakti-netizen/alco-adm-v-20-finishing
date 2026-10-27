@@ -2,6 +2,7 @@ import { DocumentSnapshot, DocumentMode, CurriculumType, DocumentType } from '..
 import { DocumentGenerationContext } from './types';
 import { buildModulAjarProjection } from './modulAjarProjection';
 import { buildJurnalProjection } from './jurnalProjection';
+import { importedTimingIssues } from '../administrationImportPolicy';
 import { getCurriculumType } from '../curriculumRules';
 import { resolveDocumentDate, formatDocumentDate } from '../documentDateService';
 
@@ -55,6 +56,7 @@ export function createDocumentSnapshot(
     academicYear: (academicSetting?.academicYear || '').trim(),
     semester: (academicSetting?.semester || '').trim(),
     grade: (academicSetting?.grade || '').trim(),
+    classSection: academicSetting?.classSection,
     subject: (academicSetting?.subject || '').trim(),
     phase: (academicSetting?.phase || '').trim(),
     curriculum: (academicSetting?.curriculum || '').trim(),
@@ -87,9 +89,10 @@ export function resolveEffectiveContext(
 ): DocumentGenerationContext {
   const effective = resolveSnapshotContext(context, snapshotOverride);
   const frozenNotice = (snapshotOverride || context.snapshot)?.planningReferenceNotice;
-  const notice = frozenNotice || (context.zipAnnualSource?.yearPlan.identityOnlyImport?.timingIsSourceReference
+  const targetTimingApproved = context.zipAnnualSource?.yearPlan.identityOnlyImport?.mode === 'IDENTITY_SCHEDULE' && importedTimingIssues(context, !context.zipAnnualSource.semesterPlans.some(plan=>plan.id===context.academicSetting.id)).length===0;
+  const notice = frozenNotice || (targetTimingApproved ? undefined : context.zipAnnualSource?.yearPlan.identityOnlyImport?.timingIsSourceReference
     ? 'Kalender, JP, dan jadwal adalah data sumber; belum diverifikasi untuk sekolah tujuan.' : effective.academicSetting?.planningReferenceNotice);
-  return notice ? { ...effective, academicSetting: { ...effective.academicSetting, planningReferenceNotice: notice } } : effective;
+  return notice || targetTimingApproved ? { ...effective, academicSetting: { ...effective.academicSetting, planningReferenceNotice: notice } } : effective;
 }
 
 function resolveSnapshotContext(
@@ -167,6 +170,7 @@ function resolveSnapshotContext(
 
       academicSetting: {
         ...context.academicSetting,
+        classSection: snap.classSection,
         academicYear:
           snap.academicYear ||
           context.academicSetting?.academicYear ||

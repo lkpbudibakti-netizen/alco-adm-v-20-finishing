@@ -132,6 +132,7 @@ export function App() {
   const [isNewWorkspaceModalOpen, setIsNewWorkspaceModalOpen] = useState(false);
   const [isImportProjectModalOpen, setIsImportProjectModalOpen] = useState(false);
   const [isCompleteProjectImportOpen, setIsCompleteProjectImportOpen] = useState(false);
+  const [importedYearForExport, setImportedYearForExport] = useState<string>();
   const [appNotice, setAppNotice] = useState<{ type: 'error' | 'warning' | 'info'; message: string } | null>(null);
 
   // New Workspace form state (Canonical Merdeka Annual Hierarchy - No Semester)
@@ -566,6 +567,7 @@ export function App() {
           : '2 (Genap)',
       level: activeYearPlan.level,
       grade: activeYearPlan.grade,
+      classSection: activeYearPlan.classSection,
       phase: activeYearPlan.phase || '',
       subject: activeYearPlan.subject,
       totalHoursPerWeek: weeklyJP,
@@ -1529,6 +1531,7 @@ export function App() {
 
       {/* Main Workspace Container */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+        {activeYearPlan?.identityOnlyImport?.mode && activeYearPlan.identityOnlyImport.mode !== 'IDENTITY_ONLY' && <div className="bg-blue-50 border rounded-xl p-3 flex flex-wrap items-center justify-between gap-2 text-sm"><span>Proyek impor: perencanaan dapat dilanjutkan. Ekspor memeriksa ulang waktu, kelas, dan kelengkapan dokumen.</span><button type="button" className="font-bold underline" onClick={()=>{setImportedYearForExport(activeYearPlan.id);setIsCompleteProjectImportOpen(true);}}>Unduh ZIP Administrasi</button></div>}
         {/* App Notification Banner */}
         {appNotice && (
           <div
@@ -1587,7 +1590,7 @@ export function App() {
               yearPlans={yearPlansForActiveProfile || []}
               onCreateWorkspaceClick={openNewWorkspaceModal}
               onImportProjectClick={() => setIsImportProjectModalOpen(true)}
-              onImportCompleteProjectClick={() => setIsCompleteProjectImportOpen(true)}
+              onImportCompleteProjectClick={() => { setImportedYearForExport(undefined); setIsCompleteProjectImportOpen(true); }}
               onExportCompleteProject={async (yearPlanId) => {
                 try { await downloadCompleteProjectZip(loadStorageV5(), yearPlanId); }
                 catch (error) { setAppNotice({ type: 'error', message: error instanceof Error ? error.message : String(error) }); }
@@ -2042,8 +2045,13 @@ export function App() {
 
       {/* Backup / Restore JSON Modal */}
       {isCompleteProjectImportOpen && <CompleteProjectImportModal state={v5State}
+        importedYearPlanId={importedYearForExport}
+        onContinue={step=>{setIsCompleteProjectImportOpen(false);setCurrentStep(step as WorkflowStepId);}}
         onClose={() => setIsCompleteProjectImportOpen(false)} onSuccess={(result) => {
-          if (result.mode === 'IDENTITY_ONLY') { refreshV5(); setAppNotice({ type: 'info', message: 'Impor identitas tujuan selesai. Tinjau Ringkasan Kesiapan Ekspor sebelum mengunduh ZIP.' }); return; }
+          if (result.mode === 'IDENTITY_ONLY') { refreshV5(); return; }
+          if (['IDENTITY_SCHEDULE','OTHER_CLASS','CONTINUE_EDITING'].includes(result.mode)) {
+            refreshV5(); setAppNotice({ type: result.step7.target.canProceed ? 'info' : 'warning', message: result.compatibility.reasons[0] || result.step7.target.blockers[0] || (result.mode==='IDENTITY_SCHEDULE' ? 'Impor selesai. Sesuaikan kalender, JP, dan jadwal tujuan; ZIP tersedia setelah validasi.' : 'Impor selesai. Progres valid dipertahankan dan perencanaan dapat disunting.') }); return;
+          }
           refreshV5(); setIsCompleteProjectImportOpen(false); setCurrentStep('academic');
           setAppNotice({ type: result.step7.target.canProceed ? 'info' : 'warning',
             message: result.step7.target.canProceed

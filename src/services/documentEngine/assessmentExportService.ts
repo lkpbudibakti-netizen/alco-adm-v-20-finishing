@@ -1,3 +1,4 @@
+import { formatClassLabel } from '../academicScope';
 import {
   Document,
   Packer,
@@ -352,7 +353,7 @@ function createCanonicalAssessmentSnapshotFromPackage(
     teacherStatus: profile.status,
     academicYear: academicSetting.academicYear || '',
     semester: academicSetting.semester || '',
-    grade: academicSetting.grade || '',
+    grade: formatClassLabel(academicSetting),
     subject: academicSetting.subject || '',
     phase: academicSetting.phase,
     curriculum: academicSetting.curriculum || '',
@@ -436,7 +437,7 @@ export function createAssessmentDocumentSnapshot(
       teacherStatus: profile.status,
       academicYear: academicSetting.academicYear || '',
       semester: academicSetting.semester || '',
-      grade: academicSetting.grade || '',
+      grade: formatClassLabel(academicSetting),
       subject: academicSetting.subject || '',
       phase: academicSetting.phase,
       curriculum: academicSetting.curriculum || '',

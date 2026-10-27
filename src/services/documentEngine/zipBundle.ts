@@ -328,7 +328,7 @@ export async function generateZipBundle(
   };
 
   const safeSubject = (rawContext.academicSetting?.subject || 'Mapel').replace(/[^a-zA-Z0-9]/g, '_');
-  const safeGrade = (rawContext.academicSetting?.grade || 'Kelas').replace(/[^a-zA-Z0-9]/g, '_');
+  const safeGrade = ((rawContext.academicSetting?.grade || 'Kelas') + (rawContext.academicSetting?.classSection ? '_'+rawContext.academicSetting.classSection : '')).replace(/[^a-zA-Z0-9]/g, '_');
   const safeYear = sanitizeForFileName(rawContext.academicSetting?.academicYear || 'TahunAjaran');
 
   const formatTag = exportFormat === 'both' ? 'PDF_Word' : exportFormat === 'pdf' ? 'PDF' : 'Word';

@@ -7,10 +7,10 @@ import { runInNewContext } from 'node:vm';
 import ts from 'typescript';
 import JSZip from 'jszip';
 import { inflateSync } from 'node:zlib';
-import { createIdentityDuplicationFixture } from './fixtures/identityDuplicationFixture';
-import { createModulAjarRuntimeFixture } from './fixtures/modulAjarRuntimeFixture';
+import { createReadyAdministrationImportFixture } from './fixtures/readyAdministrationImportFixture';
 import { createCompleteProjectZip, readCompleteProjectZip } from '../src/services/completeProjectZipService';
-import { prepareCompleteAdministrationProjectImport, importCompleteAdministrationProject } from '../src/services/administrationProjectImportService';
+import { prepareCompleteAdministrationProjectImport, importCompleteAdministrationProject, importCompleteAdministrationProjectAndExport } from '../src/services/administrationProjectImportService';
+import { completeImportModalHarness } from './fixtures/completeImportModalHarness';
 import { buildImportedProjectExportContext, importedProjectExportReadiness } from '../src/services/identityOnlyProjectExport';
 import { resolveAnnualZipContexts, buildAnnualZipWorkItems, administrationZipRoot, isAnnualZipDocument, semesterZipFolder } from '../src/services/documentEngine/annualZipPlan';
 import { buildModulAjarProjection } from '../src/services/documentEngine/modulAjarProjection';
@@ -20,35 +20,9 @@ import { generatePdfDocument } from '../src/services/documentEngine/renderers/pd
 import { resolveEffectiveContext } from '../src/services/documentEngine/snapshot';
 import { getCurriculumType } from '../src/services/curriculumRules';
 import { STORAGE_KEY_V5 } from '../src/services/storageV5';
+import { loadStorageV5 } from '../src/services/storageV5';
 
-const source = createIdentityDuplicationFixture();
-const stamp = '2026-01-01T00:00:00Z';
-Object.assign(source.profiles[0], { name:'GURU_ASAL_TEST', nip:'111111111111111111' });
-Object.assign(source.schools[0], { name:'SEKOLAH_ASAL_TEST', npsn:'11111111', address:'ALAMAT_ASAL_TEST', principalName:'KEPSEK_ASAL_TEST', principalNip:'222222222222222222' });
-Object.assign(source.profiles[1], { name:'GURU_TUJUAN_TEST', nip:'333333333333333333' });
-Object.assign(source.schools[1], { name:'SEKOLAH_TUJUAN_TEST', npsn:'33333333', address:'ALAMAT_TUJUAN_TEST', principalName:'KEPSEK_TUJUAN_TEST', principalNip:'444444444444444444' });
-source.workspaces[0].documentDate = '2026-08-03';
-source.semesterData.learningMeetingSchedules![0].value.entries[0].sourceSlotId = 'subject-slot:sp1:session:2026-08-03';
-const runtime = createModulAjarRuntimeFixture();
-const plan: any = structuredClone(runtime.learningPlans[0]);
-Object.assign(plan, { id:'lp', academicSettingId:'sp1', unitId:'u', learningMeetingIds:['meet'], tpIds:['t','t-z'], atpItemIds:['a','az'],
-  objectives: source.annualData.tp[0].value.items.map(item => ({ tpId:item.id, code:item.code, statement:item.statement })), allocatedJP:2,
-  kktpCriterionIds:['k','k2'], timeAllocationIds:['allocation'], createdAt:stamp, updatedAt:stamp, confirmedAt:stamp,
-  learningSteps: { opening:[{ id:'open', learningMeetingId:'meet', description:'Pembukaan', durationMinutes:10 }], core:[{ id:'core', learningMeetingId:'meet', description:'Praktik lempar bola', durationMinutes:50 }], closing:[{ id:'close', learningMeetingId:'meet', description:'Penutup', durationMinutes:10 }] } });
-source.semesterData.learningPlan[0].value = [plan];
-for (const rows of Object.values(plan.assessmentPlan) as any[][]) for (const item of rows) { item.linkedTpIds = ['t']; if (item.learningMeetingId) item.learningMeetingId = 'meet'; }
-source.semesterData.assessmentCriteria[0].value = runtime.assessmentCriteria.slice(0,2).map((criterion: any,index: number) => ({ ...criterion, id:index ? 'k2':'k', academicSettingId:'sp1', tpId:index ? 't-z':'t', updatedAt:stamp }));
-source.semesterData.assessmentPlan[0].value = [{ id:'ap', academicSettingId:'sp1', title:'Rencana Asesmen', purpose:'SUMMATIVE', timing:'POST', scopeType:'TP',
-  tpIds:['t'], criterionIds:[], learningPlanIds:['lp'], instruments:[{ id:'instrument', type:'WRITTEN_TEST', label:'Tes tertulis' }], workflowStatus:'SIAP', needsReview:false, revision:1, createdAt:stamp, updatedAt:stamp } as any];
-source.semesterData.assessmentPackage[0].value = [{ id:'pkg', academicSettingId:'sp1', assessmentPlanId:'ap', title:'Perangkat Asesmen', workflowStatus:'SIAP', needsReview:false, revision:1,
-  blueprintItems:[{ id:'blueprint', objectiveRefId:'t', instrumentType:'WRITTEN_TEST', instrumentItemIds:['item'], order:1, assessmentIndicator:'Mengenali lempar bola' }],
-  instruments:[{ id:'instrument', type:'WRITTEN_TEST', title:'Tes tertulis', items:[{ id:'item', itemType:'MULTIPLE_CHOICE', prompt:'Gerak untuk memindahkan bola dengan tangan?', options:[{id:'option-a',label:'A',text:'Melempar'},{id:'option-b',label:'B',text:'Berjalan'}], order:1 }] }],
-  answerKeys:[{ id:'key', instrumentId:'instrument', instrumentItemId:'item', answerType:'OPTION', optionIds:['option-a'] }], scoringGuides:[], rubrics:[], createdAt:stamp, updatedAt:stamp,
-  snapshot:{ teacherName:'GURU_ASAL_TEST', schoolName:'SEKOLAH_ASAL_TEST' } } as any];
-source.documents = [{ id:'old-doc', type:'MODUL_AJAR', title:'Dokumen lama', status:'completed', academicSettingId:'sp1', workspaceId:'w', snapshot:{ teacherName:'GURU_ASAL_TEST',schoolName:'SEKOLAH_ASAL_TEST' } as any }];
-source.semesterData.roster = [{ semesterPlanId:'sp1', value:[{id:'student',academicSettingId:'sp1',name:'MURID_ASAL'}] }];
-source.semesterData.attendance = [{ semesterPlanId:'sp1', value:{ sessions:[{id:'att',academicSettingId:'sp1',date:'2026-08-03',meetingNumber:1,createdAt:stamp}],records:[{id:'record',sessionId:'att',studentId:'student',status:'H'}] } }];
-source.semesterData.journalRealizations = [{ semesterPlanId:'sp1', value:[{ meetingId:'meet',semesterPlanId:'sp1',outcome:'HASIL_ASAL',updatedAt:stamp }] }];
+const source = createReadyAdministrationImportFixture();
 const initial = JSON.stringify(source);
 const modal = renderToStaticMarkup(<CompleteProjectImportModal state={source} onClose={() => {}} onSuccess={() => {}} />);
 for (const label of ['Ganti Identitas Saja','Salin ke Profil Lain','Pulihkan Proyek']) assert(modal.includes(label));
@@ -167,4 +141,22 @@ failing = true;
 const mixed = await exports.generateZipBundle({types:['MODUL_AJAR','ASESMEN','CP'],format:'both'},context);
 assert.equal(mixed.successCount,1); assert.equal(mixed.partialCount,1); assert.equal(mixed.failedCount,1); assert(mixed.skippedCount>=1);
 assert(mixed.itemResults.some((item:any)=>item.reason?.includes('Fixture PDF failed')));
+// Mode 1: upload → one click → real atomic import → real PDF/DOCX ZIP, with no checkbox/second action.
+failing = false; storage.set(STORAGE_KEY_V5, initial);
+const beforeDownloads = downloads.length;
+let flowCalls = 0, successCalls = 0;
+const harness = completeImportModalHarness({ state:{...source,activeProfileId:'p2'},onClose:()=>{},onSuccess:()=>{successCalls++;} }, {
+  readCompleteProjectZip, prepareCompleteAdministrationProjectImport: () => { throw new Error('No preparation confirmation step for Mode 1'); },
+  importCompleteAdministrationProject, importedProjectExportReadiness, loadStorageV5,
+  generateZipBundle:exports.generateZipBundle,
+  importCompleteAdministrationProjectAndExport: async (value:any,opts:any) => { flowCalls++; return importCompleteAdministrationProjectAndExport(value,opts,exports.generateZipBundle); },
+});
+await harness.nodes().find(node=>node.type==='input' && node.props.type==='file').props.onChange({target:{files:[{arrayBuffer:async()=>bytes}]}});
+const loaded = harness.nodes();
+assert(!loaded.some(node=>node.type==='input' && node.props.type==='checkbox'));
+const primary = loaded.find(node=>node.type==='button' && harness.text(node).includes('Impor & Unduh ZIP'));
+assert(primary && !primary.props.disabled);
+await Promise.all([primary.props.onClick(),primary.props.onClick()]);
+assert.equal(flowCalls,1); assert.equal(successCalls,1); assert.equal(downloads.length,beforeDownloads+1);
+assert(harness.nodes().some(node=>node.props.role==='status'));
 console.log('PASS: complete-project ZIP identity-only round-trip, destination DOCX/PDF and ZIP, valid SIAP module/assessment and Step7, exact slot/ID remapping, source provenance/factual separation, stale/draft blocking, conflict/atomic persistence and no source metadata leakage. No live browser claim.');

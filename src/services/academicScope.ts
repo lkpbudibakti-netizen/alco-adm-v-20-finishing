@@ -18,6 +18,11 @@ export type {
   CurriculumContextLock,
 };
 
+/** Display only. Keep canonical grade separate so curriculum validation remains unchanged. */
+export function formatClassLabel(setting: { grade?: string; classSection?: string }): string {
+  return `${setting.grade || '-'}${setting.classSection?.trim() ? ` (${setting.classSection.trim()})` : ''}`;
+}
+
 /**
  * Normalizes legacy or arbitrary semester representations to canonical SemesterNumber (1 | 2).
  *

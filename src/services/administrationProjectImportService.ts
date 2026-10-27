@@ -51,11 +51,16 @@ import { validateCPDataWorkflow, validateCPAnalysisDataWorkflow, validateTPDataW
 import { resolveATPUnitMappingReadiness } from './atpMappingReadinessService';
 import { computeAtpSubstantiveFingerprint, computeTpSubstantiveFingerprint, matchesSubstantiveFingerprint } from './atpMappingActionApplyService';
 import { isValidDocumentDate } from './documentDateService';
-import { buildImportedProjectExportContext } from './identityOnlyProjectExport';
+import { buildImportedProjectExportContext, importedProjectExportReadiness } from './identityOnlyProjectExport';
+import { generateZipBundle } from './documentEngine';
 import { resolveAnnualZipContexts } from './documentEngine/annualZipPlan';
 import { buildModulAjarProjection } from './documentEngine/modulAjarProjection';
 import { validateAssessmentPlan } from './assessmentPlanService';
 import { sourceIdentityExportIssue } from './documentEngine/sourceIdentityGuard';
+import { ADMINISTRATION_IMPORT_MODES } from '../types/completeProjectTransfer';
+import { GRADE_PHASE_MAP } from '../data/curriculumDefaults';
+import { resolveGrade } from './cognitiveAdaptationService';
+import { classImportCompatibility } from './administrationImportPolicy';
 
 const cloneProject = <T,>(value: T): T => JSON.parse(JSON.stringify(value));
 const externalProjectFields = new Set(['source', 'evidence', 'snapshot', 'regulationSources', 'curriculumLock']);
@@ -177,10 +182,16 @@ export function validateCompleteProjectArchive(value: unknown): CompleteProjectA
 export function prepareCompleteAdministrationProjectImport(current: AppStorageStateV5, value: unknown,
   options: CompleteProjectImportOptions) {
   const archive = validateCompleteProjectArchive(value);
-  if (!['RESTORE', 'COPY', 'IDENTITY_ONLY'].includes(options.mode)) throw new Error('Mode import tidak dikenal.');
-  if (options.mode === 'IDENTITY_ONLY' && !isValidDocumentDate(options.documentDate)) throw new Error('Tetapkan tanggal dokumen tujuan sebelum mengganti identitas.');
+  const modernMode = ADMINISTRATION_IMPORT_MODES.some(item=>item.mode===options.mode);
+  if (!modernMode && !['RESTORE', 'COPY'].includes(options.mode)) throw new Error('Mode import tidak dikenal.');
+  if (modernMode && !isValidDocumentDate(options.documentDate)) throw new Error('Tetapkan tanggal dokumen tujuan sebelum mengganti identitas.');
   const source = archive.project;
   const sourceYear = source.yearPlans[0];
+  const targetClass = options.mode === 'OTHER_CLASS' ? (GRADE_PHASE_MAP[sourceYear.level] || []).find(item=>resolveGrade(undefined,item.grade)===resolveGrade(undefined,options.targetGrade)) : undefined;
+  if (options.mode === 'OTHER_CLASS' && (!targetClass || !options.targetClassSection?.trim())) throw new Error('Pilih kelas dan rombel tujuan yang valid.');
+  const targetGrade = targetClass?.grade || sourceYear.grade;
+  const targetSection = options.mode === 'OTHER_CLASS' ? options.targetClassSection!.trim() : sourceYear.classSection;
+  if (options.mode === 'OTHER_CLASS' && resolveGrade(undefined,targetGrade)===resolveGrade(undefined,sourceYear.grade) && (targetSection || '').toUpperCase()===(sourceYear.classSection || '').toUpperCase()) throw new Error('Kelas/rombel tujuan harus berbeda dari sumber.');
   const profile = current.profiles.find(p => p.id === options.targetProfileId);
   const school = current.schools.find(s => s.id === options.targetSchoolId);
   if (!profile || !school || profile.schoolId !== school.id) throw new Error('Profil dan sekolah tujuan tidak sesuai.');
@@ -189,8 +200,8 @@ export function prepareCompleteAdministrationProjectImport(current: AppStorageSt
   }
   const next = cloneProject(current);
   const conflict = next.yearPlans.find(y => y.profileId === profile.id && y.schoolId === school.id &&
-    y.academicYear === sourceYear.academicYear && y.grade === sourceYear.grade &&
-    (y.classSection || '') === (sourceYear.classSection || '') && y.subject.toLowerCase().trim() === sourceYear.subject.toLowerCase().trim());
+    y.academicYear === sourceYear.academicYear && (options.mode === 'OTHER_CLASS' ? resolveGrade(undefined,y.grade)===resolveGrade(undefined,targetGrade) : y.grade === targetGrade) &&
+    (y.classSection || '').toUpperCase() === (targetSection || '').toUpperCase() && y.subject.toLowerCase().trim() === sourceYear.subject.toLowerCase().trim());
   if (conflict && (options.mode !== 'RESTORE' || options.replaceYearPlanId !== conflict.id || conflict.id !== sourceYear.id)) {
     throw new Error(`Konflik proyek: ${conflict.subject} / ${conflict.grade} / ${conflict.academicYear} (${conflict.id}).`);
   }
@@ -241,15 +252,17 @@ export function prepareCompleteAdministrationProjectImport(current: AppStorageSt
   };
   const imported = remap(graph) as typeof graph;
   const year = imported.yearPlans[0];
+  if (targetClass) { year.grade = targetClass.grade; year.phase = targetClass.phase.replace(/^Fase\s*/i,''); year.classSection = targetSection; }
   const warnings: string[] = [];
-  if (options.mode === 'IDENTITY_ONLY') {
+  if (modernMode) {
     const identityValues = (owner: typeof profile, campus: typeof school) => [owner.name, owner.nip, campus.name, campus.npsn, campus.address, campus.principalName, campus.principalNip].filter((value): value is string => Boolean(value?.trim())).map(value => value.trim());
     const destinationValues = new Set(identityValues(profile, school).map(value => value.toLocaleLowerCase('id')));
     year.identityOnlyImport = { importedAt: new Date().toISOString(), timingIsSourceReference: true, factualDataExcluded: true,
+      mode: options.mode as NonNullable<YearPlan['identityOnlyImport']>['mode'], sourceGrade: sourceYear.grade, sourcePhase: sourceYear.phase,
       sourceIdentityTokens: [...new Set([...(sourceYear.identityOnlyImport?.sourceIdentityTokens || []), ...identityValues(source.profiles[0], source.schools[0])])].filter(value => !destinationValues.has(value.toLocaleLowerCase('id'))) };
     for (const workspace of imported.workspaces) {
       workspace.documentDate = options.documentDate;
-      workspace.name = `${year.subject} — ${year.grade} — ${profile.name}`;
+      workspace.name = `${year.subject} — ${year.grade}${year.classSection ? ' '+year.classSection : ''} — ${profile.name}`;
     }
     for (const entry of imported.semesterData.academicCalendar) entry.value.calendar.actionableMessage = 'Data sumber impor; kalender dan waktu belum diverifikasi untuk sekolah tujuan.';
     // Generated documents are regenerated with target identity; historical source snapshots stay in the source archive.
@@ -345,13 +358,21 @@ export function prepareCompleteAdministrationProjectImport(current: AppStorageSt
     warnings.push(...check.issues);
   }
   if (atp) { const check = validateATPDataWorkflow(atp, tp, undefined, cp, analysis); atp.workflowStatus = check.status; warnings.push(...check.issues); }
-  if (options.mode === 'IDENTITY_ONLY') {
+  if (modernMode) {
     for (const key of ['cp', 'cpAnalysis', 'tp', 'atp'] as const) {
       const before = source.annualData[key][0]?.value;
       const after = imported.annualData[key][0]?.value;
       if (after?.workflowStatus === 'SIAP' && before?.workflowStatus !== 'SIAP') after.workflowStatus = before?.workflowStatus || 'DRAFT';
     }
   }
+  const compatibility = classImportCompatibility(year,cp,tp,atp);
+  if (!compatibility.cpCompatible && cp) {
+    cp.workflowStatus = 'PERLU_DILENGKAPI';
+    if (analysis) { analysis.needsReview = true; analysis.reviewReason = compatibility.reasons[0]; analysis.workflowStatus = 'PERLU_DILENGKAPI'; }
+  }
+  if (!compatibility.tpCompatible && tp) { tp.needsReview = true; tp.reviewReason = compatibility.reasons.join('; '); tp.workflowStatus = 'PERLU_DILENGKAPI'; }
+  if (!compatibility.atpCompatible && atp) { atp.needsReview = true; atp.reviewReason = compatibility.reasons.join('; '); atp.workflowStatus = 'PERLU_DILENGKAPI'; }
+  warnings.push(...compatibility.reasons);
   if (mapping) warnings.push(...validateATPUnitMappingCanonical(mapping, imported.annualData.atp[0]?.value, imported.annualData.tp[0]?.value).issues);
   if (mapping && execution) warnings.push(...validateUnitExecutionPlan(execution, mapping, imported.annualData.atp[0]?.value, imported.annualData.tp[0]?.value).errors);
   for (const semester of imported.semesterPlans) {
@@ -376,7 +397,7 @@ export function prepareCompleteAdministrationProjectImport(current: AppStorageSt
       if (!checked.isValid || checked.isStale) schedule.status = 'DRAFT';
     }
   }
-  if (options.mode === 'IDENTITY_ONLY') {
+  if (modernMode) {
     const base = buildImportedProjectExportContext(next, year.id);
     const upstreamMapping = resolveATPUnitMappingReadiness(mapping, atp, tp);
     for (const { context } of resolveAnnualZipContexts(base).semesters) {
@@ -384,7 +405,8 @@ export function prepareCompleteAdministrationProjectImport(current: AppStorageSt
         if (plan.status !== 'SIAP') continue;
         const checked = buildModulAjarProjection({ ...context, learningPlans: [plan], activeLearningPlanId: plan.id });
         const identityIssue = sourceIdentityExportIssue('MODUL_AJAR', { ...context, activeLearningPlanId: plan.id });
-        if (!checked.isReady || !upstreamMapping.canProceed || identityIssue) { plan.status = 'DRAFT'; plan.confirmedAt = undefined; warnings.push(`Modul Ajar ${plan.title || plan.id}: ${identityIssue || checked.error || upstreamMapping.blockers.join('; ')}`); }
+        const gradeIssue = options.mode==='OTHER_CLASS' && plan.cognitiveAdaptation && plan.cognitiveAdaptation.grade !== resolveGrade(undefined,year.grade) ? 'Kalibrasi kelas Modul Ajar berbeda dari kelas tujuan; tinjau perangkat ini.' : '';
+        if (!checked.isReady || !upstreamMapping.canProceed || identityIssue || gradeIssue) { plan.status = 'DRAFT'; plan.confirmedAt = undefined; warnings.push(`Modul Ajar ${plan.title || plan.id}: ${gradeIssue || identityIssue || checked.error || upstreamMapping.blockers.join('; ')}`); }
       }
       for (const plan of context.assessmentPlans || []) {
         const checked = validateAssessmentPlan(plan, { academicSetting: context.academicSetting, tp, assessmentCriteria: context.assessmentCriteria, learningPlans: context.learningPlans });
@@ -397,6 +419,12 @@ export function prepareCompleteAdministrationProjectImport(current: AppStorageSt
       }
     }
   }
+  if (options.mode === 'IDENTITY_SCHEDULE') {
+    // Keep proven-valid content/statuses. Target approval is pending only for time dependencies.
+    for (const entry of imported.semesterData.academicCalendar) { entry.value.calendar.workflowStatus = 'UNRESOLVED'; entry.value.calendar.reviewStatus = 'UNREVIEWED'; entry.value.calendar.confirmedAt = undefined; entry.value.calendar.reviewedAt = undefined; }
+    for (const entry of imported.semesterJPSettings) entry.value.source = 'UNRESOLVED';
+    warnings.push('Tinjau dan simpan kalender, JP, serta jadwal pertemuan tujuan di perencanaan waktu. CP/TP/ATP dan instrumen yang tidak berubah tetap dipertahankan.');
+  }
   const targetReadiness = resolveATPUnitMappingReadiness(mapping, atp, tp);
   const origin = !sourceReadiness.validationResult?.isComplete ? 'SOURCE_INCOMPLETE'
     : targetReadiness.canProceed ? 'READY' : 'UPSTREAM_REVIEW';
@@ -406,7 +434,8 @@ export function prepareCompleteAdministrationProjectImport(current: AppStorageSt
       : 'Cakupan Bab/Materi tetap sama; Step 07 memerlukan peninjauan status/freshness TP/ATP.');
     warnings.push(...targetReadiness.blockers);
   }
-  return { state: next, yearPlanId: year.id, mode: options.mode, warnings: Array.from(new Set(warnings)),
+  const nextStep = !compatibility.cpCompatible || cp?.workflowStatus !== 'SIAP' ? 'cp' : analysis?.workflowStatus !== 'SIAP' ? 'cp-analysis' : tp?.workflowStatus !== 'SIAP' ? 'tp' : atp?.workflowStatus !== 'SIAP' ? 'atp' : !targetReadiness.canProceed ? 'atp-mapping' : options.mode === 'IDENTITY_SCHEDULE' ? 'annual-planning' : 'admin';
+  return { state: next, yearPlanId: year.id, mode: options.mode, nextStep, compatibility, warnings: Array.from(new Set(warnings)),
     step7: { origin, source: sourceReadiness, target: targetReadiness } };
 }
 
@@ -415,6 +444,19 @@ export function importCompleteAdministrationProject(value: unknown, options: Com
   const prepared = prepareCompleteAdministrationProjectImport(loadStorageV5(), value, options);
   persist(prepared.state);
   return prepared;
+}
+
+/** One user action, one atomic import, then the existing document ZIP engine. Export failure never repeats import. */
+export async function importCompleteAdministrationProjectAndExport(value: unknown, options: CompleteProjectImportOptions,
+  exporter: typeof generateZipBundle = generateZipBundle) {
+  const imported = importCompleteAdministrationProject(value, options);
+  try {
+    const ready = importedProjectExportReadiness(imported.state, imported.yearPlanId);
+    const zipResult = await exporter({ types: ready.types, format: 'both', documentMode: 'data' }, ready.context);
+    return { imported, zipResult, exportError: '' };
+  } catch (error) {
+    return { imported, zipResult: undefined, exportError: error instanceof Error ? error.message : 'Impor tersimpan, tetapi ZIP dokumen belum berhasil dibuat.' };
+  }
 }
 
 export interface AdministrationProjectImportParams {

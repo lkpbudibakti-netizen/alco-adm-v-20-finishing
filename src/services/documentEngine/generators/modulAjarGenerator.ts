@@ -1,3 +1,4 @@
+import { formatClassLabel } from '../../academicScope';
 import { MODUL_AJAR_RENDERER_VERSION } from '../../../config/modulAjarRendererVersion';
 export { MODUL_AJAR_RENDERER_VERSION };
 import { recordModulAjarExportDiagnostic } from '../modulAjarExportDiagnostics';
@@ -515,7 +516,7 @@ export async function generateModulAjar(context: DocumentGenerationContext): Pro
 
   // Official Title - Clean, centered, bold, black, 14pt (no [DRAFT] or AI tags)
   const docTitle = 'MODUL AJAR';
-  const subTitle = `${academicSetting.curriculum || '-'} — ${academicSetting.grade || '-'} (${academicSetting.phase || '-'})`;
+  const subTitle = `${academicSetting.curriculum || '-'} — ${formatClassLabel(academicSetting)} (${academicSetting.phase || '-'})`;
 
   docChildren.push(
     new Paragraph({
@@ -558,8 +559,8 @@ export async function generateModulAjar(context: DocumentGenerationContext): Pro
       (academicSetting.curriculum.includes('2013') || academicSetting.curriculum.includes('K13')));
 
   const classRow: [string, string] = isK13Curriculum
-    ? ['Kelas', `: ${academicSetting.grade || '-'}`]
-    : ['Fase / Kelas', `: ${academicSetting.phase || '-'} / ${academicSetting.grade || '-'}`];
+    ? ['Kelas', `: ${formatClassLabel(academicSetting)}`]
+    : ['Fase / Kelas', `: ${academicSetting.phase || '-'} / ${formatClassLabel(academicSetting)}`];
 
   const identityRows: [string, string][] = [
     ['Satuan Pendidikan', `: ${school.name || '-'}`],

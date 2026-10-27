@@ -21,7 +21,8 @@ export interface CurriculumContextLock {
  * Must NOT contain semester authority or activeSemester fields.
  */
 export interface YearPlan {
-  identityOnlyImport?: { importedAt: string; timingIsSourceReference: true; factualDataExcluded: true; sourceIdentityTokens?: string[] };
+  identityOnlyImport?: { importedAt: string; timingIsSourceReference: true; factualDataExcluded: true; sourceIdentityTokens?: string[];
+    mode?: 'IDENTITY_ONLY' | 'IDENTITY_SCHEDULE' | 'OTHER_CLASS' | 'CONTINUE_EDITING'; sourceGrade?: string; sourcePhase?: string };
   id: string;
   profileId: string;
   schoolId: string;
@@ -1620,6 +1621,7 @@ export interface K13KKM {
 }
 
 export interface DocumentSnapshot {
+  classSection?: string;
   planningReferenceNotice?: string;
   /** Optional frozen journal content; historical snapshots may lack this field. */
   jurnalProjection?: import('../services/documentEngine/jurnalProjection').JurnalProjection;

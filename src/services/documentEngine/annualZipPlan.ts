@@ -25,7 +25,7 @@ export const semesterZipFolder = (semester: 1 | 2) => semester === 1 ? 'Semester
 export function administrationZipRoot(context: DocumentGenerationContext): string {
   const safe = (value: string) => value.replace(/[\\/:*?"<>|\u0000-\u001f]/g, '_');
   const grade = context.academicSetting.grade || 'Kelas';
-  const label = /^\d+$/.test(grade) ? `Kelas_${grade}` : grade;
+  const label = (/^\d+$/.test(grade) ? `Kelas_${grade}` : grade) + (context.academicSetting.classSection?.trim() ? ` (${context.academicSetting.classSection.trim()})` : '');
   return [label, context.academicSetting.subject || 'Mapel', context.profile.name || 'Guru'].map(safe).join('_');
 }
 

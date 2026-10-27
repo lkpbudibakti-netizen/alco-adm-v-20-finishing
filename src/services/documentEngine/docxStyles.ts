@@ -1,3 +1,4 @@
+import { formatClassLabel } from '../academicScope';
 import {
   Paragraph,
   Table,
@@ -244,8 +245,8 @@ export function createIdentityMetadataTable(
       (academicSetting.curriculum.includes('2013') || academicSetting.curriculum.includes('K13')));
 
   const classRow: [string, string] = isK13Curriculum
-    ? ['Kelas', `: ${academicSetting.grade || '-'}`]
-    : ['Fase / Kelas', `: ${academicSetting.phase || '-'} / ${academicSetting.grade || '-'}`];
+    ? ['Kelas', `: ${formatClassLabel(academicSetting)}`]
+    : ['Fase / Kelas', `: ${academicSetting.phase || '-'} / ${formatClassLabel(academicSetting)}`];
 
   const hideSemester = options?.scope === 'YEAR' || options?.hideSemester;
   const periodRow: [string, string] = hideSemester

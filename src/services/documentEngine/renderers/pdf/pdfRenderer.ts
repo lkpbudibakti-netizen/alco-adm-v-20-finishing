@@ -1,3 +1,4 @@
+import { formatClassLabel } from '../../../academicScope';
 import { jsPDF } from 'jspdf';
 import autoTable, { UserOptions } from 'jspdf-autotable';
 import { SchoolData, TeacherProfile, AcademicSetting } from '../../../../types';
@@ -178,8 +179,8 @@ export class PdfDocumentBuilder {
 
     const classLabel = isK13Curriculum ? 'Tingkat / Kelas' : 'Fase / Kelas';
     const classValue = isK13Curriculum
-      ? `: ${academicSetting.grade || '-'}`
-      : `: ${academicSetting.phase || '-'} / ${academicSetting.grade || '-'}`;
+      ? `: ${formatClassLabel(academicSetting)}`
+      : `: ${academicSetting.phase || '-'} / ${formatClassLabel(academicSetting)}`;
 
     const hideSemester = options?.scope === 'YEAR' || options?.hideSemester;
     const academicYearValue = hideSemester
