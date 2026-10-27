@@ -12,7 +12,7 @@ export interface MappingGenerationPreview {
 const signature = (item: { title: string; linkedTpIds: string[]; linkedAtpItemIds: string[] }) =>
   JSON.stringify([item.title.trim(), [...item.linkedTpIds].sort(), [...item.linkedAtpItemIds].sort()]);
 
-export function prepareMappingGenerationPreview(candidate: ATPUnitMappingData, current: ATPUnitMapping[], atp: ATPData, tp: TPData, targetUnitCount: number): MappingGenerationPreview {
+export function prepareMappingGenerationPreview(candidate: ATPUnitMappingData, current: ATPUnitMapping[], atp: ATPData, tp: TPData, targetUnitCount = candidate.units?.length): MappingGenerationPreview {
   assertGeneratedMapping(candidate, atp, tp, targetUnitCount);
   const copy = structuredClone(candidate);
   for (const unit of copy.units) {
@@ -37,7 +37,7 @@ function assertGeneratedMapping(candidate: ATPUnitMappingData, atp: ATPData, tp:
 }
 
 /** Revalidate at explicit approval time; no mutation or partial result on failure. */
-export function approveMappingGenerationPreview(preview: MappingGenerationPreview, current: ATPUnitMapping[], atp: ATPData, tp: TPData, targetUnitCount: number): ATPUnitMapping[] {
+export function approveMappingGenerationPreview(preview: MappingGenerationPreview, current: ATPUnitMapping[], atp: ATPData, tp: TPData, targetUnitCount = preview.targetUnitCount): ATPUnitMapping[] {
   if (preview.sourceFingerprint !== computeMappingFingerprint(current, atp, tp) || targetUnitCount !== preview.targetUnitCount) throw new Error('Draf, ATP/TP, atau target Bab berubah sejak preview. Susun ulang untuk meninjau hasil terbaru.');
   assertGeneratedMapping(preview.candidate, atp, tp, targetUnitCount);
   return structuredClone(preview.candidate.units);

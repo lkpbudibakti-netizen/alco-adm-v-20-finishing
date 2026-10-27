@@ -690,12 +690,11 @@ export const ATPUnitMappingManager: React.FC<ATPUnitMappingManagerProps> = ({
   const [analysisFingerprint, setAnalysisFingerprint] = useState<string | null>(null);
   const [applyIssues, setApplyIssues] = useState<string[]>([]);
   const [alignmentRollback, setAlignmentRollback] = useState<{ units: ATPUnitMapping[]; fingerprint: string } | null>(null);
-  const [generationTargetCount, setGenerationTargetCount] = useState(units.length);
   const [isGeneratingStructure, setIsGeneratingStructure] = useState(false);
   const [generationPreview, setGenerationPreview] = useState<MappingGenerationPreview | null>(null);
   const [generationPreviewContext, setGenerationPreviewContext] = useState('');
   const [generationError, setGenerationError] = useState<string | null>(null);
-  const generationContext = JSON.stringify({ units, atp, tp, academicSetting, cpAnalysis, generationTargetCount });
+  const generationContext = JSON.stringify({ units, atp, tp, academicSetting, cpAnalysis });
   const generationContextRef = useRef(generationContext);
   generationContextRef.current = generationContext;
 
@@ -710,10 +709,10 @@ export const ATPUnitMappingManager: React.FC<ATPUnitMappingManagerProps> = ({
         atpData: atp, tpData: tp, cpAnalysisData: cpAnalysis,
         // Omit existingMapping: its legacy branch aligns existing titles instead of composing anew.
         // Existing identity is reconciled conservatively in the approval preview.
-        targetUnitCount: generationTargetCount,
+        // No targetUnitCount: the existing engine recommends natural semantic clusters.
       });
       if (source !== generationContextRef.current) throw new Error('Draf atau sumber berubah selama penyusunan. Jalankan ulang.');
-      setGenerationPreview(prepareMappingGenerationPreview(candidate, snapshot, atp, tp, generationTargetCount));
+      setGenerationPreview(prepareMappingGenerationPreview(candidate, snapshot, atp, tp));
       setGenerationPreviewContext(source);
     } catch (error) { setGenerationError(error instanceof Error ? error.message : 'Penyusunan Bab gagal.'); }
     finally { setIsGeneratingStructure(false); }
@@ -723,11 +722,11 @@ export const ATPUnitMappingManager: React.FC<ATPUnitMappingManagerProps> = ({
     if (!generationPreview) return;
     try {
       if (generationPreviewContext !== generationContextRef.current) throw new Error('Draf atau konteks berubah sejak preview. Susun ulang untuk meninjau hasil terbaru.');
-      const next = approveMappingGenerationPreview(generationPreview, units, atp, tp, generationTargetCount);
+      const next = approveMappingGenerationPreview(generationPreview, units, atp, tp);
       setUnits(next); setHasChanges(true); setGenerationPreview(null); setGenerationError(null);
       setAnalysisResult(null); setAnalysisFingerprint(null); setSelectedAnalysisActionIds(new Set());
       setAlignmentRollback(null); setApplyIssues([]); setSaveSuccessNotice(false); setSaveErrorNotice(null);
-      setAppliedNotice('Struktur AI disetujui dan diterapkan ke draf. Klik Simpan Pemetaan untuk menyimpan.');
+      setAppliedNotice('Struktur AI disetujui dan diterapkan ke draf. Anda dapat mengedit Bab dan materi sebelum klik Simpan Pemetaan.');
     } catch (error) { setGenerationError(error instanceof Error ? error.message : 'Preview tidak dapat diterapkan.'); }
   };
 
@@ -1334,14 +1333,29 @@ export const ATPUnitMappingManager: React.FC<ATPUnitMappingManagerProps> = ({
         )}
       </div>
 
-      {/* Top Controls: Target Count & AI Analysis */}
+      {/* Main AI toolbar precedes manual/import controls at every viewport width. */}
       <div className="bg-white rounded-2xl border border-indigo-100 shadow-xs p-5 space-y-4">
+        <div role="toolbar" aria-label="Bantuan AI Pemetaan Bab" id="mapping-ai-toolbar" className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <button id="btn-generate-mapping" type="button" onClick={handleGenerateStructure}
+            disabled={isGeneratingStructure || isAnalyzing || !atp.items.length || !tp.items.length}
+            className="flex items-center justify-center gap-2 w-full min-h-12 px-4 py-3 rounded-xl bg-indigo-700 hover:bg-indigo-800 text-white text-sm font-bold shadow-xs disabled:opacity-50 disabled:cursor-not-allowed">
+            <Sparkles className={`w-5 h-5 shrink-0 ${isGeneratingStructure ? 'animate-spin' : ''}`} />
+            <span>{isGeneratingStructure ? 'Menyusun...' : 'Susun dengan AI'}</span>
+          </button>
+          <button id="btn-analyze-mapping" type="button" onClick={handleAnalyzeMapping}
+            disabled={isAnalyzing || isGeneratingStructure || units.length === 0}
+            className="flex items-center justify-center gap-2 w-full min-h-12 px-4 py-3 rounded-xl border border-indigo-700 bg-white hover:bg-indigo-50 text-indigo-900 text-sm font-bold shadow-xs disabled:opacity-50 disabled:cursor-not-allowed">
+            <Sparkles className={`w-5 h-5 shrink-0 ${isAnalyzing ? 'animate-spin' : ''}`} />
+            <span>{isAnalyzing ? 'Menganalisis...' : 'Analisis & Selaraskan'}</span>
+          </button>
+        </div>
+        <p className="text-xs text-slate-600">Susun dengan AI mengusulkan struktur baru dan jumlah Bab otomatis berdasarkan TP/ATP. Analisis &amp; Selaraskan menelaah struktur draf yang sudah ada.</p>
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
           {/* Target Count Input & Add Bab */}
           <div className="flex items-center gap-3 flex-wrap">
             <div className="flex items-center gap-2 bg-slate-50 px-3.5 py-2 rounded-xl border border-slate-200">
               <label htmlFor="target-unit-count" className="text-xs font-bold text-slate-800 whitespace-nowrap">
-                Jumlah Bab:
+                Jumlah Bab draf:
               </label>
               <div className="flex items-center gap-1">
                 <button
@@ -1578,30 +1592,6 @@ export const ATPUnitMappingManager: React.FC<ATPUnitMappingManagerProps> = ({
               </div>
             )}
 
-            <label className="text-xs font-semibold">Target Bab AI:
-              <input id="ai-target-unit-count" type="number" min={1} max={20} value={generationTargetCount}
-                onChange={event => { setGenerationTargetCount(Number(event.target.value)); setGenerationPreview(null); }}
-                className="ml-2 w-16 rounded border p-2" />
-            </label>
-            <button id="btn-generate-mapping" type="button" onClick={handleGenerateStructure}
-              disabled={isGeneratingStructure || isAnalyzing || !Number.isInteger(generationTargetCount) || generationTargetCount < 1 || generationTargetCount > 20}
-              className="px-4 py-2 rounded-xl bg-indigo-700 text-white text-xs font-bold disabled:opacity-50">
-              {isGeneratingStructure ? 'Menyusun...' : 'Susun Ulang dengan AI'}
-            </button>
-            <button
-              id="btn-analyze-mapping"
-              type="button"
-              onClick={handleAnalyzeMapping}
-              disabled={isAnalyzing || isGeneratingStructure || units.length === 0}
-              className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold shadow-xs transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${
-                hasSubstantiveManualMappingContent
-                  ? 'bg-gradient-to-r from-indigo-700 to-blue-700 hover:from-indigo-800 hover:to-blue-800 text-white'
-                  : 'bg-white border border-indigo-200 text-indigo-900 hover:bg-indigo-50'
-              }`}
-            >
-              <Sparkles className={`w-4 h-4 ${isAnalyzing ? 'animate-spin' : ''}`} />
-              <span>{isAnalyzing ? 'Menganalisis...' : 'Analisis & Selaraskan'}</span>
-            </button>
           </div>
         </div>
 
@@ -1615,7 +1605,7 @@ export const ATPUnitMappingManager: React.FC<ATPUnitMappingManagerProps> = ({
               </>
             ) : (
               <>
-                <strong>Penyusunan Pemetaan Awal:</strong> Draf Pemetaan belum memiliki isi substantif. Anda dapat menyusun Bab & Lingkup Materi secara manual atau menggunakan <strong>Susun Ulang dengan AI</strong> untuk meninjau usulan pengelompokan TP & alur ATP sebelum menyetujuinya.
+                <strong>Penyusunan Pemetaan Awal:</strong> Draf Pemetaan belum memiliki isi substantif. Anda dapat menyusun Bab & Lingkup Materi secara manual atau menggunakan <strong>Susun dengan AI</strong> untuk meninjau usulan pengelompokan TP & alur ATP sebelum menyetujuinya.
               </>
             )}
           </p>
@@ -1631,13 +1621,13 @@ export const ATPUnitMappingManager: React.FC<ATPUnitMappingManagerProps> = ({
             <strong>{unit.order}. {unit.title}</strong>: {(unit.materials || []).map(material => material.title).join('; ') || '(belum ada materi)'}
           </div>)}
         </details>
-        <p className="text-xs">Hasil: {generationPreview.candidate.units.length} Bab. Cakupan tervalidasi: seluruh {atp.items.length} ATP dan {tp.items.length} TP, termasuk dukungan materi.</p>
+        <p className="text-xs">Rekomendasi AI: {generationPreview.candidate.units.length} Bab. Cakupan tervalidasi: seluruh {atp.items.length} ATP dan {tp.items.length} TP, termasuk dukungan materi.</p>
         {generationPreview.candidate.units.map(unit => <div key={unit.id} className="border-t pt-2 text-xs">
           <strong>Bab {unit.order}: {unit.title}</strong>
           <div>ATP: {unit.linkedAtpItemIds.join(', ')} · TP: {unit.linkedTpIds.map(id => tp.items.find(item => item.id === id)?.code || id).join(', ')}</div>
           <ul>{unit.materials.map(material => <li key={material.id}>{material.title} — TP: {material.linkedTpIds.map(id => tp.items.find(item => item.id === id)?.code || id).join(', ')}; ATP: {material.linkedAtpItemIds.join(', ')}</li>)}</ul>
         </div>)}
-        <p className="text-xs">Persetujuan akan mengganti seluruh struktur Bab dan materi draf, termasuk isi manual/impor. Draf tersimpan belum berubah sampai disimpan.</p>
+        <p className="text-xs">Persetujuan akan mengganti seluruh struktur Bab dan materi draf, termasuk isi manual/impor. Setelah diterapkan, Anda dapat mengedit judul, materi, dan pemetaan sebelum Simpan Pemetaan. Draf tersimpan belum berubah sampai disimpan.</p>
         <button type="button" id="btn-approve-generated-mapping" onClick={handleApproveStructure} className="px-3 py-2 rounded bg-indigo-700 text-white text-xs">Setujui dan Ganti Struktur Draf</button>
         <button type="button" onClick={() => setGenerationPreview(null)} className="ml-3 text-xs">Batalkan</button>
       </section>}
