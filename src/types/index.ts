@@ -21,6 +21,7 @@ export interface CurriculumContextLock {
  * Must NOT contain semester authority or activeSemester fields.
  */
 export interface YearPlan {
+  identityOnlyImport?: { importedAt: string; timingIsSourceReference: true; factualDataExcluded: true; sourceIdentityTokens?: string[] };
   id: string;
   profileId: string;
   schoolId: string;
@@ -217,6 +218,7 @@ export interface AdministrationWorkspace {
  * @deprecated legacy runtime contract — migration target YearPlan/SemesterPlan
  */
 export interface AcademicSetting {
+  planningReferenceNotice?: string;
   id: string;
   profileId: string;
   curriculum: string; // e.g. "Kurikulum Merdeka" or "Kurikulum 2013"
@@ -1618,6 +1620,7 @@ export interface K13KKM {
 }
 
 export interface DocumentSnapshot {
+  planningReferenceNotice?: string;
   /** Optional frozen journal content; historical snapshots may lack this field. */
   jurnalProjection?: import('../services/documentEngine/jurnalProjection').JurnalProjection;
   schoolName: string;

@@ -571,6 +571,7 @@ export async function generateModulAjar(context: DocumentGenerationContext): Pro
     ['NIP', `: ${profile.nip || '-'}`],
     ['Alokasi Waktu', `: ${timeAllocationDisplay}`],
     ['Topik / Materi', `: ${plan.topic || plan.title || '-'}`],
+    ...(academicSetting.planningReferenceNotice ? [['Acuan Waktu', `: ${academicSetting.planningReferenceNotice}`] as [string, string]] : []),
   ];
 
   docChildren.push(createModulAjarIdentityTable(identityRows));

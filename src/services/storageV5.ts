@@ -121,6 +121,7 @@ export function createInitialStorageV5(): AppStorageStateV5 {
       curriculumContext: [],
     },
     semesterData: {
+      journalRealizations: [],
       academicCalendar: [],
       timeAllocation: [],
       subjectWeeklySchedules: [],

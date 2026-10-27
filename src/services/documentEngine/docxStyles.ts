@@ -262,6 +262,7 @@ export function createIdentityMetadataTable(
     periodRow,
     ['Guru Mata Pelajaran', `: ${profile.name || '-'}`],
     ['NIP Guru', `: ${profile.nip || '-'}`],
+    ...(academicSetting.planningReferenceNotice ? [['Acuan Waktu', `: ${academicSetting.planningReferenceNotice}`] as [string, string]] : []),
     ...extraRows,
   ];
 

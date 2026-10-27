@@ -50,6 +50,12 @@ import { validateSubjectWeeklySchedule } from './subjectScheduleService';
 import { validateCPDataWorkflow, validateCPAnalysisDataWorkflow, validateTPDataWorkflow, validateATPDataWorkflow } from './cpWorkflowService';
 import { resolveATPUnitMappingReadiness } from './atpMappingReadinessService';
 import { computeAtpSubstantiveFingerprint, computeTpSubstantiveFingerprint, matchesSubstantiveFingerprint } from './atpMappingActionApplyService';
+import { isValidDocumentDate } from './documentDateService';
+import { buildImportedProjectExportContext } from './identityOnlyProjectExport';
+import { resolveAnnualZipContexts } from './documentEngine/annualZipPlan';
+import { buildModulAjarProjection } from './documentEngine/modulAjarProjection';
+import { validateAssessmentPlan } from './assessmentPlanService';
+import { sourceIdentityExportIssue } from './documentEngine/sourceIdentityGuard';
 
 const cloneProject = <T,>(value: T): T => JSON.parse(JSON.stringify(value));
 const externalProjectFields = new Set(['source', 'evidence', 'snapshot', 'regulationSources', 'curriculumLock']);
@@ -171,7 +177,8 @@ export function validateCompleteProjectArchive(value: unknown): CompleteProjectA
 export function prepareCompleteAdministrationProjectImport(current: AppStorageStateV5, value: unknown,
   options: CompleteProjectImportOptions) {
   const archive = validateCompleteProjectArchive(value);
-  if (options.mode !== 'RESTORE' && options.mode !== 'COPY') throw new Error('Mode import tidak dikenal.');
+  if (!['RESTORE', 'COPY', 'IDENTITY_ONLY'].includes(options.mode)) throw new Error('Mode import tidak dikenal.');
+  if (options.mode === 'IDENTITY_ONLY' && !isValidDocumentDate(options.documentDate)) throw new Error('Tetapkan tanggal dokumen tujuan sebelum mengganti identitas.');
   const source = archive.project;
   const sourceYear = source.yearPlans[0];
   const profile = current.profiles.find(p => p.id === options.targetProfileId);
@@ -235,6 +242,35 @@ export function prepareCompleteAdministrationProjectImport(current: AppStorageSt
   const imported = remap(graph) as typeof graph;
   const year = imported.yearPlans[0];
   const warnings: string[] = [];
+  if (options.mode === 'IDENTITY_ONLY') {
+    const identityValues = (owner: typeof profile, campus: typeof school) => [owner.name, owner.nip, campus.name, campus.npsn, campus.address, campus.principalName, campus.principalNip].filter((value): value is string => Boolean(value?.trim())).map(value => value.trim());
+    const destinationValues = new Set(identityValues(profile, school).map(value => value.toLocaleLowerCase('id')));
+    year.identityOnlyImport = { importedAt: new Date().toISOString(), timingIsSourceReference: true, factualDataExcluded: true,
+      sourceIdentityTokens: [...new Set([...(sourceYear.identityOnlyImport?.sourceIdentityTokens || []), ...identityValues(source.profiles[0], source.schools[0])])].filter(value => !destinationValues.has(value.toLocaleLowerCase('id'))) };
+    for (const workspace of imported.workspaces) {
+      workspace.documentDate = options.documentDate;
+      workspace.name = `${year.subject} — ${year.grade} — ${profile.name}`;
+    }
+    for (const entry of imported.semesterData.academicCalendar) entry.value.calendar.actionableMessage = 'Data sumber impor; kalender dan waktu belum diverifikasi untuk sekolah tujuan.';
+    // Generated documents are regenerated with target identity; historical source snapshots stay in the source archive.
+    imported.documents = [];
+    visitProject([imported.annualData, imported.semesterData], node => { delete node.snapshot; });
+    for (const key of ['roster', 'attendance', 'grade', 'remedial', 'enrichment', 'journalRealizations']) (imported.semesterData as any)[key] = [];
+    warnings.push('Kalender, JP, jadwal, dan alokasi dipertahankan sebagai data sumber; belum diverifikasi untuk sekolah tujuan.',
+      'Siswa, presensi, nilai, remedial/pengayaan, dan catatan pelaksanaan tidak disalin ke proyek tujuan. Arsip asal tetap utuh.');
+    // Slot IDs contain IDs as well as dates. Rebase only exact canonical representations;
+    // the unchanged full schedule validator below still detects source staleness/invalid dates/JP.
+    for (const old of source.semesterData.learningMeetingSchedules || []) {
+      const entry = imported.semesterData.learningMeetingSchedules?.find(item => item.semesterPlanId === idMap.get(old.semesterPlanId));
+      if (!entry) continue;
+      old.value.entries.forEach((slot, index) => {
+        const nextSlot = entry.value.entries[index];
+        if (!nextSlot) return;
+        if (slot.sourceSlotId === `subject-slot:${old.semesterPlanId}:${slot.sessionId}:${slot.date}`) nextSlot.sourceSlotId = `subject-slot:${entry.semesterPlanId}:${nextSlot.sessionId}:${slot.date}`;
+        if (slot.sourceSlotId === `manual-slot:${old.semesterPlanId}:${slot.meetingId}:${slot.date}:${slot.sessionId}`) nextSlot.sourceSlotId = `manual-slot:${entry.semesterPlanId}:${nextSlot.meetingId}:${slot.date}:${nextSlot.sessionId}`;
+      });
+    }
+  }
   if (options.mode === 'COPY') {
     // Source calendars remain inspectable; dated schedules and confirmations need target-school review.
     warnings.push('Kalender, JP, pola jadwal, dan alokasi waktu disalin sebagai rujukan; konfirmasi ulang pada sekolah tujuan.');
@@ -309,6 +345,13 @@ export function prepareCompleteAdministrationProjectImport(current: AppStorageSt
     warnings.push(...check.issues);
   }
   if (atp) { const check = validateATPDataWorkflow(atp, tp, undefined, cp, analysis); atp.workflowStatus = check.status; warnings.push(...check.issues); }
+  if (options.mode === 'IDENTITY_ONLY') {
+    for (const key of ['cp', 'cpAnalysis', 'tp', 'atp'] as const) {
+      const before = source.annualData[key][0]?.value;
+      const after = imported.annualData[key][0]?.value;
+      if (after?.workflowStatus === 'SIAP' && before?.workflowStatus !== 'SIAP') after.workflowStatus = before?.workflowStatus || 'DRAFT';
+    }
+  }
   if (mapping) warnings.push(...validateATPUnitMappingCanonical(mapping, imported.annualData.atp[0]?.value, imported.annualData.tp[0]?.value).issues);
   if (mapping && execution) warnings.push(...validateUnitExecutionPlan(execution, mapping, imported.annualData.atp[0]?.value, imported.annualData.tp[0]?.value).errors);
   for (const semester of imported.semesterPlans) {
@@ -333,6 +376,27 @@ export function prepareCompleteAdministrationProjectImport(current: AppStorageSt
       if (!checked.isValid || checked.isStale) schedule.status = 'DRAFT';
     }
   }
+  if (options.mode === 'IDENTITY_ONLY') {
+    const base = buildImportedProjectExportContext(next, year.id);
+    const upstreamMapping = resolveATPUnitMappingReadiness(mapping, atp, tp);
+    for (const { context } of resolveAnnualZipContexts(base).semesters) {
+      for (const plan of context.learningPlans || []) {
+        if (plan.status !== 'SIAP') continue;
+        const checked = buildModulAjarProjection({ ...context, learningPlans: [plan], activeLearningPlanId: plan.id });
+        const identityIssue = sourceIdentityExportIssue('MODUL_AJAR', { ...context, activeLearningPlanId: plan.id });
+        if (!checked.isReady || !upstreamMapping.canProceed || identityIssue) { plan.status = 'DRAFT'; plan.confirmedAt = undefined; warnings.push(`Modul Ajar ${plan.title || plan.id}: ${identityIssue || checked.error || upstreamMapping.blockers.join('; ')}`); }
+      }
+      for (const plan of context.assessmentPlans || []) {
+        const checked = validateAssessmentPlan(plan, { academicSetting: context.academicSetting, tp, assessmentCriteria: context.assessmentCriteria, learningPlans: context.learningPlans });
+        if (!checked.valid && plan.workflowStatus === 'SIAP') { plan.workflowStatus = 'DRAFT'; plan.needsReview = true; warnings.push(...checked.errors); }
+      }
+      for (const pkg of context.assessmentPackages || []) {
+        const checked = validateAssessmentPackage(pkg, { academicSetting: context.academicSetting, tp, assessmentCriteria: context.assessmentCriteria, assessmentPlan: context.assessmentPlans?.find(plan => plan.id === pkg.assessmentPlanId) });
+        const identityIssue = sourceIdentityExportIssue('ASESMEN', { ...context, activeAssessmentPackageId: pkg.id });
+        if ((!checked.valid || identityIssue) && pkg.workflowStatus === 'SIAP') { pkg.workflowStatus = 'DRAFT'; pkg.needsReview = true; warnings.push(...checked.errors, ...(identityIssue ? [identityIssue] : [])); }
+      }
+    }
+  }
   const targetReadiness = resolveATPUnitMappingReadiness(mapping, atp, tp);
   const origin = !sourceReadiness.validationResult?.isComplete ? 'SOURCE_INCOMPLETE'
     : targetReadiness.canProceed ? 'READY' : 'UPSTREAM_REVIEW';
@@ -342,7 +406,7 @@ export function prepareCompleteAdministrationProjectImport(current: AppStorageSt
       : 'Cakupan Bab/Materi tetap sama; Step 07 memerlukan peninjauan status/freshness TP/ATP.');
     warnings.push(...targetReadiness.blockers);
   }
-  return { state: next, yearPlanId: year.id, warnings: Array.from(new Set(warnings)),
+  return { state: next, yearPlanId: year.id, mode: options.mode, warnings: Array.from(new Set(warnings)),
     step7: { origin, source: sourceReadiness, target: targetReadiness } };
 }
 

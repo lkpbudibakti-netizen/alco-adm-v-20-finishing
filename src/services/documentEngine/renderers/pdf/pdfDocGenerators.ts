@@ -1,5 +1,6 @@
 import { buildJurnalProjection, JURNAL_COLUMNS, JURNAL_WIDTHS, jurnalTableRows } from '../../jurnalProjection';
 import { buildPromesPresentation } from '../../promesPresentation';
+import { sourceIdentityExportIssue } from '../../sourceIdentityGuard';
 import { calendarDayLabel } from '../../calendarPresentation';
 import { ATP_DOCUMENT_COLUMNS, buildATPDocumentProjection, getATPDocumentRowCells } from '../../atpDocumentProjection';
 import { recordModulAjarExportDiagnostic } from '../../modulAjarExportDiagnostics';
@@ -118,6 +119,8 @@ export async function generatePdfDocument(
   rawContext: DocumentGenerationContext
 ): Promise<{ blob: Blob; fileName: string; title: string; snapshot: DocumentSnapshot }> {
   const context = resolveEffectiveContext(rawContext);
+  const identityIssue = sourceIdentityExportIssue(type, context);
+  if (identityIssue) throw new Error(identityIssue);
 
   if (type === 'ASESMEN') {
     const result = await exportAssessmentPdf(context, {

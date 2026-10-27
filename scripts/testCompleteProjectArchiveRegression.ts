@@ -156,7 +156,9 @@ assert.equal(resolveATPUnitMappingReadiness(roundtrip.project.annualData.atpUnit
   roundtrip.project.annualData.atp[0].value, roundtrip.project.annualData.tp[0].value).canProceed, true);
 const incompleteSource = structuredClone(archive);
 incompleteSource.project.annualData.atpUnitMappings![0].value.units[0].materials[0].linkedTpIds = ['t'];
+incompleteSource.project.annualData.atpUnitMappings![0].value.units[0].materials[0].linkedAtpItemIds = ['a'];
 incompleteSource.project.annualData.unitExecutionPlans![0].value.units[0].meetings[0].linkedTpIds = ['t'];
+incompleteSource.project.annualData.unitExecutionPlans![0].value.units[0].meetings[0].linkedAtpItemIds = ['a'];
 const incompleteImport = prepareCompleteAdministrationProjectImport(state, incompleteSource, { mode: 'COPY', targetProfileId: 'p2', targetSchoolId: 's2' });
 assert.equal(incompleteImport.step7.origin, 'SOURCE_INCOMPLETE');
 assert.equal(incompleteImport.step7.source.validationResult!.isValid, true);

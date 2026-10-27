@@ -749,6 +749,7 @@ export function buildPdfFromOptions(options: PdfDocumentOptions): PdfDocumentBui
   );
 
   // 3. Render Sections
+  if (options.academicSetting.planningReferenceNotice) builder.renderParagraph(options.academicSetting.planningReferenceNotice);
   for (const section of options.sections) {
     if (section.type === 'heading') {
       builder.renderHeading(section.text, section.level);

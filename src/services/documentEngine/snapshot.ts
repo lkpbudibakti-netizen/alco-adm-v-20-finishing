@@ -60,6 +60,7 @@ export function createDocumentSnapshot(
     curriculum: (academicSetting?.curriculum || '').trim(),
     curriculumType: getCurriculumType(academicSetting?.curriculum || academicSetting?.curriculumType),
     documentMode: docMode,
+    planningReferenceNotice: context.academicSetting?.planningReferenceNotice,
     studentCount: students?.length || 0,
     generatedAt: new Date().toISOString(),
     format,
@@ -81,6 +82,17 @@ export function createDocumentSnapshot(
  * will NEVER inadvertently alter the historical document content.
  */
 export function resolveEffectiveContext(
+  context: DocumentGenerationContext,
+  snapshotOverride?: DocumentSnapshot
+): DocumentGenerationContext {
+  const effective = resolveSnapshotContext(context, snapshotOverride);
+  const frozenNotice = (snapshotOverride || context.snapshot)?.planningReferenceNotice;
+  const notice = frozenNotice || (context.zipAnnualSource?.yearPlan.identityOnlyImport?.timingIsSourceReference
+    ? 'Kalender, JP, dan jadwal adalah data sumber; belum diverifikasi untuk sekolah tujuan.' : effective.academicSetting?.planningReferenceNotice);
+  return notice ? { ...effective, academicSetting: { ...effective.academicSetting, planningReferenceNotice: notice } } : effective;
+}
+
+function resolveSnapshotContext(
   context: DocumentGenerationContext,
   snapshotOverride?: DocumentSnapshot
 ): DocumentGenerationContext {

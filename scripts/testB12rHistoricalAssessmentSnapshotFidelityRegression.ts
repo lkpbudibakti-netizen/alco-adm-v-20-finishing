@@ -422,6 +422,7 @@ async function runRegression() {
     // Add ATP data for non-assessment document generation
     const atpContext: DocumentGenerationContext = {
       ...context,
+      cp: { id: 'cp-1', academicSettingId: 'setting-1', generalDescription: 'Keterampilan gerak manipulatif', elements: [{ id: 'element-1', name: 'Terampil Bergerak', content: 'Mempraktikkan keterampilan gerak manipulatif.' }], updatedAt: '2026-09-24T00:00:00.000Z' },
       atp: {
         id: 'atp-1',
         academicSettingId: 'setting-1',
@@ -431,6 +432,8 @@ async function runRegression() {
           {
             id: 'atp-item-1',
             tpId: 'tp-1',
+            linkedTpIds: ['tp-1'],
+            focus: 'Mempraktikkan gerak dasar manipulatif bola basket',
             stepNumber: 1,
             allocatedJP: 4,
             semester: 1,

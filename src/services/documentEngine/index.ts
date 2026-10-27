@@ -16,6 +16,7 @@ import { generateModulAjar } from './generators/modulAjarGenerator';
 import { generateAssessment } from './generators/assessmentGenerator';
 import { generateJurnal } from './generators/jurnalGenerator';
 import { buildJurnalProjection } from './jurnalProjection';
+import { sourceIdentityExportIssue } from './sourceIdentityGuard';
 import { generateKalenderAkademik } from './generators/kalenderGenerator';
 import { generateAlokasiWaktu } from './generators/alokasiWaktuGenerator';
 import { generateDaftarHadir } from './generators/daftarHadirGenerator';
@@ -286,6 +287,8 @@ export function validateDocumentRequirements(
   }
 
   // Document Date check for official mode (blank mode bypasses)
+  const identityIssue = sourceIdentityExportIssue(type, context);
+  if (identityIssue) return { isValid: false, missingFields: [identityIssue], message: identityIssue, targetStep: 'academic' };
   if (context.documentMode !== 'blank') {
     const rawDate =
       context.snapshot

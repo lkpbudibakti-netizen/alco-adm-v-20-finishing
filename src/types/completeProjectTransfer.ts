@@ -9,7 +9,8 @@ export interface CompleteProjectArchive {
 }
 
 export interface CompleteProjectImportOptions {
-  mode: 'RESTORE' | 'COPY';
+  mode: 'RESTORE' | 'COPY' | 'IDENTITY_ONLY';
+  documentDate?: string;
   targetProfileId: string;
   targetSchoolId: string;
   replaceYearPlanId?: string;

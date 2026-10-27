@@ -2043,6 +2043,7 @@ export function App() {
       {/* Backup / Restore JSON Modal */}
       {isCompleteProjectImportOpen && <CompleteProjectImportModal state={v5State}
         onClose={() => setIsCompleteProjectImportOpen(false)} onSuccess={(result) => {
+          if (result.mode === 'IDENTITY_ONLY') { refreshV5(); setAppNotice({ type: 'info', message: 'Impor identitas tujuan selesai. Tinjau Ringkasan Kesiapan Ekspor sebelum mengunduh ZIP.' }); return; }
           refreshV5(); setIsCompleteProjectImportOpen(false); setCurrentStep('academic');
           setAppNotice({ type: result.step7.target.canProceed ? 'info' : 'warning',
             message: result.step7.target.canProceed
