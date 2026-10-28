@@ -1,5 +1,6 @@
 import { JournalPreview, JournalRealizationEditor } from './JournalRealizationEditor';
 import { buildJurnalProjection } from '../services/documentEngine/jurnalProjection';
+import { buildATPDocumentProjection, ATP_DOCUMENT_COLUMNS, getATPDocumentRowCells } from '../services/documentEngine/atpDocumentProjection';
 import { formatClassLabel } from '../services/academicScope';
 import { APP_BUILD_SHA } from '../config/buildInfo';
 import { MODUL_AJAR_RENDERER_VERSION } from '../config/modulAjarRendererVersion';
@@ -422,10 +423,19 @@ export const AdminDocsExport: React.FC<AdminDocsExportProps> = ({
       );
 
       const formatLabel = format === 'both' ? 'PDF & Word' : format.toUpperCase();
-      setExportSuccessMessage(
-        `Sukses! ${result.exportedCount} dokumen (${result.pdfCount} PDF, ${result.docxCount} Word) telah dikompresi ke dalam arsip ZIP "${result.zipFileName}" (6 Folder Administrasi).`
-      );
-      setTimeout(() => setExportSuccessMessage(null), 8000);
+      if (!result.isComplete || (result.failedCount ?? 0) > 0 || (result.partialCount ?? 0) > 0 || (result.skippedCount ?? 0) > 0) {
+        setExportErrorMessage(
+          `Perhatian: Paket ZIP berhasil diunduh (${result.exportedCount} dokumen), namun berstatus TIDAK LENGKAP: ${result.failedCount ?? 0} gagal, ${result.skippedCount ?? 0} dilewati/belum siap.`
+        );
+      } else {
+        setExportSuccessMessage(
+          `Sukses! ${result.exportedCount} dokumen (${result.pdfCount} PDF, ${result.docxCount} Word) telah lengkap dikompresi ke dalam arsip ZIP "${result.zipFileName}" (6 Folder Administrasi).`
+        );
+      }
+      setTimeout(() => {
+        setExportSuccessMessage(null);
+        setExportErrorMessage(null);
+      }, 8000);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Terjadi kendala saat membuat paket ZIP';
       setExportErrorMessage(msg);
@@ -1353,47 +1363,97 @@ export const AdminDocsExport: React.FC<AdminDocsExportProps> = ({
             )}
 
             {/* 1. ATP PREVIEW */}
-            {activePreviewType === 'ATP' && (
-              <div className="space-y-4">
-                {atp?.rationale && (
-                  <div className="space-y-1">
-                    <h5 className="font-bold text-slate-900 uppercase">A. Rasionalisasi Alur Pembelajaran</h5>
-                    <p className="text-slate-700 leading-relaxed text-justify bg-slate-50 p-2.5 rounded-xl border border-slate-100">
-                      {atp.rationale}
-                    </p>
+            {activePreviewType === 'ATP' && (() => {
+              const atpProj = buildATPDocumentProjection(context);
+              if (!atpProj.isReady && documentMode !== 'blank') {
+                return (
+                  <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl text-amber-800 text-xs font-medium space-y-2">
+                    <div className="font-bold flex items-center gap-1.5 text-amber-900">
+                      <AlertCircle className="w-4 h-4 text-amber-600" />
+                      Prasyarat Alur Tujuan Pembelajaran (ATP) Belum Terpenuhi
+                    </div>
+                    <div>{atpProj.unreadyReason || 'ATP belum siap diekspor.'}</div>
                   </div>
-                )}
-                <div className="space-y-2">
-                  <h5 className="font-bold text-slate-900 uppercase">B. Matriks Alur Tujuan Pembelajaran</h5>
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-left text-[11px] border border-slate-300 border-collapse">
-                      <thead>
-                        <tr className="bg-blue-900 text-white font-semibold">
-                          <th className="p-1.5 border border-blue-800 text-center w-7">No</th>
-                          <th className="p-1.5 border border-blue-800 w-14">Kode</th>
-                          <th className="p-1.5 border border-blue-800 min-w-[160px]">Tujuan Pembelajaran</th>
-                          <th className="p-1.5 border border-blue-800 min-w-[100px]">Materi Pokok</th>
-                          <th className="p-1.5 border border-blue-800 min-w-[90px]">Profil Pancasila</th>
-                          <th className="p-1.5 border border-blue-800 text-center w-10">JP</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {(atp?.items || []).map((item, idx) => (
-                          <tr key={item.id} className={idx % 2 === 0 ? 'bg-white' : 'bg-slate-50'}>
-                            <td className="p-1.5 border border-slate-300 text-center font-bold">{idx + 1}</td>
-                            <td className="p-1.5 border border-slate-300 font-mono font-bold text-blue-900">{item.tpCode}</td>
-                            <td className="p-1.5 border border-slate-300">{item.tpStatement}</td>
-                            <td className="p-1.5 border border-slate-300">{item.materialScope}</td>
-                            <td className="p-1.5 border border-slate-300">{item.p3Dimensions?.join(', ') || '-'}</td>
-                            <td className="p-1.5 border border-slate-300 text-center font-bold">{item.jp || 0}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
+                );
+              }
+
+              return (
+                <div className="space-y-5">
+                  {atpProj.sections.map((sec, sIdx) => {
+                    if (sec.type === 'rationale') {
+                      return (
+                        <div key={sIdx} className="space-y-1">
+                          <h5 className="font-bold text-slate-900 uppercase text-xs">{sec.title}</h5>
+                          <p className="text-slate-700 leading-relaxed text-justify bg-slate-50 p-2.5 rounded-xl border border-slate-100 text-xs">
+                            {sec.text || '-'}
+                          </p>
+                        </div>
+                      );
+                    }
+                    if (sec.type === 'cpReference') {
+                      return (
+                        <div key={sIdx} className="space-y-2">
+                          <h5 className="font-bold text-slate-900 uppercase text-xs">{sec.title}</h5>
+                          <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-2 text-xs">
+                            {sec.rows.map(([label, val], rIdx) => (
+                              <div key={rIdx} className="flex gap-2">
+                                <span className="font-semibold text-slate-800 w-36 shrink-0">{label}</span>
+                                <span className="text-slate-600">:</span>
+                                <span className="text-slate-700 leading-relaxed">{val}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    }
+                    if (sec.type === 'atpMatrix') {
+                      return (
+                        <div key={sIdx} className="space-y-2">
+                          <h5 className="font-bold text-slate-900 uppercase text-xs">{sec.title}</h5>
+                          <div className="overflow-x-auto">
+                            <table className="w-full text-left text-[11px] border border-slate-300 border-collapse">
+                              <thead>
+                                <tr className="bg-blue-900 text-white font-semibold">
+                                  {sec.headers.map((h, hIdx) => (
+                                    <th
+                                      key={hIdx}
+                                      className={`p-2 border border-blue-800 ${
+                                        hIdx === 0 ? 'w-24 text-center' : hIdx === 1 ? 'w-1/2' : 'w-5/12'
+                                      }`}
+                                    >
+                                      {h}
+                                    </th>
+                                  ))}
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {sec.rows.map((row, rIdx) => {
+                                  const [tahap, tpText, alurText] = getATPDocumentRowCells(row);
+                                  return (
+                                    <tr key={row.id || rIdx} className={rIdx % 2 === 0 ? 'bg-white' : 'bg-slate-50'}>
+                                      <td className="p-2 border border-slate-300 text-center font-bold text-slate-800 align-top">
+                                        {tahap}
+                                      </td>
+                                      <td className="p-2 border border-slate-300 text-slate-700 leading-relaxed align-top">
+                                        {tpText}
+                                      </td>
+                                      <td className="p-2 border border-slate-300 text-slate-700 leading-relaxed align-top">
+                                        {alurText}
+                                      </td>
+                                    </tr>
+                                  );
+                                })}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      );
+                    }
+                    return null;
+                  })}
                 </div>
-              </div>
-            )}
+              );
+            })()}
 
             {/* 2. PROTA PREVIEW */}
             {activePreviewType === 'PROTA' && (() => {

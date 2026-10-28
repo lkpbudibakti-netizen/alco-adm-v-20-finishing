@@ -116,7 +116,9 @@ export interface ZipExportItemStatus {
 
 export interface ZipExportResult {
   success: boolean;
+  isComplete?: boolean;
   zipFileName: string;
+  zipBlob?: Blob;
   exportedCount: number;
   pdfCount: number;
   docxCount: number;

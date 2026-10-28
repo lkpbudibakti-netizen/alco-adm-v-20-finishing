@@ -554,17 +554,22 @@ export async function generateZipBundle(
     compressionOptions: { level: 6 },
   });
 
-  saveAs(zipBlob, zipFileName);
+  if (!rawContext.skipDownload) {
+    saveAs(zipBlob, zipFileName);
+  }
 
   const requestedCount = itemResults.length;
   const successCount = itemResults.filter((r) => r.status === 'SUCCESS').length;
   const partialCount = itemResults.filter((r) => r.status === 'PARTIAL').length;
   const skippedCount = itemResults.filter((r) => r.status === 'SKIPPED').length;
   const failedCount = itemResults.filter((r) => r.status === 'FAILED').length;
+  const isComplete = requestedCount > 0 && successCount === requestedCount && partialCount === 0 && skippedCount === 0 && failedCount === 0;
 
   return {
     success: true,
+    isComplete,
     zipFileName,
+    zipBlob,
     exportedCount,
     pdfCount,
     docxCount,

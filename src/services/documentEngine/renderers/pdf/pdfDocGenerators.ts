@@ -153,6 +153,7 @@ export async function generatePdfDocument(
   let subTitle = '';
   let fileName = '';
   let orientation: 'portrait' | 'landscape' = 'portrait';
+  let extraIdentityRows: [string, string][] = [];
   const sections: PdfDocumentSection[] = [];
 
   switch (type) {
@@ -320,7 +321,7 @@ export async function generatePdfDocument(
       title = 'Alur Tujuan Pembelajaran (ATP)';
       subTitle = subject + ' — ' + grade + ' (' + (academicSetting?.phase || '-') + ')';
       fileName = 'ATP_' + cleanSubject + '_' + cleanGrade + '.pdf';
-      orientation = 'landscape';
+      orientation = 'portrait';
       if (projection.rationale) {
         sections.push({ type: 'heading', text: 'A. Rasionalisasi Alur Pembelajaran', level: 1 });
         sections.push({ type: 'paragraph', text: projection.rationale, align: 'justify' });
@@ -330,10 +331,15 @@ export async function generatePdfDocument(
         sections.push({ type: 'paragraph', text: projection.cpReferenceLines.join('\n'), align: 'justify' });
       }
       sections.push({ type: 'heading', text: 'C. Matriks Alur Tujuan Pembelajaran', level: 1 });
-      const contentWidth = 297 - PDF_THEME.margins.landscape.left - PDF_THEME.margins.landscape.right;
+      const contentWidth = 210 - PDF_THEME.margins.portrait.left - PDF_THEME.margins.portrait.right;
       sections.push({
         type: 'table',
-        columns: ATP_DOCUMENT_COLUMNS.map((header, index) => ({ header, dataKey: ['stage', 'tp', 'atp'][index], width: contentWidth * [0.10, 0.50, 0.40][index] })),
+        columns: ATP_DOCUMENT_COLUMNS.map((header, index) => ({
+          header,
+          dataKey: ['stage', 'tp', 'atp'][index],
+          width: contentWidth * [0.12, 0.48, 0.40][index],
+          align: index === 0 ? 'center' : 'left',
+        })),
         rows: projection.rows.map(row => getATPDocumentRowCells(row).map(lines => lines.join('\n'))),
       });
       break;
@@ -644,6 +650,31 @@ export async function generatePdfDocument(
       subTitle = `${subject} — ${grade} — Semester ${projection.semester} — T.A ${academicYear} | Total ${projection.totalAllocatedJP} JP`;
       fileName = `PROMES_${cleanSubject}_${cleanGrade}.pdf`;
       orientation = 'landscape';
+
+      const weeklyJpText =
+        projection.actualScheduledWeeklyJP !== null
+          ? `${projection.actualScheduledWeeklyJP} JP / Minggu`
+          : 'Input Manual Diperlukan';
+
+      const weeksText =
+        projection.effectiveWeeksEquivalent !== null
+          ? `${projection.effectiveWeeksEquivalent} Minggu (${projection.effectiveLearningDays || 0} Hari Efektif)`
+          : 'Data kalender belum dikonfigurasi pada sistem';
+
+      const availableJpText =
+        projection.availableJP !== null ? `${projection.availableJP} JP` : '-';
+
+      extraIdentityRows = [
+        ['Alokasi Intrakurikuler per Minggu', `: ${weeklyJpText}`],
+        ['Minggu Efektif Semester', `: ${weeksText}`],
+        ['Total Kapasitas JP Tersedia', `: ${availableJpText}`],
+      ];
+
+      sections.push({
+        type: 'heading',
+        text: 'Matriks Distribusi Alokasi Waktu Pembelajaran Bulanan',
+        level: 1,
+      });
 
       const presentation = buildPromesPresentation(projection, isBlankMode);
       const contentWidth = 297 - PDF_THEME.margins.landscape.left - PDF_THEME.margins.landscape.right;
@@ -1317,6 +1348,7 @@ export async function generatePdfDocument(
     school,
     profile,
     academicSetting,
+    extraIdentityRows,
     sections,
     showSignature: true,
     isBlankMode,

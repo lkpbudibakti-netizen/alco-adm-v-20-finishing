@@ -60,23 +60,23 @@ export async function generateATP(context: DocumentGenerationContext): Promise<G
     createSectionHeading('C. Matriks Alur Tujuan Pembelajaran', 1)
   );
 
-  const widths = [10, 50, 40];
+  const widths = [12, 48, 40];
   const tableHeaderRow = new TableRow({
     tableHeader: true,
     children: ATP_DOCUMENT_COLUMNS.map((title, index) => createTableHeaderCell(title, widths[index], AlignmentType.CENTER)),
   });
-  const createProjectionCell = (lines: string[], width: number, emphasizeFirst = false) => new TableCell({
+  const createProjectionCell = (lines: string[], width: number, isCenter = false, emphasizeFirst = false) => new TableCell({
     width: { size: width, type: WidthType.PERCENTAGE },
-    margins: { top: 120, bottom: 120, left: 140, right: 140 },
+    margins: { top: 100, bottom: 100, left: 120, right: 120 },
     children: lines.map((text, index) => new Paragraph({
-      alignment: AlignmentType.JUSTIFIED,
-      spacing: { line: 276, after: 80 },
-      children: [new TextRun({ text, bold: emphasizeFirst && index === 0, size: 22, font: DOCX_FONT, color: DOCX_COLOR_BLACK })],
+      alignment: isCenter ? AlignmentType.CENTER : AlignmentType.LEFT,
+      spacing: { line: 240, after: 50 },
+      children: [new TextRun({ text, bold: emphasizeFirst && index === 0, size: 20, font: DOCX_FONT, color: DOCX_COLOR_BLACK })],
     })),
   });
   const tableDataRows = projection.rows.map(row => new TableRow({
-    cantSplit: false,
-    children: getATPDocumentRowCells(row).map((lines, index) => createProjectionCell(lines, widths[index], index === 2)),
+    cantSplit: true,
+    children: getATPDocumentRowCells(row).map((lines, index) => createProjectionCell(lines, widths[index], index === 0, index === 2)),
   }));
   const atpTable = new Table({
     layout: TableLayoutType.FIXED,
@@ -89,11 +89,11 @@ export async function generateATP(context: DocumentGenerationContext): Promise<G
   // Sign-off
   docChildren.push(...createSignoffBlock(school, profile, context.documentMode === 'blank', context.documentDate));
 
-  // Build Document (Landscape A4)
+  // Build Document (Portrait A4)
   const doc = new Document({
     sections: [
       {
-        properties: createDocxSectionProperties('landscape'),
+        properties: createDocxSectionProperties('portrait'),
         children: docChildren,
       },
     ],

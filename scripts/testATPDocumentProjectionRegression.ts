@@ -51,7 +51,7 @@ const docx=await generateATP(poisoned);
 const xml=await (await JSZip.loadAsync(await docx.blob!.arrayBuffer())).file('word/document.xml')!.async('string');
 for(const header of ATP_DOCUMENT_COLUMNS) assert(xml.includes(header));
 for(const row of projection.rows) for(const line of getATPDocumentRowCells(row).flat()) assert(xml.includes(line),line);
-assert(xml.includes('w:orient="landscape"'));assert(xml.includes('w:jc w:val="both"'));
+assert(xml.includes('w:orient="portrait"'));assert(xml.includes('w:jc w:val="both"'));
 const table=xml.match(/<w:tbl>.*?<\/w:tbl>/gs)!.find(table=>table.includes('Alur Tujuan Pembelajaran'))!;
 for(const line of projection.cpReferenceLines) {
  assert.equal(xml.split(line).length-1,1,'CP appears once in DOCX');
@@ -61,7 +61,7 @@ for(const line of projection.cpReferenceLines) {
 }
 assert(table.includes('<w:tblHeader'));
 assert(table.includes('w:type="fixed"'));
-assert(!table.includes('<w:cantSplit/>'));
+assert(table.includes('<w:cantSplit/>'));
 for(const row of table.match(/<w:tr>.*?<\/w:tr>/gs)!) assert.equal((row.match(/<w:tc>/g)||[]).length,3);
 assert(xml.includes(context.atp.rationale));assert(xml.includes(context.school.principalName));assert(xml.includes(context.profile.name));
 assert(!xml.includes('LEGACY_'));
@@ -80,7 +80,7 @@ for(const line of projection.cpReferenceLines) {
 }
 assert(normalized.includes(context.atp.rationale));assert(normalized.includes(context.school.principalName));
 assert(!normalized.includes('LEGACY_'));
-const page=await parsed.getPage(1);assert(page.view[2]>page.view[3]);await task.destroy();
+const page=await parsed.getPage(1);assert(page.view[3]>page.view[2]);await task.destroy();
 assert.equal(JSON.stringify(context),original);
 for(const path of ['src/services/documentEngine/generators/atpGenerator.ts','src/services/documentEngine/renderers/pdf/pdfDocGenerators.ts']) {
  const source=readFileSync(path,'utf8');assert(source.includes('buildATPDocumentProjection(context)'));
@@ -88,4 +88,4 @@ for(const path of ['src/services/documentEngine/generators/atpGenerator.ts','src
 const blank={...context,documentMode:'blank',cp:undefined,tp:undefined,atp:undefined};
 assert(buildATPDocumentProjection(blank).isReady);
 assert((await generateATP(blank)).blob!.size>0);assert((await generatePdfDocument('ATP',blank)).blob.size>0);
-console.log('PASS: exact 1-to-many TP resolution, canonical focus stages, dangling/duplicate/ambiguous rejection, empty/poisoned legacy fields, 3-column landscape DOCX with splittable rows, and shared DOCX/PDF projection content.');
+console.log('PASS: exact 1-to-many TP resolution, canonical focus stages, dangling/duplicate/ambiguous rejection, empty/poisoned legacy fields, 3-column portrait DOCX with non-splitting rows, and shared DOCX/PDF projection content.');

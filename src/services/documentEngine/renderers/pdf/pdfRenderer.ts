@@ -226,9 +226,9 @@ export class PdfDocumentBuilder {
         const second = extraRows[i + 1];
         rows.push([
           first ? first[0] : '',
-          first ? `: ${first[1]}` : '',
+          first ? (first[1].startsWith(':') ? first[1] : `: ${first[1]}`) : '',
           second ? second[0] : '',
-          second ? `: ${second[1]}` : '',
+          second ? (second[1].startsWith(':') ? second[1] : `: ${second[1]}`) : '',
         ]);
       }
     }

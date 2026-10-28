@@ -132,9 +132,9 @@ export function matchesSubstantiveFingerprint(snapshot: string | undefined, curr
           }
           record.tps = [...record.tps].sort();
         }
-        return Object.fromEntries(Object.entries(record).sort(([a], [b]) => a.localeCompare(b)));
+        return Object.fromEntries(Object.entries(record).sort(([a], [b]) => a.localeCompare(b))) as { id: string; [k: string]: unknown };
       });
-      return JSON.stringify(entries.sort((a, b) => a.id.localeCompare(b.id)));
+      return JSON.stringify(entries.sort((a, b) => String(a.id).localeCompare(String(b.id))));
     };
     const expected = normalize(JSON.parse(current));
     return expected !== undefined && normalize(JSON.parse(snapshot)) === expected;
