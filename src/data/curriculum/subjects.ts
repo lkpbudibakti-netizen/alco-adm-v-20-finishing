@@ -7,6 +7,21 @@ import { CurriculumSubject } from './types';
  * Gunakan stable code yang konsisten lintas jenjang SD, SMP, SMA.
  */
 export const CURRICULUM_SUBJECTS: CurriculumSubject[] = [
+  { code: 'SEJARAH_LANJUT', name: 'Sejarah Tingkat Lanjut', aliases: [] },
+  { code: 'PRAKARYA_BUDI_DAYA', name: 'Prakarya Budi Daya', aliases: [] },
+  { code: 'PRAKARYA_KERAJINAN', name: 'Prakarya Kerajinan', aliases: [] },
+  { code: 'PRAKARYA_PENGOLAHAN', name: 'Prakarya Pengolahan', aliases: [] },
+  { code: 'PRAKARYA_REKAYASA', name: 'Prakarya Rekayasa', aliases: [] },
+  { code: 'PKWU_BUDI_DAYA', name: 'Prakarya Dan Kewirausahaan Budi Daya', aliases: [] },
+  { code: 'PKWU_KERAJINAN', name: 'Prakarya Dan Kewirausahaan Kerajinan', aliases: [] },
+  { code: 'PKWU_PENGOLAHAN', name: 'Prakarya Dan Kewirausahaan Pengolahan', aliases: [] },
+  { code: 'PKWU_REKAYASA', name: 'Prakarya Dan Kewirausahaan Rekayasa', aliases: [] },
+  { code: 'B_ARAB', name: 'Bahasa Arab', aliases: [] },
+  { code: 'B_JEPANG', name: 'Bahasa Jepang', aliases: [] },
+  { code: 'B_JERMAN', name: 'Bahasa Jerman', aliases: [] },
+  { code: 'B_KOREA', name: 'Bahasa Korea', aliases: [] },
+  { code: 'B_MANDARIN', name: 'Bahasa Mandarin', aliases: [] },
+  { code: 'B_PRANCIS', name: 'Bahasa Prancis', aliases: ['Bahasa Perancis'] },
   // --- KELOMPOK AGAMA DAN BUDI PEKERTI ---
   {
     code: 'PAI',
@@ -267,7 +282,7 @@ export const CURRICULUM_SUBJECTS: CurriculumSubject[] = [
   {
     code: 'BAHASA_ASING_LAIN',
     name: 'Bahasa Asing Lainnya',
-    aliases: ['Bahasa Arab', 'Bahasa Jepang', 'Bahasa Jerman', 'Bahasa Perancis', 'Bahasa Mandarin', 'Bahasa Korea'],
+    aliases: [],
     defaultLevel: 'SMA',
   },
 ];
@@ -316,15 +331,8 @@ export function findSubjectByNameOrAlias(nameOrAlias: string): CurriculumSubject
   );
   if (byAlias) return byAlias;
 
-  // Fuzzy match with word boundary safety
-  return CURRICULUM_SUBJECTS.find((s) => {
-    const sNorm = normalizeSubjectString(s.name);
-    if (normQuery.includes(sNorm) || sNorm.includes(normQuery)) return true;
-    return s.aliases?.some((a) => {
-      const aNorm = normalizeSubjectString(a);
-      return normQuery.includes(aNorm) || aNorm.includes(normQuery);
-    });
-  });
+  // Incomplete identities require an explicit subject selection.
+  return undefined;
 }
 
 /**

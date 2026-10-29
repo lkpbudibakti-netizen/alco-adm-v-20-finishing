@@ -290,6 +290,7 @@ export function normalizeCPVerificationStatus(
 }
 
 export interface CPSource {
+  sourceReview?: import('../data/curriculum/cp/types').MasterCPEntry['sourceReview'];
   id?: string;
   title: string;
   institution: string;
@@ -309,6 +310,9 @@ export interface CPSource {
 }
 
 export interface CPElem {
+  sourceNumber?: string;
+  sourceText?: string;
+  subelements?: CPElem[];
   id: string;
   code?: string; // e.g. "E1", "E2"
   name: string; // e.g. "Menyimak", "Membaca dan Memirsa", "Berbicara dan Mempresentasikan", "Menulis"

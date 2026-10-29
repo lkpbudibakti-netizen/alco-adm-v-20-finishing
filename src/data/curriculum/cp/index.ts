@@ -168,6 +168,10 @@ export function resolveCPContext(
     }
   }
 
+  // Explicit replacement edges apply only within this already applicable context.
+  const replacedIds = new Set(candidates.flatMap(cp => cp.supersedesEntryIds || []));
+  candidates = candidates.filter(cp => !replacedIds.has(cp.id));
+
   if (candidates.length === 1) {
     return {
       cp: candidates[0],

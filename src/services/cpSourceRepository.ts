@@ -2,6 +2,7 @@ import { ActiveContext, AcademicSetting, CPSource, CPElem, CPVerificationStatus,
 import {
   ALL_MASTER_CP_ENTRIES,
   MasterCPEntry,
+  CPElement,
   parseAcademicYearStart,
   resolveCPContext,
 } from '../data/curriculum/cp';
@@ -240,6 +241,15 @@ class CPSourceRepository {
     return ['SD', 'SMP', 'SMA', 'SMK'].includes(level) ? (level as SchoolLevel) : null;
   }
 
+  private mapElement(element: CPElement, parentId: string, index: number): CPElem {
+    const id = element.id || `${parentId}-elem-${index + 1}`;
+    return { id, code: `E${index + 1}`, name: element.name, content: element.content,
+      ...(element.number ? { sourceNumber: element.number } : {}),
+      ...(element.sourceText !== undefined ? { sourceText: element.sourceText } : {}),
+      ...(element.subelements ? { subelements: element.subelements.map((child, childIndex) => this.mapElement(child, id, childIndex)) } : {}),
+    };
+  }
+
   private mapMasterEntryToResult(
     entry: MasterCPEntry,
     context: Partial<ActiveContext>,
@@ -254,6 +264,7 @@ class CPSourceRepository {
       ? String(regulation.year)
       : entry.implementationFromAcademicYear || context.academicYear || '';
     const sourceMeta: CPSource = {
+      ...(entry.sourceReview ? { sourceReview: entry.sourceReview } : {}),
       id: entry.id,
       title: regulation?.title || `Capaian Pembelajaran ${subject?.name || entry.subjectCode} Fase ${entry.phase}`,
       institution: regulation?.authority || 'Kementerian Pendidikan RI',
@@ -264,6 +275,7 @@ class CPSourceRepository {
             entry.evidence[0].locator?.attachment,
             entry.evidence[0].locator?.page ? `Hal. ${entry.evidence[0].locator.page}` : undefined,
             entry.evidence[0].locator?.table,
+            entry.evidence[0].locator?.note,
           ].filter(Boolean).join(' • ')
         : `Fase ${entry.phase}`,
       retrievedAt: new Date().toISOString(),
@@ -292,15 +304,10 @@ class CPSourceRepository {
       page: sourceMeta.page,
       verificationStatus: status,
       generalDescription: entry.generalDescription,
-      elements: entry.elements.map((el, elIdx) => ({
-        id: `${entry.id}-elem-${elIdx + 1}`,
-        code: `E${elIdx + 1}`,
-        name: el.name,
-        content: el.content,
-      })),
+      elements: entry.elements.map((el, index) => this.mapElement(el, entry.id, index)),
       sourceMeta,
       confidenceScore: options?.conflict ? 0 : 100,
-      statusReason: options?.reason,
+      statusReason: options?.reason || (entry.sourceReview ? entry.notes : undefined),
       isSelectable: !options?.conflict && status !== 'SUPERSEDED' && status !== 'VERSION_CONFLICT',
     };
   }

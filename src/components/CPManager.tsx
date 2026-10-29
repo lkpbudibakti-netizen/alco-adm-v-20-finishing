@@ -95,7 +95,7 @@ export const CPManager: React.FC<CPManagerProps> = ({
   const handleApplySelectedSource = (item: CPSourceSearchResult) => {
     if (sourceSearch?.status !== 'RESOLVED' || !item.isSelectable) return;
     if (
-      generalDescription.trim().length > 0 &&
+      (generalDescription.trim().length > 0 || elements.length > 0) &&
       !confirm('Gantikan teks CP saat ini dengan rujukan terpilih?')
     ) {
       return;
@@ -111,6 +111,10 @@ export const CPManager: React.FC<CPManagerProps> = ({
     const candidate: CPData = {
       ...cp,
       academicSettingId: academicSetting.id,
+      cpId: item.sourceMeta.id,
+      cpVersion: item.sourceMeta.versionCode,
+      regulationSourceId: item.sourceMeta.regulationId,
+      regulationIds: item.sourceMeta.regulationIds,
       generalDescription: item.generalDescription,
       elements: item.elements,
       source: item.sourceMeta,

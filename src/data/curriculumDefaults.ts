@@ -1,3 +1,6 @@
+import { CURRICULUM_SUBJECTS } from './curriculum/subjects';
+import { SMP_REVIEW_CP_ENTRIES } from './curriculum/cp/smp';
+import { SMA_REVIEW_CP_ENTRIES } from './curriculum/cp/sma';
 import {
   SchoolData,
   TeacherProfile,
@@ -168,6 +171,14 @@ export const SUBJECT_OPTIONS: Record<'SD' | 'SMP' | 'SMA' | 'SMK', string[]> = {
     'Pendidikan Jasmani, Olahraga, dan Kesehatan (PJOK)',
   ],
 };
+
+// Extend existing choices without rewriting any saved teacher selection.
+for (const [level, entries] of [['SMP', SMP_REVIEW_CP_ENTRIES], ['SMA', SMA_REVIEW_CP_ENTRIES]] as const) {
+  for (const code of new Set(entries.map(entry => entry.subjectCode))) {
+    const name = CURRICULUM_SUBJECTS.find(subject => subject.code === code)!.name;
+    if (!SUBJECT_OPTIONS[level].includes(name)) SUBJECT_OPTIONS[level].push(name);
+  }
+}
 
 export const P3_DIMENSIONS = [
   'Beriman, Bertakwa kepada Tuhan YME, dan Berakhlak Mulia',
