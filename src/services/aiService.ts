@@ -1,3 +1,4 @@
+import { CP4_RUN_POLICY, initialCP4Trace, newCP4RequestId, isCP4RequestId, sanitizeCP4Trace, type CP4Trace } from './cpAnalysisRun';
 import { validateAnalysisAI, type UnderstandingTarget, type AnalysisAIValidation } from './cpAnalysisAIContract';
 import { CPAnalysisAIError } from './cpAnalysisAIDiagnostics';
 import { validateLearningPlanActivityMeetings } from './learningPlanActivityMeetingService';
@@ -26,6 +27,7 @@ import { recordDiagnosticEvent } from './diagnosticService';
 import { assignGeneratedTPCodes, CANONICAL_MERDEKA_TP_CODE_REGEX } from './tpCodeContract';
 
 export interface CanonicalCPAnalysisResult {
+  trace?: CP4Trace;
   validation?: AnalysisAIValidation;
   generalSummary: string;
   items: Array<{
@@ -533,23 +535,41 @@ export function formatAIErrorMessage(error: any, actionName: string = 'memproses
   return error.message || `Terjadi kesalahan saat ${actionName}. Silakan periksa kembali data Anda.`;
 }
 
+const activeCP4Requests=new Set<string>();
 export async function analyzeCPWithAI(params: {
   cpText: string; elements: CPElem[]; subject: string; grade: string; phase: string; curriculum: string;
   retryTargets?: UnderstandingTarget[];
-}, timeoutMs = 90000): Promise<CanonicalCPAnalysisResult> {
+}, options: number | {timeoutMs?:number; signal?:AbortSignal;requestId?:string} = {}): Promise<CanonicalCPAnalysisResult> {
+  const settings=typeof options==='number'?{timeoutMs:options}:options;
+  const timeoutMs=Math.max(1,Math.min(CP4_RUN_POLICY.totalMs,settings.timeoutMs ?? CP4_RUN_POLICY.totalMs));
+  const requestId=isCP4RequestId(settings.requestId)?settings.requestId:newCP4RequestId();
+  const localKey=getGeminiApiKey(); // Select once; no server-key/BYOK fallback chain or auth modal retries.
+  const started=Date.now(),deadlineAt=started+timeoutMs;
+  let trace=initialCP4Trace(requestId,localKey?'local':'server-or-none');
+  const failure=(code:string,stage:string)=>new CPAnalysisAIError(code,stage,sanitizeCP4Trace({...trace,elapsedMs:Date.now()-started})!);
+  if(activeCP4Requests.has(requestId))throw failure('AI_DUPLICATE_REQUEST','request');
+  activeCP4Requests.add(requestId);
   const controller = new AbortController();
   let timer: ReturnType<typeof setTimeout>;
+  const check=()=>{if(controller.signal.aborted)throw failure(trace.timeoutSource==='client'?'AI_TIMEOUT':'AI_ABORTED',trace.lastStage);if(Date.now()>=deadlineAt){trace.timeoutSource='client';controller.abort();throw failure('AI_TIMEOUT',trace.lastStage);}};
   const request = async (): Promise<CanonicalCPAnalysisResult> => {
-    const res = await aiFetch('/api/ai/analyze-cp', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
+    check();trace.lastStage='transport';
+    const res = await fetch('/api/ai/analyze-cp', {
+      method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CP4-Request-ID':requestId,'X-CP4-Deadline':String(deadlineAt),...(localKey?{'X-Gemini-API-Key':localKey}:{}) },
       body: JSON.stringify(params), signal: controller.signal,
     });
+    check();trace.lastStage='response';
     if(!res.ok) {
       const body = await res.json().catch(()=>null);
-      const code = ['AI_NOT_CONFIGURED','AI_PROVIDER_ERROR','AI_TIMEOUT','CP_ELEMENTS_REQUIRED','RETRY_TARGET_INVALID'].includes(body?.code) ? body.code : 'AI_API_ERROR';
-      throw new CPAnalysisAIError(code, ['provider','request'].includes(body?.stage) ? body.stage : 'transport');
+      check();
+      trace=sanitizeCP4Trace(body?.trace,requestId) || trace;
+      const code = ['AI_ABORTED','AI_DUPLICATE_REQUEST','AI_REQUEST_BUSY','AI_NOT_CONFIGURED','AI_PROVIDER_ERROR','AI_TIMEOUT','CP_ELEMENTS_REQUIRED','RETRY_TARGET_INVALID'].includes(body?.code) ? body.code : 'AI_API_ERROR';
+      throw failure(code, ['provider','request','transport','response','validation','apply','backoff','aborted'].includes(body?.stage)?body.stage:'transport');
     }
-    const body = await res.json().catch(()=>{throw new CPAnalysisAIError('RESPONSE_INVALID','response');});
+    const body = await res.json().catch(()=>{throw failure('RESPONSE_INVALID','response');});
+    check();
+    if(body?.trace && !sanitizeCP4Trace(body.trace,requestId))throw failure('RESPONSE_INVALID','response');
+    trace=sanitizeCP4Trace(body?.trace,requestId) || trace;trace.lastStage='validation';
     const payload = body?.data || body;
     const validation = validateAnalysisAI(payload, params.elements, params.retryTargets);
     // Server-only semantic coverage findings are additive, not a replacement for client validation.
@@ -559,17 +579,22 @@ export async function analyzeCPWithAI(params: {
       }
     }
     validation.valid=validation.issues.length===0;
+    check();
     return {generalSummary:typeof payload?.generalSummary==='string'?payload.generalSummary:'', items:validation.items,
-      engine:body?.engine==='gemini'?'gemini':'pedagogical_engine',validation};
+      engine:body?.engine==='gemini'?'gemini':'pedagogical_engine',validation,trace:{...trace,elapsedMs:Date.now()-started}};
   };
-  try {
-    return await Promise.race([request(),new Promise<never>((_,reject)=>{
-      timer=setTimeout(()=>{controller.abort();reject(new CPAnalysisAIError('AI_TIMEOUT','transport'));},timeoutMs);
-    })]);
-  } catch(error) {
-    if(error instanceof CPAnalysisAIError) throw error;
-    throw new CPAnalysisAIError(controller.signal.aborted?'AI_TIMEOUT':'AI_API_ERROR','transport');
-  } finally {clearTimeout(timer!);}
+  let onAbort:()=>void=()=>{};
+  const interrupted=new Promise<never>((_,reject)=>{
+    onAbort=()=>{trace.lastStage='aborted';reject(failure('AI_ABORTED','aborted'));controller.abort();};
+    settings.signal?.addEventListener('abort',onAbort,{once:true});
+    timer=setTimeout(()=>{trace.timeoutSource='client';reject(failure('AI_TIMEOUT',trace.lastStage));controller.abort();},timeoutMs);
+    if(settings.signal?.aborted)onAbort();
+  });
+  try { return await Promise.race([Promise.resolve().then(request),interrupted]); }
+  catch(error) {
+    if(error instanceof CPAnalysisAIError)throw error;
+    throw failure(controller.signal.aborted?(trace.timeoutSource==='client'?'AI_TIMEOUT':'AI_ABORTED'):'AI_API_ERROR',trace.lastStage);
+  } finally {clearTimeout(timer!);settings.signal?.removeEventListener('abort',onAbort);activeCP4Requests.delete(requestId);}
 }
 
 export async function generateTPWithAI(params: GenerateTPParams): Promise<GenerateTPResult> {

@@ -1,4 +1,4 @@
-import { handleCPAnalysisAI, parseCPAnalysisJSON } from './server/cpAnalysisAI';
+import { serveCP4Analysis } from './server/cpAnalysisDeadline';
 import { assignGeneratedTPCodes, TP_CODE_FORMAT_DESCRIPTION } from './src/services/tpCodeContract';
 import { validateLearningPlanActivityMeetings } from './src/services/learningPlanActivityMeetingService';
 import express from 'express';
@@ -538,11 +538,11 @@ function getSubstantiveTokens(text: string): string[] {
 // 1. Endpoint: AI Analyze CP -> Return canonical CPAnalysisData items
 app.post('/api/ai/analyze-cp', async (req, res) => {
   const apiKey = resolveApiKey(req);
-  const result = await handleCPAnalysisAI(req.body, apiKey ? async request => {
-    const response = await generateContentWithRetry(createAIClient(apiKey), request);
-    return parseCPAnalysisJSON(response.text);
+  return serveCP4Analysis(req,res,apiKey,apiKey ? async (request,attempt) => {
+    // Step 4 owns retries. Disable SDK retries and use the same pre-existing primary model.
+    return createAIClient(apiKey).models.generateContent({model:attempt.model,contents:request.contents,
+      config:{...request.config,abortSignal:attempt.signal,httpOptions:{timeout:attempt.timeoutMs,retryOptions:{attempts:1}}}});
   } : undefined);
-  return res.status(result.status).json(result.body);
 });
 
 // Runtime validator for AI TP response

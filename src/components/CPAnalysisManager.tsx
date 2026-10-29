@@ -1,3 +1,4 @@
+import { newCP4RequestId, initialCP4Trace, type CP4Trace } from '../services/cpAnalysisRun';
 import { validateAnalysisAI, explainAnalysisIssue, validateStep4Understanding, getUnderstandingTargets, createUnderstandingPatches, applyUnderstandingPatches, createInitialAnalysisDraft, type UnderstandingTarget, type UnderstandingPatch } from '../services/cpAnalysisAIContract';
 import { CPAnalysisAIError, createCPAnalysisDiagnosis, formatCPAnalysisDiagnosis, copyCPAnalysisDiagnosis, type CPAnalysisDiagnosis } from '../services/cpAnalysisAIDiagnostics';
 import React, { useState, useEffect, useRef } from 'react';
@@ -111,15 +112,17 @@ export const CPAnalysisManager: React.FC<CPAnalysisManagerProps> = ({
   const [aiDraftEngine, setAIDraftEngine] = useState<'gemini' | 'pedagogical_engine' | null>(null);
   const [aiProposal, setAIProposal] = useState<{base: string; items?: CPAnalysisItem[]; patches: UnderstandingPatch[]; suggestions: Array<{itemId?:string; elementId:string; value:string}>; summary:string; engine:'gemini' | 'pedagogical_engine'} | null>(null);
   const requestVersion = useRef(0);
+  const activeAIRequest=useRef<{controller:AbortController;token:number;trace:CP4Trace}|null>(null);
   const latestItems = useRef(items);
   latestItems.current = items;
   useEffect(() => {
-    requestVersion.current++;
+    const cancel=()=>{requestVersion.current++;activeAIRequest.current?.controller.abort();activeAIRequest.current=null;};
+    cancel();setIsAnalyzing(false);
     setAIProposal(null); setAIDraftEngine(null); setAIDiagnosis(null); setAnalysisError(null); setManualDiagnosisCopy(false); setCopyStatus('');
-    return () => { requestVersion.current++; };
+    return cancel;
   }, [cp, cpAnalysis, context.subject, context.phase, context.grade, context.academicYear, context.curriculum, context.profileId, academicSetting.id]);
-  const reportAIError = (code:string, stage:string, issues: Parameters<typeof createCPAnalysisDiagnosis>[4] = []) => {
-    const diagnosis=createCPAnalysisDiagnosis(context, cp.elements?.length || 0, code, stage, issues);
+  const reportAIError = (code:string, stage:string, issues: Parameters<typeof createCPAnalysisDiagnosis>[4] = [], trace?:CP4Trace) => {
+    const diagnosis=createCPAnalysisDiagnosis(context, cp.elements?.length || 0, code, stage, issues, trace || activeAIRequest.current?.trace);
     setAIDiagnosis(diagnosis); setAnalysisError(diagnosis.message); setManualDiagnosisCopy(false); setCopyStatus('');
   };
   const handleCopyDiagnosis = async () => {
@@ -379,7 +382,7 @@ export const CPAnalysisManager: React.FC<CPAnalysisManagerProps> = ({
   };
 
   const executeAIAnalysis = async (requestedTargets?: UnderstandingTarget[]) => {
-    if(isAnalyzing) return;
+    if(isAnalyzing || activeAIRequest.current) return;
     const snapshot=JSON.stringify(items);
     const token=++requestVersion.current;
     const targets=requestedTargets || (items.length ? getUnderstandingTargets(items,cp.elements || []) : []);
@@ -387,11 +390,17 @@ export const CPAnalysisManager: React.FC<CPAnalysisManagerProps> = ({
       setNotificationToast('Tidak ada kolom 3 bermasalah. Data analisis lama dipertahankan.');
       return;
     }
-    setIsAnalyzing(true); setAnalysisError(null); setAIDiagnosis(null); setAIProposal(null);
+    const requestId=newCP4RequestId();
+    const run={controller:new AbortController(),token,trace:initialCP4Trace(requestId,'server-or-none')};
+    activeAIRequest.current=run;
+    // Keep the previous proposal and editor values until a new validated result is available.
+    setIsAnalyzing(true); setAnalysisError(null); setAIDiagnosis(null);
     try {
       const res=await analyzeCPWithAI({cpText:cp.generalDescription || '',elements:cp.elements || [],subject:context.subject,grade:context.grade,phase:context.phase,curriculum:context.curriculum,
-        ...(targets.length ? {retryTargets:targets} : {})});
-      if(token!==requestVersion.current) return;
+        ...(targets.length ? {retryTargets:targets} : {})},{signal:run.controller.signal,requestId});
+      if(token!==requestVersion.current || activeAIRequest.current!==run) return;
+      if(run.controller.signal.aborted)throw new CPAnalysisAIError('AI_ABORTED','aborted',run.trace);
+      run.trace=res.trace || run.trace;
       if(snapshot!==JSON.stringify(latestItems.current)) {reportAIError('DRAFT_CHANGED','apply');return;}
       const checked=res.validation || validateAnalysisAI(res,cp.elements || [],targets);
       if(checked.issues.length) reportAIError('VALIDATION_FAILED','validation',checked.issues);
@@ -403,10 +412,10 @@ export const CPAnalysisManager: React.FC<CPAnalysisManagerProps> = ({
         suggestions:targets.length?checked.items.filter(row=>!checked.issues.some(issue=>issue.elementId===row.elementId && (!issue.itemId || issue.itemId===row.itemId))).map(row=>({itemId:row.itemId,elementId:row.elementId,value:row.meaningfulUnderstanding})):[],
         summary:res.generalSummary || '',engine:res.engine || 'pedagogical_engine'});
     } catch(error) {
-      if(token!==requestVersion.current) return;
+      if(token!==requestVersion.current || activeAIRequest.current!==run) return;
       const failure=error instanceof CPAnalysisAIError?error:new CPAnalysisAIError('AI_API_ERROR','transport');
-      reportAIError(failure.code,failure.stage,targets.length?targets.map(target=>({elementId:target.elementId,itemId:target.itemId,field:'meaningfulUnderstanding',code:failure.code})):(cp.elements || []).map(element=>({elementId:element.id,field:'items',code:failure.code})));
-    } finally {setIsAnalyzing(false);}
+      reportAIError(failure.code,failure.stage,targets.length?targets.map(target=>({elementId:target.elementId,itemId:target.itemId,field:'meaningfulUnderstanding',code:failure.code})):(cp.elements || []).map(element=>({elementId:element.id,field:'items',code:failure.code})),failure.trace || run.trace);
+    } finally {if(activeAIRequest.current===run){activeAIRequest.current=null;setIsAnalyzing(false);}}
   };
 
   const handleApplyAIProposal = () => {
@@ -607,6 +616,7 @@ export const CPAnalysisManager: React.FC<CPAnalysisManagerProps> = ({
         </div>
       )}
 
+      {isAnalyzing && <button type="button" onClick={()=>activeAIRequest.current?.controller.abort()} className="rounded border px-3 py-2 text-sm">Batalkan Analisis AI</button>}
       {analysisError && (
         <div className="p-4 bg-rose-50 border border-rose-300 rounded-2xl flex items-start gap-3 text-xs text-rose-900 shadow-xs">
           <AlertCircle className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
