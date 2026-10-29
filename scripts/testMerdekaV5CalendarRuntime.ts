@@ -68,13 +68,13 @@ class MockLocalStorage {
 const mockStorage = new MockLocalStorage();
 (globalThis as any).localStorage = mockStorage;
 const appPath = path.resolve(process.cwd(), 'src/App.tsx');
-const appSource = readSource(appPath, 'utf-8');
+const appSource = fs.readFileSync(appPath, 'utf-8');
 
 const tpmPath = path.resolve(process.cwd(), 'src/components/administration/TimePlanningManager.tsx');
-const tpmSource = readSource(tpmPath, 'utf-8');
+const tpmSource = fs.readFileSync(tpmPath, 'utf-8');
 
 const adminHubPath = path.resolve(process.cwd(), 'src/components/administration/AdministrationHub.tsx');
-const adminHubSource = readSource(adminHubPath, 'utf-8');
+const adminHubSource = fs.readFileSync(adminHubPath, 'utf-8');
 
 // -----------------------------------------------------------------------------
 // TEST 1: TimePlanningManager calls resolveCalendarOnline() before resolveOfficialCalendar()
@@ -261,14 +261,14 @@ runTest('10. resolveOfficialCalendar acts as verified local cache fallback when 
 // -----------------------------------------------------------------------------
 // TEST 11: handleSaveCalendar requires activeSemesterPlan and uses saveAcademicCalendarV5
 // -----------------------------------------------------------------------------
-runTest('11. App.tsx handleSaveCalendar resolves explicit or active semester and saves to its canonical ID', () => {
+runTest('11. App.tsx handleSaveCalendar requires activeSemesterPlan and calls saveAcademicCalendarV5', () => {
   assert.ok(
-    appSource.includes('saveAcademicCalendarV5(targetSemesterPlan.id,'),
-    'App.tsx handleSaveCalendar must call saveAcademicCalendarV5 with targetSemesterPlan.id'
+    appSource.includes('saveAcademicCalendarV5(activeSemesterPlan.id,'),
+    'App.tsx handleSaveCalendar must call saveAcademicCalendarV5 with activeSemesterPlan.id'
   );
   assert.ok(
-    appSource.includes('if (!targetSemesterPlan || !targetYearPlan)') && appSource.includes('const targetSemesterPlanId = explicitSemesterPlanId || activeSemesterPlan?.id;'),
-    'App.tsx handleSaveCalendar must validate the resolved semester and year identities'
+    appSource.includes('if (!activeSemesterPlan || !activeYearPlan)'),
+    'App.tsx handleSaveCalendar must validate activeSemesterPlan and activeYearPlan'
   );
 });
 
@@ -277,8 +277,8 @@ runTest('11. App.tsx handleSaveCalendar resolves explicit or active semester and
 // -----------------------------------------------------------------------------
 runTest('12. handleSaveCalendar canonicalizes academicSettingId and links calendar days to canonical calendar ID', () => {
   assert.ok(
-    appSource.includes('academicSettingId: targetSemesterPlan.id,'),
-    'Canonical calendar academicSettingId must equal targetSemesterPlan.id'
+    appSource.includes('academicSettingId: activeSemesterPlan.id,'),
+    'Canonical calendar academicSettingId must equal activeSemesterPlan.id'
   );
   assert.ok(
     appSource.includes('academicCalendarId: canonicalCalendar.id'),
@@ -621,10 +621,9 @@ runTest('AY. Incomplete source status: Candidate with absent semester boundaries
 // -----------------------------------------------------------------------------
 runTest('AZ. Complete source status: Valid start/end sets REVIEWED and status based on schoolDaysPerWeek', () => {
   assert.ok(
-    tpmSource.includes("const hasSchoolDays = schoolDaysPerWeek === 5 || schoolDaysPerWeek === 6;") &&
-      tpmSource.includes("const isResolved = candidate.verificationStatus === 'VERIFIED' && hasCompleteDates && hasSchoolDays;") &&
+    tpmSource.includes("const isComplete = schoolDaysPerWeek === 5 || schoolDaysPerWeek === 6;") &&
       tpmSource.includes("setWorkflowStatus('REVIEWED');") &&
-      tpmSource.includes("setResolutionStatus(isResolved ? 'RESOLVED' : 'PARTIALLY_RESOLVED');"),
+      tpmSource.includes("setResolutionStatus(isComplete ? 'RESOLVED' : 'PARTIALLY_RESOLVED');"),
     'Applying complete candidate boundaries must set REVIEWED and RESOLVED only when schoolDaysPerWeek is 5 or 6'
   );
   assert.ok(
@@ -1177,11 +1176,11 @@ runTest('DT. Full final lifecycle: Default dates -> Generate -> HE/ME > 0 -> Con
 // TEST 44: Source Contract - Calendar / JP Persistence Separation
 // -----------------------------------------------------------------------------
 runTest('DU. Source Contract: Calendar / JP persistence separation across App.tsx and TimePlanningManager', () => {
-  const appSource = readSource(
+  const appSource = fs.readFileSync(
     path.resolve(process.cwd(), 'src/App.tsx'),
     'utf-8'
   );
-  const managerSource = readSource(
+  const managerSource = fs.readFileSync(
     path.resolve(process.cwd(), 'src/components/administration/TimePlanningManager.tsx'),
     'utf-8'
   );
@@ -1206,8 +1205,8 @@ runTest('DU. Source Contract: Calendar / JP persistence separation across App.ts
   const confirmCalMatch = managerSource.match(/const handleConfirmCalendar = \(\) => {([\s\S]*?)\n  \};/);
   assert.ok(confirmCalMatch, 'handleConfirmCalendar must exist in TimePlanningManager');
   assert.ok(
-    confirmCalMatch[0].includes('onSaveCalendar(res.calendar, res.days, effectiveSemesterPlanId)'),
-    'handleConfirmCalendar must call onSaveCalendar(res.calendar, res.days, effectiveSemesterPlanId)'
+    confirmCalMatch[0].includes('onSaveCalendar(res.calendar, res.days)'),
+    'handleConfirmCalendar must call onSaveCalendar(res.calendar, res.days)'
   );
   assert.ok(
     !confirmCalMatch[0].includes('onSaveCalendar(res.calendar, res.days, jpPerWeek)'),
@@ -1218,24 +1217,24 @@ runTest('DU. Source Contract: Calendar / JP persistence separation across App.ts
   const saveJPHandlerMatch = managerSource.match(/const handleSaveJP = \(\) => {([\s\S]*?)\n  \};/);
   assert.ok(saveJPHandlerMatch, 'handleSaveJP must exist in TimePlanningManager');
   assert.ok(
-    saveJPHandlerMatch[0].includes('onSaveSemesterJPSetting(jpPerWeek, effectiveSemesterPlanId)'),
-    'handleSaveJP must use onSaveSemesterJPSetting(jpPerWeek, effectiveSemesterPlanId)'
+    saveJPHandlerMatch[0].includes('onSaveSemesterJPSetting(jpPerWeek)'),
+    'handleSaveJP must use onSaveSemesterJPSetting(jpPerWeek)'
   );
 });
 
 // -----------------------------------------------------------------------------
 // TEST 45: Source Contract - Semester Reset
 // -----------------------------------------------------------------------------
-runTest('DV. Source Contract: TimePlanningManager semester reset keyed by effectiveSemesterPlanId and clean fallback', () => {
-  const managerSource = readSource(
+runTest('DV. Source Contract: TimePlanningManager semester reset keyed by academicSetting.id and clean fallback', () => {
+  const managerSource = fs.readFileSync(
     path.resolve(process.cwd(), 'src/components/administration/TimePlanningManager.tsx'),
     'utf-8'
   );
 
-  // Must contain semester reset effect keyed by effectiveSemesterPlanId
+  // Must contain semester reset effect keyed by academicSetting.id
   assert.ok(
-    managerSource.includes('useEffect(() => {') && managerSource.includes('[effectiveSemesterPlanId]'),
-    'TimePlanningManager must contain semester reset effect keyed by effectiveSemesterPlanId'
+    managerSource.includes('useEffect(() => {') && managerSource.includes('[academicSetting.id]'),
+    'TimePlanningManager must contain semester reset effect keyed by academicSetting.id'
   );
 
   // Must clear state in no-calendar branch
@@ -1255,23 +1254,55 @@ runTest('DV. Source Contract: TimePlanningManager semester reset keyed by effect
 // -----------------------------------------------------------------------------
 // TEST 46: Source Contract - Readiness UX
 // -----------------------------------------------------------------------------
-runTest('DW. Annual planning owns both semester readiness cards and explicit calendar target', () => {
-  const annualSource = readSource(path.resolve('src/components/AnnualPlanningManager.tsx'), 'utf-8');
-  for (const label of ['Waktu Semester 1','Waktu Semester 2','Kesiapan Semester 1','Kesiapan Semester 2']) {
-    assert.ok(annualSource.includes(label), label + ' must remain visible in annual planning');
-  }
-  assert.ok(annualSource.includes('s1Capacity?.availableJP') && annualSource.includes('s2Capacity?.availableJP'));
-  assert.ok(annualSource.includes('s1PlannedCapacity.totalJP') && annualSource.includes('s2PlannedCapacity.totalJP'));
-  assert.ok(annualSource.includes('explicitSemesterPlanId={activeSelectedPlan.id}'), 'Calendar editor must receive the explicitly selected annual-planning semester');
-  assert.ok(tpmSource.includes('semesterPlanId={effectiveSemesterPlanId}'), 'Time setup must retain canonical semester authority');
-  assert.ok(!annualSource.includes('Resmi Canonical'));
+runTest('DW. Source Contract: Readiness UX visible labels, capacity indicators, and dynamic action button', () => {
+  const componentSource = fs.readFileSync(
+    path.resolve(process.cwd(), 'src/components/administration/TimePlanningManager.tsx'),
+    'utf-8'
+  );
+
+  // Visible presence of Semester 1 and Semester 2
+  assert.ok(componentSource.includes('Semester 1'), 'Must visibly contain Semester 1 label');
+  assert.ok(componentSource.includes('Semester 2'), 'Must visibly contain Semester 2 label');
+
+  // Visible presence of status and capacity labels
+  assert.ok(componentSource.includes('Kalender:'), 'Must visibly contain "Kalender:" label');
+  assert.ok(componentSource.includes('JP Tersimpan:'), 'Must visibly contain "JP Tersimpan:" label');
+  assert.ok(componentSource.includes('Kapasitas:'), 'Must visibly contain "Kapasitas:" label');
+
+  // S1 & S2 capacity fields
+  assert.ok(
+    componentSource.includes('autoAllocationReadiness.s1Capacity?.availableJP'),
+    'Must display S1 canonical capacity directly from autoAllocationReadiness'
+  );
+  assert.ok(
+    componentSource.includes('autoAllocationReadiness.s2Capacity?.availableJP'),
+    'Must display S2 canonical capacity directly from autoAllocationReadiness'
+  );
+
+  // Dynamic button label
+  assert.ok(
+    componentSource.includes('Susun Alokasi Semester {activeSemester} dari ATP Tahunan'),
+    'Button label must dynamically specify active semester from ATP Tahunan'
+  );
+
+  // Visible helper text
+  assert.ok(
+    componentSource.includes('Pembagian ATP tahunan menggunakan kapasitas tersimpan Semester 1 dan Semester 2.'),
+    'Must contain visible helper text explaining S1 & S2 saved capacity partitioning'
+  );
+
+  // Verify "Resmi Canonical" is NOT used
+  assert.ok(
+    !componentSource.includes('Resmi Canonical'),
+    'Must not use "Resmi Canonical" label; use "Tersimpan" / "Draf"'
+  );
 });
 
 // -----------------------------------------------------------------------------
 // TEST 47: Source Contract A, B & C - Generated draft preservation and canonical sync
 // -----------------------------------------------------------------------------
 runTest('DX. Source Contract: Generated draft preservation across storage refresh and clean canonical sync', () => {
-  const componentSource = readSource(
+  const componentSource = fs.readFileSync(
     path.resolve(process.cwd(), 'src/components/administration/TimePlanningManager.tsx'),
     'utf-8'
   );
@@ -1304,7 +1335,7 @@ runTest('DX. Source Contract: Generated draft preservation across storage refres
 // TEST 48: Source Contract F - Save Time Allocation Gating for Kurikulum Merdeka
 // -----------------------------------------------------------------------------
 runTest('DY. Source Contract: Save Time Allocation gating requires active semester canonical capacity', () => {
-  const componentSource = readSource(
+  const componentSource = fs.readFileSync(
     path.resolve(process.cwd(), 'src/components/administration/TimePlanningManager.tsx'),
     'utf-8'
   );
@@ -1330,7 +1361,7 @@ runTest('DY. Source Contract: Save Time Allocation gating requires active semest
 // TEST 49: Source Contract G - 3-State Calendar Status UI Labels
 // -----------------------------------------------------------------------------
 runTest('DZ. Source Contract: 3-state calendar status UI distinguishes Belum dibuat, Draf — belum ditetapkan, and Tersimpan', () => {
-  const componentSource = readSource(
+  const componentSource = fs.readFileSync(
     path.resolve(process.cwd(), 'src/components/administration/TimePlanningManager.tsx'),
     'utf-8'
   );
@@ -1353,7 +1384,7 @@ runTest('DZ. Source Contract: 3-state calendar status UI distinguishes Belum dib
 // TEST 50: Source Contract H - Post-Generate Guidance & CTA
 // -----------------------------------------------------------------------------
 runTest('EA. Source Contract: Post-generate CTA displays guidance for saving and confirming calendar', () => {
-  const componentSource = readSource(
+  const componentSource = fs.readFileSync(
     path.resolve(process.cwd(), 'src/components/administration/TimePlanningManager.tsx'),
     'utf-8'
   );
@@ -1369,7 +1400,3 @@ runTest('EA. Source Contract: Post-generate CTA displays guidance for saving and
 });
 
 console.log(`\nAll ${totalTests} Merdeka V5 Academic Calendar Runtime audit tests PASSED successfully!\n`);
-
-function readSource(file: string, encoding: 'utf-8' | 'utf8'): string {
-  return fs.readFileSync(file, encoding).replace(/\r\n/g, '\n');
-}

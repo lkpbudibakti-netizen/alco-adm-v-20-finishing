@@ -1,4 +1,3 @@
-import ts from 'typescript';
 import assert from 'node:assert';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -235,47 +234,19 @@ saveATPV5(yearPlanA.id, atpA);
 setActiveYearPlanV5(yearPlanA.id);
 
 const appPath = path.resolve(process.cwd(), 'src/App.tsx');
-const appSource = fs.readFileSync(appPath, 'utf-8').replace(/\r\n/g, '\n');
+const appSource = fs.readFileSync(appPath, 'utf-8');
 
 const stepperPath = path.resolve(process.cwd(), 'src/components/WorkflowStepper.tsx');
-const stepperSource = fs.readFileSync(stepperPath, 'utf-8').replace(/\r\n/g, '\n');
+const stepperSource = fs.readFileSync(stepperPath, 'utf-8');
 
 const typesPath = path.resolve(process.cwd(), 'src/types/index.ts');
-const typesSource = fs.readFileSync(typesPath, 'utf-8').replace(/\r\n/g, '\n');
+const typesSource = fs.readFileSync(typesPath, 'utf-8');
 
 const semesterSelectorPath = path.resolve(process.cwd(), 'src/components/SemesterSelector.tsx');
-const semesterSelectorSource = fs.readFileSync(semesterSelectorPath, 'utf-8').replace(/\r\n/g, '\n');
+const semesterSelectorSource = fs.readFileSync(semesterSelectorPath, 'utf-8');
 
 const adminHubPath = path.resolve(process.cwd(), 'src/components/administration/AdministrationHub.tsx');
-const adminHubSource = fs.readFileSync(adminHubPath, 'utf-8').replace(/\r\n/g, '\n');
-
-// Parse the actual JSX/step definitions; unrelated handlers cannot satisfy a transition.
-const appAst = ts.createSourceFile(appPath, appSource, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
-const stepperAst = ts.createSourceFile(stepperPath, stepperSource, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
-function findNode(root: ts.Node, predicate: (node: ts.Node) => boolean): ts.Node {
-  let found: ts.Node | undefined;
-  function visit(node: ts.Node) { if (!found && predicate(node)) found = node; if (!found) ts.forEachChild(node, visit); }
-  visit(root); assert.ok(found, 'Expected navigation node must exist'); return found;
-}
-const merdekaSteps = (findNode(stepperAst, node => ts.isConditionalExpression(node) && node.condition.getText(stepperAst) === 'isMerdekaActive') as ts.ConditionalExpression).whenTrue as ts.ArrayLiteralExpression;
-function property(step: ts.ObjectLiteralExpression, name: string): ts.Expression {
-  const prop = step.properties.find(p => ts.isPropertyAssignment(p) && p.name.getText(stepperAst) === name) as ts.PropertyAssignment;
-  assert.ok(prop, 'Missing step property ' + name); return prop.initializer;
-}
-function stepDefinition(id: string): ts.ObjectLiteralExpression {
-  const step = merdekaSteps.elements.find(node => ts.isObjectLiteralExpression(node) && (property(node, 'id') as ts.StringLiteral).text === id);
-  assert.ok(step, 'Missing Merdeka step ' + id); return step as ts.ObjectLiteralExpression;
-}
-function evaluateStep(id: string, name: string, stepStates: Record<string, any>, selected: boolean) {
-  const expression = property(stepDefinition(id), name).getText(stepperAst);
-  return new Function('stepStates', 'hasSelectedSemester', 'return (' + expression + ');')(stepStates, selected);
-}
-function componentProp(component: string, name: string): string {
-  const node = findNode(appAst, node => (ts.isJsxSelfClosingElement(node) || ts.isJsxOpeningElement(node)) && node.tagName.getText(appAst) === component) as ts.JsxSelfClosingElement;
-  const prop = node.attributes.properties.find(p => ts.isJsxAttribute(p) && p.name.getText(appAst) === name) as ts.JsxAttribute;
-  assert.ok(prop && prop.initializer && ts.isJsxExpression(prop.initializer) && prop.initializer.expression, component + '.' + name);
-  return (prop.initializer as ts.JsxExpression).expression!.getText(appAst).replace(/\s+/g, '');
-}
+const adminHubSource = fs.readFileSync(adminHubPath, 'utf-8');
 
 // -----------------------------------------------------------------------------
 // TEST 1: WorkflowStepId contains 'semester'
@@ -288,33 +259,58 @@ runTest("1. WorkflowStepId type union contains 'semester'", () => {
 });
 
 // -----------------------------------------------------------------------------
-// TEST 2: Merdeka Stepper Order: 06 ATP -> 07 PEMETAAN -> 08 RENCANA TAHUNAN -> 09 SEMESTER -> 10 ADMINISTRASI
+// TEST 2: Merdeka Stepper Order: 06 ATP -> 07 SEMESTER -> 08 ADMINISTRASI
 // -----------------------------------------------------------------------------
-runTest('2. Merdeka preserves all ten V20 steps and their numbers', () => {
- const expected = ['profile','academic','cp','cp-analysis','tp','atp','atp-mapping','annual-planning','semester','admin'];
- assert.deepStrictEqual(merdekaSteps.elements.map(node => (property(node as ts.ObjectLiteralExpression,'id') as ts.StringLiteral).text),expected);
- expected.forEach((id,index)=>assert.strictEqual((property(stepDefinition(id),'num') as ts.StringLiteral).text,String(index+1).padStart(2,'0')));
+runTest('2. Merdeka Stepper step order is 06 ATP -> 07 SEMESTER -> 08 ADMINISTRASI', () => {
+  const merdekaBlockMatch = stepperSource.match(/isMerdekaActive\s*\?\s*\[([\s\S]*?)\]\s*:/);
+  assert.ok(merdekaBlockMatch, 'isMerdekaActive steps array must exist in WorkflowStepper');
+  const merdekaBlock = merdekaBlockMatch[1];
+
+  const atpIdx = merdekaBlock.indexOf("id: 'atp'");
+  const semesterIdx = merdekaBlock.indexOf("id: 'semester'");
+  const adminIdx = merdekaBlock.indexOf("id: 'admin'");
+
+  assert.ok(atpIdx !== -1, 'atp step must be defined in Merdeka steps');
+  assert.ok(semesterIdx !== -1, 'semester step must be defined in Merdeka steps');
+  assert.ok(adminIdx !== -1, 'admin step must be defined in Merdeka steps');
+
+  assert.ok(atpIdx < semesterIdx, 'ATP step must come before SEMESTER step');
+  assert.ok(semesterIdx < adminIdx, 'SEMESTER step must come before ADMINISTRASI step');
+
+  assert.ok(
+    merdekaBlock.includes("title: 'SEMESTER'"),
+    'WorkflowStepper must define title: SEMESTER'
+  );
+  assert.ok(
+    merdekaBlock.includes("sub: 'Pilih Semester Aktif'"),
+    'WorkflowStepper must define sub: Pilih Semester Aktif'
+  );
+  assert.ok(
+    merdekaBlock.includes("num: '07'"),
+    'SEMESTER step must have num: 07'
+  );
+  assert.ok(
+    merdekaBlock.includes("num: '08'"),
+    'ADMINISTRASI step in Merdeka must have num: 08'
+  );
 });
 
 // -----------------------------------------------------------------------------
-// TEST 3: V20 forward/back transitions and mapping readiness guard
+// TEST 3: ATP onNextStep transitions to 'semester'
 // -----------------------------------------------------------------------------
-runTest('3. Forward/back navigation includes mapping and annual planning without skipped stages', () => {
- for(const [component,prop,target] of [
-  ['ATPManager','onNextStep','atp-mapping'], ['ATPManager','onBackToTP','tp'],
-  ['ATPUnitMappingManager','onBackToATP','atp'],
-  ['AnnualPlanningManager','onNextStep','semester'], ['AnnualPlanningManager','onBackToMapping','atp-mapping'],
-  ['SemesterSelector','onNextStep','admin'], ['SemesterSelector','onBackToATP','annual-planning'],
- ]) assert.strictEqual(componentProp(component,prop),"()=>setCurrentStep('"+target+"')",component+'.'+prop);
- assert.strictEqual(componentProp('ATPUnitMappingManager','onNextStep'),'handleEnterAnnualPlanning');
- const handler = findNode(appAst,node=>ts.isVariableDeclaration(node)&&node.name.getText(appAst)==='handleEnterAnnualPlanning') as ts.VariableDeclaration;
- const body=handler.initializer!.getText(appAst).replace(/\s+/g,'');
- assert.ok(body.includes('resolveATPUnitMappingReadiness('));
- assert.ok(body.includes("if(!readiness.canProceed){"));
- assert.ok(body.includes("setCurrentStep('atp-mapping');return;"));
- assert.ok(body.endsWith("setCurrentStep('annual-planning');}"));
- const selection=findNode(appAst,node=>ts.isVariableDeclaration(node)&&node.name.getText(appAst)==='handleSelectStep') as ts.VariableDeclaration;
- assert.ok(selection.initializer!.getText(appAst).replace(/\s+/g,'').includes("if(step==='annual-planning'){handleEnterAnnualPlanning();return;}"));
+runTest("3. ATP onNextStep in App.tsx transitions to setCurrentStep('semester')", () => {
+  const atpBlockMatch = appSource.match(/\{currentStep === 'atp' && \([\s\S]*?<\/>|\{currentStep === 'atp' && \([\s\S]*?\)\}/);
+  assert.ok(atpBlockMatch, 'ATPManager render block must exist in App.tsx');
+  const atpBlock = atpBlockMatch[0];
+
+  assert.ok(
+    atpBlock.includes("onNextStep={() => setCurrentStep('semester')}"),
+    "ATP onNextStep must call setCurrentStep('semester')"
+  );
+  assert.ok(
+    !atpBlock.includes("onNextStep={() => setCurrentStep('admin')}"),
+    "ATP onNextStep must not navigate directly to 'admin'"
+  );
 });
 
 // -----------------------------------------------------------------------------
@@ -530,23 +526,45 @@ runTest('17. V3 Storage Sentinel remains byte-identical throughout semester oper
 // -----------------------------------------------------------------------------
 // TEST 18: Academic Calendar & Time Allocation Activated in B.4.1 & B.4.2, Other Handlers Remain Unactivated
 // -----------------------------------------------------------------------------
-runTest('18. Calendar/time saves support explicit semester targets; students use selected semester', () => {
- assert.ok(appSource.includes('saveAcademicCalendarV5(targetSemesterPlan.id,'));
- assert.ok(appSource.includes('saveTimeAllocationV5(targetSemesterPlan.id, allocations);'));
- assert.ok(appSource.includes('explicitSemesterPlanId || activeSemesterPlan?.id'));
- assert.ok(appSource.includes('saveRosterV5(activeSemesterPlan.id, stdList);'));
+runTest('18. Academic Calendar & Time Allocation persistence are activated, remaining B.4 save handlers remain no-op', () => {
+  assert.ok(
+    appSource.includes('saveAcademicCalendarV5(activeSemesterPlan.id,'),
+    'handleSaveCalendar must call saveAcademicCalendarV5 in B.4.1'
+  );
+  assert.ok(
+    appSource.includes('saveTimeAllocationV5(activeSemesterPlan.id, allocations);') &&
+      appSource.includes('refreshV5();'),
+    'handleSaveTimeAllocations must call saveTimeAllocationV5 scoped to activeSemesterPlan.id followed by refreshV5()'
+  );
+  assert.ok(
+    appSource.includes('const handleSaveStudents = (stdList: any[]) => {};'),
+    'handleSaveStudents must remain no-op'
+  );
 });
 
 // -----------------------------------------------------------------------------
 // TEST 19: Semester Step Incomplete Semantics in WorkflowEngine
 // -----------------------------------------------------------------------------
-runTest('19. Semester readiness requires completed, current annual planning, not ATP alone', () => {
- const engine=fs.readFileSync(path.resolve('src/services/workflowEngine.ts'),'utf8').replace(/\s+/g,'');
- assert.ok(engine.includes('constisSemesterBlocked=!isAnnualPlanningComplete||isAnnualPlanningStale;'));
- const body=engine.match(/stepStates\.semester=\{([^}]+)\};/)![1];
- assert.ok(body.includes("status:isSemesterBlocked?'BLOCKED':'READY'"));
- assert.ok(body.includes('isBlocked:isSemesterBlocked'));
- assert.ok(body.includes('isComplete:false'));
+runTest('19. WorkflowEngine defines semester step as READY but isComplete: false until explicit selection', () => {
+  const workflowEnginePath = path.resolve(process.cwd(), 'src/services/workflowEngine.ts');
+  const workflowEngineSource = fs.readFileSync(workflowEnginePath, 'utf-8');
+
+  const semesterStepMatch = workflowEngineSource.match(/stepStates\.semester\s*=\s*\{([\s\S]*?)\};/);
+  assert.ok(semesterStepMatch, 'stepStates.semester definition must exist in workflowEngine.ts');
+  const semesterStepBody = semesterStepMatch[1];
+
+  assert.ok(
+    semesterStepBody.includes("status: isATPComplete ? 'READY' : 'BLOCKED'"),
+    "Semester step must define status: isATPComplete ? 'READY' : 'BLOCKED'"
+  );
+  assert.ok(
+    semesterStepBody.includes('isComplete: false'),
+    'Semester step must define isComplete: false (ATP completion does not imply semester selection completion)'
+  );
+  assert.ok(
+    !semesterStepBody.includes('isComplete: isATPComplete'),
+    'Semester step must reject isComplete: isATPComplete'
+  );
 });
 
 // -----------------------------------------------------------------------------
@@ -572,28 +590,70 @@ runTest('20. App.tsx derives isActiveSemesterValid without local authority or in
 // -----------------------------------------------------------------------------
 // TEST 21: semesterAcademicSetting Compatibility Projection Semantics
 // -----------------------------------------------------------------------------
-runTest('21. Semester projection uses canonical identity, selected semester and actual weekly JP', () => {
- assert.ok(appSource.includes('const semesterAcademicSetting = useMemo<AcademicSetting | undefined>('));
- assert.ok(appSource.replace(/\s+/g,'').includes("activeSemesterPlan.semester===1?'1(Ganjil)':'2(Genap)'"));
- assert.ok(appSource.includes('id: activeSemesterPlan.id,'));
- assert.ok(appSource.includes('totalHoursPerWeek: weeklyJP,'));
- assert.ok(appSource.includes('hoursSourceType: weeklyJPSource,'));
+runTest('21. App.tsx creates semesterAcademicSetting compatibility projection without fake JP', () => {
+  assert.ok(
+    appSource.includes('const semesterAcademicSetting = useMemo<AcademicSetting | undefined>('),
+    'App.tsx must define semesterAcademicSetting via useMemo'
+  );
+  assert.ok(
+    appSource.includes("activeSemesterPlan.semester === 1\n          ? '1 (Ganjil)'\n          : '2 (Genap)'") ||
+      appSource.includes("activeSemesterPlan.semester === 1 ? '1 (Ganjil)' : '2 (Genap)'"),
+    'semesterAcademicSetting must project semester number to 1 (Ganjil) / 2 (Genap)'
+  );
+  assert.ok(
+    appSource.includes('id: activeSemesterPlan.id,'),
+    'semesterAcademicSetting must use activeSemesterPlan.id as its canonical ID'
+  );
+  assert.ok(
+    !appSource.includes('subjectWeeklyJP:') && !appSource.includes('totalHoursPerWeek:'),
+    'semesterAcademicSetting must not invent fake weekly JP or defaults'
+  );
 });
 
 // -----------------------------------------------------------------------------
 // TEST 22: WorkflowStepper Receives activeSemesterPlan & Enforces Merdeka Gate
 // -----------------------------------------------------------------------------
-runTest('22. Selected semester cannot override upstream blocking/staleness in Stepper', () => {
- for(const blocked of [false,true]) for(const selected of [false,true]) {
-  const states={semester:{status:blocked?'BLOCKED':'READY',isBlocked:blocked,isComplete:false,reason:blocked?'annual planning incomplete':undefined},admin:{status:blocked?'STALE':'READY',isBlocked:blocked,isComplete:false,reason:blocked?'annual planning stale':undefined}};
-  assert.strictEqual(evaluateStep('semester','status',states,selected),blocked?'BLOCKED':selected?'COMPLETE':'READY');
-  assert.strictEqual(evaluateStep('semester','isComplete',states,selected),!blocked&&selected);
-  assert.strictEqual(evaluateStep('semester','isLocked',states,selected),blocked);
-  assert.strictEqual(evaluateStep('admin','isLocked',states,selected),blocked||!selected);
-  assert.strictEqual(evaluateStep('admin','status',states,selected),blocked?'BLOCKED':selected?'READY':'BLOCKED');
-  assert.strictEqual(evaluateStep('admin','isComplete',states,selected),false);
-  assert.strictEqual(evaluateStep('admin','lockReason',states,selected),blocked?'annual planning stale':!selected?'Pilih semester aktif terlebih dahulu':undefined);
- }
+runTest('22. WorkflowStepper receives activeSemesterPlan and gates Merdeka Semester & Admin steps', () => {
+  assert.ok(
+    stepperSource.includes('activeSemesterPlan?: SemesterPlan;'),
+    'WorkflowStepperProps must include activeSemesterPlan?: SemesterPlan'
+  );
+  assert.ok(
+    stepperSource.includes('const hasSelectedSemester = !!activeSemesterPlan;'),
+    'WorkflowStepper must compute hasSelectedSemester based on activeSemesterPlan'
+  );
+
+  const merdekaBlockMatch = stepperSource.match(/isMerdekaActive\s*\?\s*\[([\s\S]*?)\]\s*:/);
+  assert.ok(merdekaBlockMatch, 'isMerdekaActive steps array must exist');
+  const merdekaBlock = merdekaBlockMatch[1];
+
+  // Semester step in Stepper
+  assert.ok(
+    merdekaBlock.includes("status: hasSelectedSemester ? 'COMPLETE' : stepStates.semester.status"),
+    "Semester step in Stepper must be COMPLETE when hasSelectedSemester is true"
+  );
+  assert.ok(
+    merdekaBlock.includes('isComplete: hasSelectedSemester ? true : stepStates.semester.isComplete'),
+    'Semester step in Stepper must be isComplete: true only when selected'
+  );
+
+  // Admin step in Stepper
+  assert.ok(
+    merdekaBlock.includes("status: !hasSelectedSemester ? 'BLOCKED' : 'READY'"),
+    "Admin step in Stepper must be BLOCKED when no semester is selected and READY when selected"
+  );
+  assert.ok(
+    merdekaBlock.includes('isLocked: !hasSelectedSemester'),
+    'Admin step must be locked when no semester is selected'
+  );
+  assert.ok(
+    merdekaBlock.includes("lockReason: !hasSelectedSemester ? 'Pilih semester aktif terlebih dahulu' : undefined"),
+    "Admin step lockReason must state 'Pilih semester aktif terlebih dahulu'"
+  );
+  assert.ok(
+    merdekaBlock.includes('isComplete: false'),
+    'Admin step must NOT claim isComplete: true merely from ATP'
+  );
 });
 
 // -----------------------------------------------------------------------------
@@ -653,14 +713,14 @@ runTest('25. Merdeka AdministrationHub receives semesterAcademicSetting and is n
 // -----------------------------------------------------------------------------
 // TEST 26: AdministrationHub Back Navigation to Semester for Merdeka
 // -----------------------------------------------------------------------------
-runTest("26. AdministrationHub back button navigates to 'semester' with label (09) for Merdeka", () => {
+runTest("26. AdministrationHub back button navigates to 'semester' with label (07) for Merdeka", () => {
   assert.ok(
     adminHubSource.includes("onClick={() => onBackToStep(isK13Active ? 'k13-tujuan' : 'semester')}"),
     "AdministrationHub back button must call onBackToStep('semester') for Merdeka"
   );
   assert.ok(
-    adminHubSource.includes("{isK13Active ? '← Kembali ke Tujuan & IPK (05)' : '← Kembali ke Pilih Semester (09)'}"),
-    "AdministrationHub back button label must be '← Kembali ke Pilih Semester (09)' for Merdeka"
+    adminHubSource.includes("{isK13Active ? '← Kembali ke Tujuan & IPK (05)' : '← Kembali ke Pilih Semester (07)'}"),
+    "AdministrationHub back button label must be '← Kembali ke Pilih Semester (07)' for Merdeka"
   );
 });
 
@@ -679,9 +739,9 @@ runTest("27. K13 back button navigates to 'k13-tujuan' with label (05)", () => {
 });
 
 // -----------------------------------------------------------------------------
-// TEST 28: Semester Save Handler Availability
+// TEST 28: Full B.4 Save Handlers Inactivity Verification
 // -----------------------------------------------------------------------------
-runTest('28. All semester save handlers remain defined in App.tsx', () => {
+runTest('28. All B.4 downstream save handlers in App.tsx remain strictly no-op', () => {
   const noOpHandlers = [
     'handleSaveCalendar',
     'handleSaveTimeAllocations',

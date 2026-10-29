@@ -1,68 +1,66 @@
-# Final audit PR #1 — CP SMP/SMA BSKAP 046/2025
+# Finalisasi PR #1 — hanya integrasi CP SMP/SMA
 
-## Basis audit
+## Basis dan batas perubahan
 
-- Main yang di-fetch: `7dd4c39f107c184719c6069165a265709f66d6f9`.
-- Head PR sebelum finalisasi: `25a9b1a26db570f6cba00283ac2d2c9d4782d1c8`.
-- Perbandingan menggunakan checkout main terpisah pada SHA yang sama, dependensi dan runtime lokal sama (Windows, Node v24.20.0).
-- Main memiliki 62 master CP historis (17 SMP, 18 SMA, 27 SD). Semua record historis tersebut identik sebagai data dengan entri pada PR; tidak ada penghapusan, penggantian redaksi, promosi verifikasi, atau migrasi proyek.
-- Diff PR sebelumnya juga memuat perubahan tes navigasi/kalender/annualisasi dari commit 25a9b1a. Perubahan lama tersebut tidak dibatalkan atau diperluas pada finalisasi ini. Tidak ada perubahan produksi ATP, PROTA, PROMES, modul ajar, atau navigasi terhadap main dalam PR ini.
+Main yang di-fetch: `7dd4c39f107c184719c6069165a265709f66d6f9`. Head PR sebelum pemurnian scope: `136577fbeb34147775314ca118861a04e5854c9f`.
 
-## Temuan CP dan penutupan
+Lima tes non-CP dari pekerjaan sebelumnya dikembalikan persis ke versi main:
 
-1. **Referensi metadata mutable (baru pada PR, diperbaiki).** `sourceReview.grades/pages` adapter menunjuk objek JSON input; repository mengembalikan `sourceReview` master dengan referensi yang sama. Mutasi hasil pencarian dapat mengubah registry dan sumber dalam memori. Tes sebelum perbaikan gagal dengan `Adapter metadata must not alias original JSON`. Adapter kini menyalin array kelas/rentang halaman dan repository mengembalikan metadata yang di-clone. Tes mutasi dan invariansi registry PASS.
-2. **Provenance ID elemen saat COPY (celah integrasi baru, diperbaiki).** ID elemen lokal memang dipetakan ulang oleh mekanisme COPY existing. Menempatkan ID PDF hanya pada `CPElem.id` menyebabkan identitas asli tidak tersedia secara eksplisit setelah penyalinan. `sourceElementKey` kini menyimpan ID PDF pada setiap elemen/subelemen; ID lokal tetap mengikuti mekanisme existing. Tidak ada perubahan pada layanan backup/import atau data guru lama.
+- scripts/testAutoSemesterTimeAllocation.ts
+- scripts/testMerdekaATPAnnualizationIntegrity.ts
+- scripts/testMerdekaV5CalendarRuntime.ts
+- scripts/testMerdekaV5SemesterNavigation.ts
+- scripts/testStep7ImportedReadinessRegression.ts
 
-## Adapter, pemilihan, dan registry
+Laporan khusus navigasi `docs/storage-v5-navigation-regression.md` juga dihapus. Normalisasi akhir baris dalam `testMerdekaCPAnalysisIntegrity.ts` dipertahankan karena merupakan tes CP. Tidak ada perubahan kode produksi ATP, PROTA, PROMES, modul ajar, navigasi, storage, atau layanan backup–restore.
 
-- Tepat 22 SMP Fase D + 62 SMA Fase E/F, 327 elemen dan 30 subelemen. SHA-256 kedua JSON identik dengan lampiran asli; status JSON tetap REVIEW dan seluruh entri impor UNVERIFIED.
-- Nama mapel sumber dikenali melalui kode yang berbeda untuk seluruh varian Prakarya/PKWU, bahasa asing dan Sejarah Tingkat Lanjut. Tidak ada alias katalog yang berbenturan. Sistem pemilihan mengenali semua mapel impor.
-- Pencarian memerlukan identitas mapel, fase, jenjang, dan tahun ajaran yang cocok. Matriks 2024/2025, 2025/2026, 2026/2027 tidak menghasilkan ambiguitas tak terjelaskan. Kandidat lain yang sengaja dibuat bertabrakan tetap ditolak sebagai AMBIGUOUS.
-- CP baru tidak dipakai untuk 2024/2025. Versi historis tetap tersedia sesuai metadata lama. Sumber agama 046/2025 tidak menggantikan sumber agama 2026. Kekosongan agama SMA F pada 2026/2027 tetap UNRESOLVED, tidak diisi data 2025.
-- Metadata regulasi 020/2026 tetap memerlukan review naskah keputusan/masa implementasi. Batas tahun ajaran existing dipertahankan, bukan klaim validasi hukum baru.
-- 169 label awal SMA dipisahkan hanya ketika nama cocok persis dan diikuti whitespace. Redaksi asli disimpan; induk dengan subelemen tetap hadir dan kontennya memproyeksikan seluruh subelemen.
-- Dua pilihan generik lama (`Seni dan Prakarya`, `Matematika (Wajib/Pilihan)`) kini tidak dipaksakan menjadi satu mapel khusus melalui substring. Nilai tersimpan tidak dimodifikasi; guru dapat memilih nama mapel eksplisit yang sudah ditambahkan. Ini perilaku fail-closed yang disengaja, bukan migrasi.
+Seluruh kode produksi, package.json dan tes CP tetap identik dengan commit 136577f. Integrasi adapter/registry, kedua JSON sumber, metadata regulasi/PDF, sourceElementKey dan perlindungan referensi metadata tetap dipertahankan. Koreksi scope dilakukan dengan commit baru, tanpa menulis ulang riwayat.
 
-## Keamanan data dan bukti pengujian
+## Integrasi dan keamanan CP
+
+- Tepat 22 SMP Fase D + 62 SMA Fase E/F, 327 elemen dan 30 subelemen. Kedua JSON byte-identik dengan lampiran asli berdasarkan SHA-256; status JSON tetap REVIEW dan seluruh impor tetap UNVERIFIED.
+- 62 master CP historis main (17 SMP, 18 SMA, 27 SD) tetap identik sebagai data: tidak ada penghapusan, perubahan redaksi, promosi verifikasi atau migrasi proyek guru.
+- Kode mapel terpisah untuk varian Prakarya/PKWU, bahasa asing dan Sejarah Tingkat Lanjut. Pemilihan menguji mapel, fase, jenjang dan TA 2024/2025, 2025/2026, 2026/2027. Ambiguitas disengaja ditolak, bukan first-match.
+- 169 label awal SMA dipisahkan hanya bila cocok persis dan diikuti whitespace. Teks asli disimpan. Induk yang memiliki subelemen tetap hadir dan memproyeksikan seluruh isi anak untuk alur existing.
+- Agama 046/2025 tidak menimpa agama 2026. Agama SMA F TA 2026/2027 tanpa sumber 2026 tetap UNRESOLVED. Masa implementasi regulasi 020/2026 tetap perlu review naskah keputusan; tidak diklaim sudah divalidasi secara hukum.
+- Dua pilihan generik lama (Seni dan Prakarya; Matematika Wajib/Pilihan) tidak dipaksakan menjadi satu mapel khusus melalui substring. Nilai guru tersimpan tidak dimodifikasi; pilihan mapel eksplisit telah ditambahkan.
+
+Dua celah CP telah ditutup pada commit 136577f dan tetap terlindungi tes: metadata hasil pencarian tidak berbagi referensi mutable dengan JSON/registry, dan sourceElementKey menyimpan ID PDF ketika COPY memetakan ulang ID lokal.
+
+## Pengujian setelah pemurnian scope
 
 | Pemeriksaan | Hasil |
 | --- | --- |
-| testCP046ReviewIntegration | PASS — 84/327/30, identitas mapel, fase/jenjang/TA, label dan status sumber |
-| testCP046SafetyRegression dengan snapshot main | PASS — 62 record historis utuh, metadata tidak beralias, seluruh 84 CP diuji ZIP RESTORE dan COPY |
+| testCP046ReviewIntegration | PASS: 84/327/30, identitas, matriks pemilihan, sumber byte-identik, status REVIEW |
+| testCP046SafetyRegression dengan snapshot main | PASS: histori utuh, metadata terisolasi, seluruh 84 CP diuji ZIP RESTORE/COPY |
 | testCPSourceSearchRuntimeRegression | PASS |
-| testPJOKSDCPResolverRegression | PASS — perilaku CP SD tidak berubah |
+| testPJOKSDCPResolverRegression | PASS |
 | testCPAnalysisSemanticReviewRegression | PASS |
 | testMerdekaV5AnnualCPRuntime | PASS |
+| testMerdekaCPAnalysisIntegrity | PASS |
 | testCompleteProjectArchiveRegression | PASS |
-| testStorageV5Persistence / testStorageV5Contract | PASS / PASS |
+| testStorageV5Persistence | PASS |
+| testStorageV5Contract | PASS |
 
-Pada seluruh 84 uji ZIP: teks asli, hierarki, ID sumber, metadata regulasi/halaman, status UNVERIFIED, profil guru, dan CP asal tetap utuh. ID lokal COPY boleh berbeda. Source state tidak berubah. Tidak ada pemanggilan migrasi atau penulisan ke data guru nyata. Belum ada bukti klik UI browser atau validasi akhir redaksi PDF; hasil ini adalah pengujian data/kontrak dan build.
+Uji seluruh 84 ZIP membuktikan teks, hierarki, ID sumber, metadata, status UNVERIFIED, profil guru, dan CP asal tetap utuh. ID lokal COPY memang berbeda; source state tetap identik. Tidak ada penulisan ke data guru nyata atau migrasi otomatis. Bukti ini berupa tes data/kontrak; tidak mencakup klik UI atau validasi akhir redaksi terhadap PDF.
 
-## Klasifikasi CI dan baseline
+## Klasifikasi CI versus baseline main
 
-[CI main pada SHA 7dd4c39](https://github.com/lkpbudibakti-netizen/alco-adm-v-20-finishing/actions/runs/40671332430) FAIL pada tes navigasi semester lama. [CI PR pada SHA 25a9b1a](https://github.com/lkpbudibakti-netizen/alco-adm-v-20-finishing/actions/runs/40814169068) melewati navigasi, lalu FAIL pada `testCanonicalPromesProjection.ts:202`.
+[CI main pada SHA 7dd4c39](https://github.com/lkpbudibakti-netizen/alco-adm-v-20-finishing/actions/runs/40671332430) gagal pada tes navigasi semester lama. Setelah pemurnian scope, tes navigasi PR kembali identik dengan main. Tes navigasi dan PROMES dijalankan ulang pada kedua checkout hanya untuk membandingkan kegagalan; tidak diperbaiki.
 
-Lima tes berikut dijalankan tanpa perubahan pada main dan PR, dengan hasil/diagnostik kegagalan yang sama:
-
-| Pengujian | Main | PR | Klasifikasi |
+| Pemeriksaan | Main | PR | Klasifikasi |
 | --- | --- | --- | --- |
-| testCanonicalPromesProjection | FAIL | FAIL | Baseline main, bukan regresi CP |
-| testCanonicalAlokasiWaktuDocument | FAIL | FAIL | Baseline main; baris proyeksi undefined/allocatedJP |
-| testCanonicalProtaProjection | FAIL | FAIL | Baseline main; assertion readiness proyeksi |
-| testAuditNo8LearningPlanRegression | FAIL (2 assertion) | FAIL (2 assertion) | Baseline main |
-| testRecoveryM1ModulAjarPrintPrivacyRegression | FAIL | FAIL | Baseline main; build ID/readiness/export fixture |
+| testMerdekaV5SemesterNavigation | FAIL | FAIL | Baseline main: tes lama mengharapkan ATP langsung ke semester |
+| testCanonicalPromesProjection | FAIL | FAIL | Baseline main: assertion readiness proyeksi pertama |
 
-Tidak ada perubahan tes/generator tersebut. Pengujian baseline tidak boleh disamakan dengan bukti UI atau provider live. TypeScript final: FAIL pada main dan PR dengan 68 diagnostik yang identik; tidak ada diagnostik baru dari perubahan CP. Build produksi final PR: PASS (Vite, PWA, bundel server), dengan warning ukuran chunk.
+Audit sebelumnya pada SHA main yang sama juga mereproduksi kegagalan Alokasi Waktu, PROTA, proyeksi modul ajar dan print privacy pada kedua checkout. Kode dan fixture tersebut tetap tidak diubah. Ini bukan regresi CP.
+
+Build produksi final PASS (Vite/PWA/server), dengan warning ukuran chunk. TypeScript penuh FAIL pada main dan PR dengan 68 diagnostik yang identik; tidak ada diagnostik baru. CI tidak dinyatakan hijau; masalah baseline yang tidak terkait CP tidak diperbaiki dalam PR ini.
 
 ## Keputusan
 
-Dua celah khusus CP telah ditutup; tidak ada regresi CP tersisa pada matriks dan batas pengujian di atas. Integrasi CP layak dipakai sebagai data REVIEW/UNVERIFIED. CI keseluruhan tetap merah karena baseline main dan tidak dinyatakan PASS. Branch juga masih memuat perubahan tes non-CP dari pekerjaan sebelumnya; finalisasi ini tidak meninjau atau menyetujui ulang cakupan tersebut. Kelayakan integrasi CP tidak berarti semua perubahan PR atau seluruh CI telah tervalidasi. Tidak ada merge otomatis.
+Tidak ada regresi baru pada cakupan CP yang diuji. Integrasi CP layak digabung sebagai data REVIEW/UNVERIFIED, dengan catatan CI keseluruhan masih gagal pada masalah baseline main. Diff PR tidak lagi mencakup lima perubahan tes non-CP dan laporan navigasi di atas. Tidak ada merge otomatis.
 
-## File finalisasi ini
+## File commit pemurnian scope
 
-- src/data/curriculum/cp/review046Adapter.ts
-- src/services/cpSourceRepository.ts
-- src/types/index.ts
-- scripts/testCP046SafetyRegression.ts
-- package.json (perintah pengujian CP safety)
-- docs/cp046-final-audit.md
+Lima tes non-CP dipulihkan ke main, laporan navigasi dihapus, dan laporan CP ini diperbarui: total tujuh file dalam commit pemurnian. Integrasi dan CP safety tidak berubah.

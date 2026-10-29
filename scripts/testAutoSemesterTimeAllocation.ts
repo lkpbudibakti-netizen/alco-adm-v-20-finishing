@@ -747,17 +747,16 @@ runTest('13, 14 & 15. Draft lifecycle, Annual ATP byte immutability, and semeste
 // -----------------------------------------------------------------------------
 runTest('16. Contract B & C: TimePlanningManager source contract enforces exact semester authority and fails closed without activeSemester fallback', () => {
   const componentPath = path.resolve(process.cwd(), 'src/components/administration/TimePlanningManager.tsx');
-  const componentSource = readSource(componentPath, 'utf-8');
+  const componentSource = fs.readFileSync(componentPath, 'utf-8');
 
-  assert.ok(componentSource.includes('const effectiveSemesterPlanId = explicitSemesterPlanId || academicSetting.id;'), 'Annual planning must pass an explicit semester identity');
-  // Match the effective canonical semester identity, including annual-planning targets.
+  // Must contain exact matching logic for sem1 and sem2 plan IDs
   assert.ok(
-    componentSource.includes('effectiveSemesterPlanId === autoAllocationReadiness.sem1PlanId'),
-    'Must check effectiveSemesterPlanId === autoAllocationReadiness.sem1PlanId'
+    componentSource.includes('academicSetting.id === autoAllocationReadiness.sem1PlanId'),
+    'Must check academicSetting.id === autoAllocationReadiness.sem1PlanId'
   );
   assert.ok(
-    componentSource.includes('effectiveSemesterPlanId === autoAllocationReadiness.sem2PlanId'),
-    'Must check effectiveSemesterPlanId === autoAllocationReadiness.sem2PlanId'
+    componentSource.includes('academicSetting.id === autoAllocationReadiness.sem2PlanId'),
+    'Must check academicSetting.id === autoAllocationReadiness.sem2PlanId'
   );
 
   // Extract handleAutoAllocate implementation block
@@ -806,7 +805,7 @@ runTest('17. Contract F: auto readiness strictly queries canonical storage V5 wi
 // -----------------------------------------------------------------------------
 runTest('18. Contract G: handleAutoAllocate source contract validates strictly against canonical targetCap.availableJP without draft fallback', () => {
   const componentPath = path.resolve(process.cwd(), 'src/components/administration/TimePlanningManager.tsx');
-  const componentSource = readSource(componentPath, 'utf-8');
+  const componentSource = fs.readFileSync(componentPath, 'utf-8');
 
   const autoAllocateMatch = componentSource.match(/const handleAutoAllocate = \(\) => {([\s\S]*?)const handleExportKalender/);
   assert.ok(autoAllocateMatch, 'handleAutoAllocate must exist in TimePlanningManager');
@@ -832,7 +831,3 @@ runTest('18. Contract G: handleAutoAllocate source contract validates strictly a
 });
 
 console.log('\nAll B.4.2B Automatic Semester Time Allocation regression tests PASSED 100%!\n');
-
-function readSource(file: string, encoding: 'utf-8' | 'utf8'): string {
-  return fs.readFileSync(file, encoding).replace(/\r\n/g, '\n');
-}
