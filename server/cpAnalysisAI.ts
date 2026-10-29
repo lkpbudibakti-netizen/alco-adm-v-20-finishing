@@ -27,7 +27,7 @@ DATA: ${JSON.stringify(input)}`,
 }
 
 // CP-only endpoint handler; dependency injection exercises the same production path without a live key.
-export async function handleCPAnalysisAI(input:any, generate?: (request:ReturnType<typeof buildCPAnalysisRequest>)=>Promise<unknown>) {
+export async function handleCPAnalysisAI(input:any, generate?: (request:ReturnType<typeof buildCPAnalysisRequest>)=>Promise<unknown>, propagateProviderErrors=false) {
   const elements: CPElem[]=Array.isArray(input?.elements)?input.elements:[];
   const targets: UnderstandingTarget[]=Array.isArray(input?.retryTargets)?input.retryTargets:[];
   if(!elements.length || elements.some(e=>!e||typeof e.id!=='string'||!e.id.trim()||typeof e.content!=='string'||typeof e.name!=='string') || new Set(elements.map(e=>e.id)).size!==elements.length) return {status:400,body:{code:'CP_ELEMENTS_REQUIRED',stage:'request',error:'Elemen CP kanonikal dengan ID unik diperlukan.'}};
@@ -42,6 +42,7 @@ export async function handleCPAnalysisAI(input:any, generate?: (request:ReturnTy
     }
     return {status:200,body:{success:validation.valid,data:{generalSummary:typeof (payload as any)?.generalSummary==='string'?(payload as any).generalSummary:'',items:validation.items},validation,engine:generate?'gemini':'pedagogical_engine'}};
   } catch(error) {
+    if(propagateProviderErrors)throw error;
     const timeout=error instanceof Error && /timeout|timed out|abort/i.test(error.name+' '+error.message);
     return {status:timeout?504:502,body:{code:timeout?'AI_TIMEOUT':'AI_PROVIDER_ERROR',stage:'provider',error:timeout?'Permintaan AI melewati batas waktu.':'Layanan AI gagal menghasilkan analisis. Silakan coba lagi.'}};
   }
