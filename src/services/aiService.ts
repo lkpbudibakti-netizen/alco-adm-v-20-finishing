@@ -1,3 +1,5 @@
+import { validateAnalysisAI, type UnderstandingTarget, type AnalysisAIValidation } from './cpAnalysisAIContract';
+import { CPAnalysisAIError } from './cpAnalysisAIDiagnostics';
 import { validateLearningPlanActivityMeetings } from './learningPlanActivityMeetingService';
 import {
   CPElem,
@@ -24,6 +26,7 @@ import { recordDiagnosticEvent } from './diagnosticService';
 import { assignGeneratedTPCodes, CANONICAL_MERDEKA_TP_CODE_REGEX } from './tpCodeContract';
 
 export interface CanonicalCPAnalysisResult {
+  validation?: AnalysisAIValidation;
   generalSummary: string;
   items: Array<{
     elementId?: string;
@@ -531,37 +534,42 @@ export function formatAIErrorMessage(error: any, actionName: string = 'memproses
 }
 
 export async function analyzeCPWithAI(params: {
-  cpText: string;
-  elements: CPElem[];
-  subject: string;
-  grade: string;
-  phase: string;
-  curriculum: string;
-}): Promise<CanonicalCPAnalysisResult> {
-  try {
+  cpText: string; elements: CPElem[]; subject: string; grade: string; phase: string; curriculum: string;
+  retryTargets?: UnderstandingTarget[];
+}, timeoutMs = 90000): Promise<CanonicalCPAnalysisResult> {
+  const controller = new AbortController();
+  let timer: ReturnType<typeof setTimeout>;
+  const request = async (): Promise<CanonicalCPAnalysisResult> => {
     const res = await aiFetch('/api/ai/analyze-cp', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(params),
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(params), signal: controller.signal,
     });
-
-    if (!res.ok) {
-      const errData = await res.json().catch(() => ({}));
-      if (errData.code === 'AI_NOT_CONFIGURED') {
-        throw new Error('Layanan AI belum dikonfigurasi pada server.');
-      }
-      throw new Error(errData.error || `Gagal menganalisis CP (Status ${res.status})`);
+    if(!res.ok) {
+      const body = await res.json().catch(()=>null);
+      const code = ['AI_NOT_CONFIGURED','AI_PROVIDER_ERROR','AI_TIMEOUT','CP_ELEMENTS_REQUIRED','RETRY_TARGET_INVALID'].includes(body?.code) ? body.code : 'AI_API_ERROR';
+      throw new CPAnalysisAIError(code, ['provider','request'].includes(body?.stage) ? body.stage : 'transport');
     }
-
-    const data = await res.json();
-    const payload = data.data || data;
-    return {
-      ...payload,
-      engine: data.engine === 'gemini' ? 'gemini' : 'pedagogical_engine',
-    };
-  } catch (err) {
-    throw new Error(formatAIErrorMessage(err, 'menganalisis Capaian Pembelajaran'));
-  }
+    const body = await res.json().catch(()=>{throw new CPAnalysisAIError('RESPONSE_INVALID','response');});
+    const payload = body?.data || body;
+    const validation = validateAnalysisAI(payload, params.elements, params.retryTargets);
+    // Server-only semantic coverage findings are additive, not a replacement for client validation.
+    if(Array.isArray(body?.validation?.issues)) for(const issue of body.validation.issues) {
+      if(['CP_COVERAGE_REVIEW','CANONICAL_REFERENCE_INVALID','DUPLICATE_TARGET','RESPONSE_INVALID'].includes(issue.code)) {
+        validation.issues.push({elementId:params.elements.find(e=>e.id===issue.elementId)?.id || '',field:'items',code:issue.code});
+      }
+    }
+    validation.valid=validation.issues.length===0;
+    return {generalSummary:typeof payload?.generalSummary==='string'?payload.generalSummary:'', items:validation.items,
+      engine:body?.engine==='gemini'?'gemini':'pedagogical_engine',validation};
+  };
+  try {
+    return await Promise.race([request(),new Promise<never>((_,reject)=>{
+      timer=setTimeout(()=>{controller.abort();reject(new CPAnalysisAIError('AI_TIMEOUT','transport'));},timeoutMs);
+    })]);
+  } catch(error) {
+    if(error instanceof CPAnalysisAIError) throw error;
+    throw new CPAnalysisAIError(controller.signal.aborted?'AI_TIMEOUT':'AI_API_ERROR','transport');
+  } finally {clearTimeout(timer!);}
 }
 
 export async function generateTPWithAI(params: GenerateTPParams): Promise<GenerateTPResult> {

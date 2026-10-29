@@ -212,8 +212,8 @@ runTest('7. basedOnCpUpdatedAt remains tied to current CP timestamp', () => {
   // Both handleSave and handleGenerateFromCP must tie basedOnCpUpdatedAt to cp.updatedAt
   const matches = compSource.match(/basedOnCpUpdatedAt:\s*cp\.updatedAt/g);
   assert.ok(
-    matches && matches.length >= 2,
-    'basedOnCpUpdatedAt must reference cp.updatedAt across save and derive handlers'
+    matches && matches.length >= 1 && compSource.includes('cpAnalysis?.basedOnCpUpdatedAt ||'),
+    'Explicit save must preserve existing basedOnCpUpdatedAt; local derive references current CP'
   );
 });
 
@@ -667,15 +667,15 @@ runTest('25. handleSave evaluates candidate to determine final workflowStatus', 
   );
 });
 
-runTest('26. Rebase paths (executeAIAnalysis & handleGenerateFromCP) rebase to active cp.updatedAt and clear needsReview', () => {
+runTest('26. AI stages a proposal without saving/rebasing; explicit local derive retains its rebase contract', () => {
   const compPath = path.resolve(process.cwd(), 'src/components/CPAnalysisManager.tsx');
   const compSource = fs.readFileSync(compPath, 'utf-8').replace(/\r\n/g, '\n');
 
-  // Both rebase handlers must use active cp.updatedAt and clear needsReview
-  const aiMatch = compSource.match(/executeAIAnalysis = async \(\) => \{([\s\S]*?)\n  \};/);
+  // AI must preserve stored review lineage; behavioral coverage lives in testStep4MeaningfulUnderstandingRegression.
+  const aiMatch = compSource.match(/executeAIAnalysis = async \([^)]*\) => \{([\s\S]*?)\n  \};/);
   assert.ok(aiMatch, 'executeAIAnalysis must exist');
-  assert.ok(aiMatch[1].includes('needsReview: false'), 'executeAIAnalysis must clear needsReview');
-  assert.ok(aiMatch[1].includes('basedOnCpUpdatedAt: cp.updatedAt'), 'executeAIAnalysis must rebase to cp.updatedAt');
+  assert.ok(!aiMatch[1].includes('needsReview: false'), 'AI must not clear stored review state');
+  assert.ok(!aiMatch[1].includes('onSaveCPAnalysis('), 'AI must stage results without auto-saving');
 
   const deriveMatch = compSource.match(/handleGenerateFromCP = \(\) => \{([\s\S]*?)\n  \};/);
   assert.ok(deriveMatch, 'handleGenerateFromCP must exist');
@@ -795,15 +795,15 @@ runTest('31. handleSaveCPAnalysis does not rebase basedOnCpUpdatedAt uncondition
 });
 
 runTest('32. /api/ai/analyze-cp enforces semantic coverage and includes PJOK Fase A 046/2025 clauses', () => {
-  const serverPath = path.resolve(process.cwd(), 'server.ts');
+  const serverPath = path.resolve(process.cwd(), 'server/cpAnalysisAI.ts');
   const serverSource = fs.readFileSync(serverPath, 'utf-8');
 
   assert.ok(
-    serverSource.includes('fallbackAnalyzeCP({ cpText, elements: validElements'),
+    serverSource.includes('fallbackAnalyzeCP(input)'),
     '/api/ai/analyze-cp must build deterministic baseline using fallbackAnalyzeCP'
   );
   assert.ok(
-    serverSource.includes('getSubstantiveTokens') || serverSource.includes('tokenizeSubstantive') || serverSource.includes('baselineTokens'),
+    serverSource.includes('checkSemanticCoverage(fallbackAnalyzeCP(input).items,validation.items)'),
     '/api/ai/analyze-cp must compare substantive tokens for semantic coverage guard'
   );
   assert.ok(
