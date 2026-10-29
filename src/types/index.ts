@@ -310,6 +310,8 @@ export interface CPSource {
 }
 
 export interface CPElem {
+  /** Original PDF element ID; independent of local IDs remapped during project COPY. */
+  sourceElementKey?: string;
   sourceNumber?: string;
   sourceText?: string;
   subelements?: CPElem[];

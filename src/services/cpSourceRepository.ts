@@ -244,6 +244,7 @@ class CPSourceRepository {
   private mapElement(element: CPElement, parentId: string, index: number): CPElem {
     const id = element.id || `${parentId}-elem-${index + 1}`;
     return { id, code: `E${index + 1}`, name: element.name, content: element.content,
+      ...(element.id ? { sourceElementKey: element.id } : {}),
       ...(element.number ? { sourceNumber: element.number } : {}),
       ...(element.sourceText !== undefined ? { sourceText: element.sourceText } : {}),
       ...(element.subelements ? { subelements: element.subelements.map((child, childIndex) => this.mapElement(child, id, childIndex)) } : {}),
@@ -264,7 +265,7 @@ class CPSourceRepository {
       ? String(regulation.year)
       : entry.implementationFromAcademicYear || context.academicYear || '';
     const sourceMeta: CPSource = {
-      ...(entry.sourceReview ? { sourceReview: entry.sourceReview } : {}),
+      ...(entry.sourceReview ? { sourceReview: structuredClone(entry.sourceReview) } : {}),
       id: entry.id,
       title: regulation?.title || `Capaian Pembelajaran ${subject?.name || entry.subjectCode} Fase ${entry.phase}`,
       institution: regulation?.authority || 'Kementerian Pendidikan RI',
