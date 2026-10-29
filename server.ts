@@ -1,3 +1,4 @@
+import { handleCPAnalysisAI, parseCPAnalysisJSON } from './server/cpAnalysisAI';
 import { assignGeneratedTPCodes, TP_CODE_FORMAT_DESCRIPTION } from './src/services/tpCodeContract';
 import { validateLearningPlanActivityMeetings } from './src/services/learningPlanActivityMeetingService';
 import express from 'express';
@@ -18,7 +19,6 @@ import {
   CalendarSearchRequest,
 } from './src/services/calendarProvider';
 import {
-  fallbackAnalyzeCP,
   fallbackGenerateTP,
   fallbackRefineText,
   fallbackGenerateATPMapping,
@@ -32,7 +32,6 @@ import {
   fallbackAnalyzeMapping,
 } from './server/mappingAnalysis';
 import { validateGraduateProfileDimensions } from './src/constants/graduateProfileDimensions';
-import { checkSemanticCoverage } from './server/cpAnalysisSemanticCoverage';
 import { checkTPSemanticFidelity } from './src/services/tpSemanticFidelity';
 import { checkATPSemanticFidelity, validateATPGeneratedItemsSemanticFidelity } from './src/services/atpSemanticFidelity';
 import {
@@ -538,172 +537,12 @@ function getSubstantiveTokens(text: string): string[] {
 
 // 1. Endpoint: AI Analyze CP -> Return canonical CPAnalysisData items
 app.post('/api/ai/analyze-cp', async (req, res) => {
-  const { cpText, elements = [], subject, grade, phase, curriculum } = req.body || {};
-
-  if (!cpText && (!elements || elements.length === 0)) {
-    return res.status(400).json({ error: 'Capaian Pembelajaran (CP) atau Elemen CP harus diisi terlebih dahulu' });
-  }
-
-  const validElements = Array.isArray(elements) ? elements : [];
-  const validElementIdSet = new Set(validElements.map((e: any) => String(e.id || e.elementId)).filter(Boolean));
-
   const apiKey = resolveApiKey(req);
-  if (apiKey) {
-    try {
-      const ai = createAIClient(apiKey);
-      const prompt = `Anda adalah pakar perancangan kurikulum pendidikan nasional Indonesia (Kurikulum Merdeka).
-Tugas Anda adalah menganalisis dan membedah Capaian Pembelajaran (CP) berikut ke dalam butir-butir Analisis CP terstruktur untuk setiap Elemen CP.
-
-PRINSIP BEDAH & ANALISIS CP:
-1. Setiap butir dalam "items" HARUS menautkan ID elemen CP yang dianalisis dalam field "elementId" (persis sesuai ID input yang diberikan). JANGAN PERNAH mengarang ID elemen fiktif.
-2. Identifikasi untuk setiap elemen CP:
-   - "cpCompetence": Kata Kerja Operasional (KKO) / Kompetensi spesifik yang ditargetkan (misal: "Memahami & Mengidentifikasi", "Mempraktikkan & Menyesuaikan").
-   - "materialScope": Lingkup Materi / Konsep Inti esensial yang dipelajari.
-   - "scopeCode": Singkatan 2-5 huruf kapital yang merepresentasikan lingkup materi (misal: "Pola Gerak Dasar" -> "PGD", "Aktivitas Senam" -> "AS", "Bilangan Bulat" -> "BB").
-   - "meaningfulUnderstanding": Pemahaman bermakna / variasi keterampilan yang diharapkan.
-   - "suggestedTp": Rekomendasi/usulan rumusan awal Tujuan Pembelajaran yang diturunkan langsung dari elemen CP tersebut.
-3. GRANULARITAS BEDAH ELEMEN: Jika satu elemen CP memuat beberapa kompetensi atau lingkup materi yang berbeda secara pedagogis, AI HARUS memecahnya menjadi beberapa CPAnalysisItem tersendiri. Setiap item harus mewakili satu pasangan kompetensi + lingkup materi yang cukup fokus untuk menjadi dasar TP. Jangan memaksakan jumlah angka tertentu (bukan kuota).
-4. KELENGKAPAN SEMANTIK & KLAUSA: Setiap klausa/kompetensi berbeda pada uraian elemen, terutama yang dipisahkan ;, wajib terwakili dan tidak boleh dihilangkan.
-5. "generalSummary": Berikan ringkasan 1-2 paragraf mengenai fokus utama dan orientasi pedagogis CP ini.
-
-DATA PEMBELAJARAN:
-- Mata Pelajaran: ${subject || '-'}
-- Tingkat / Fase: ${grade || '-'} (${phase || '-'})
-- Kurikulum: ${curriculum || 'Kurikulum Merdeka'}
-- CP Umum: ${cpText || '-'}
-- Elemen-Elemen CP:
-${
-  validElements.length > 0
-    ? validElements.map((e: any, idx: number) => `${idx + 1}. [ID: ${e.id || e.elementId || `elem-${idx + 1}`}] [Kode: ${e.code || `E${idx + 1}`}] [Nama: ${e.name || '-'}] Uraian: ${e.content || '-'}`).join('\n')
-    : 'Tidak ada rincian elemen terpisah.'
-}
-
-Kembalikan respon JSON sesuai schema:`;
-
-      const response = await generateContentWithRetry(ai, {
-        contents: prompt,
-        config: {
-          responseMimeType: 'application/json',
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              generalSummary: { type: Type.STRING },
-              items: {
-                type: Type.ARRAY,
-                items: {
-                  type: Type.OBJECT,
-                  properties: {
-                    elementId: { type: Type.STRING, description: 'ID elemen CP rujukan (persis dari input)' },
-                    elementName: { type: Type.STRING, description: 'Nama elemen CP rujukan' },
-                    scopeCode: { type: Type.STRING, description: 'Singkatan 2-5 huruf kapital lingkup materi (misal: PGD, AS, BB)' },
-                    cpText: { type: Type.STRING, description: 'Kutipan/teks ringkas CP elemen yang dianalisis' },
-                    cpCompetence: { type: Type.STRING, description: 'Kompetensi / KKO utama' },
-                    materialScope: { type: Type.STRING, description: 'Lingkup Materi Inti' },
-                    meaningfulUnderstanding: { type: Type.STRING, description: 'Pemahaman bermakna / variasi' },
-                    suggestedTp: { type: Type.STRING, description: 'Rekomendasi rumusan awal TP' },
-                  },
-                  required: ['elementName', 'cpCompetence', 'materialScope', 'scopeCode', 'suggestedTp'],
-                },
-              },
-            },
-            required: ['generalSummary', 'items'],
-          },
-        },
-      });
-
-      const parsed = cleanAndParseJSON(response.text, null);
-      if (parsed && Array.isArray(parsed.items) && parsed.items.length > 0) {
-        let isGeminiValid = true;
-        const coveredElementIds = new Set<string>();
-
-        // Check each item
-        const sanitizedItems: any[] = [];
-        for (const item of parsed.items) {
-          if (!item || typeof item !== 'object') {
-            isGeminiValid = false;
-            break;
-          }
-
-          const elemId = item.elementId ? String(item.elementId).trim() : '';
-          // Jika AI mengembalikan elementId kosong atau tidak terdapat pada input CP -> invalid
-          if (!elemId || !validElementIdSet.has(elemId)) {
-            isGeminiValid = false;
-            break;
-          }
-
-          const canonicalElement = validElements.find((e: any) => String(e.id || e.elementId).trim() === elemId);
-          if (!canonicalElement) {
-            isGeminiValid = false;
-            break;
-          }
-
-          const cpCompetence = (item.cpCompetence && typeof item.cpCompetence === 'string') ? item.cpCompetence.trim() : '';
-          const materialScope = (item.materialScope && typeof item.materialScope === 'string') ? item.materialScope.trim() : '';
-
-          // cpCompetence dan materialScope wajib non-empty
-          if (!cpCompetence || !materialScope) {
-            isGeminiValid = false;
-            break;
-          }
-
-          coveredElementIds.add(elemId);
-
-          const scopeCode = (item.scopeCode && typeof item.scopeCode === 'string' && item.scopeCode.trim().length >= 2)
-            ? item.scopeCode.trim().toUpperCase()
-            : deriveScopeCode(materialScope || canonicalElement.name);
-
-          sanitizedItems.push({
-            elementId: elemId,
-            elementName: canonicalElement.name,
-            scopeCode,
-            cpText: canonicalElement.content || '',
-            cpCompetence,
-            materialScope,
-            meaningfulUnderstanding: (item.meaningfulUnderstanding && typeof item.meaningfulUnderstanding === 'string') ? item.meaningfulUnderstanding.trim() : '',
-            suggestedTp: (item.suggestedTp && typeof item.suggestedTp === 'string') ? item.suggestedTp.trim() : '',
-          });
-        }
-
-        // Seluruh CP element IDs wajib tercakup minimal sekali
-        if (validElements.length > 0) {
-          for (const e of validElements) {
-            const eId = String(e.id || e.elementId || '').trim();
-            if (!eId || !coveredElementIds.has(eId)) {
-              isGeminiValid = false;
-              break;
-            }
-          }
-        }
-
-        if (isGeminiValid && sanitizedItems.length > 0) {
-          // Semantic coverage guard against baseline (fallbackAnalyzeCP) using checkSemanticCoverage
-          const baseline = fallbackAnalyzeCP({ cpText, elements: validElements, subject, grade, phase, curriculum });
-          if (baseline && Array.isArray(baseline.items) && baseline.items.length > 0) {
-            if (!checkSemanticCoverage(baseline.items, sanitizedItems)) {
-              isGeminiValid = false;
-            }
-          }
-        }
-
-        if (isGeminiValid && sanitizedItems.length > 0) {
-          return res.json({
-            success: true,
-            data: {
-              generalSummary: parsed.generalSummary || cpText || '',
-              items: sanitizedItems,
-            },
-            engine: 'gemini',
-          });
-        }
-      }
-    } catch (error: unknown) {
-      console.warn('Gemini analyze CP failed, using fallback engine:', error);
-    }
-  }
-
-  // Fallback: Pedagogical Rule Engine
-  const fallback = fallbackAnalyzeCP({ cpText, elements: validElements, subject, grade, phase, curriculum });
-  return res.json({ success: true, data: fallback, engine: 'pedagogical_engine' });
+  const result = await handleCPAnalysisAI(req.body, apiKey ? async request => {
+    const response = await generateContentWithRetry(createAIClient(apiKey), request);
+    return parseCPAnalysisJSON(response.text);
+  } : undefined);
+  return res.status(result.status).json(result.body);
 });
 
 // Runtime validator for AI TP response

@@ -1,4 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import { validateAnalysisAI, explainAnalysisIssue, validateStep4Understanding, getUnderstandingTargets, createUnderstandingPatches, applyUnderstandingPatches, createInitialAnalysisDraft, type UnderstandingTarget, type UnderstandingPatch } from '../services/cpAnalysisAIContract';
+import { CPAnalysisAIError, createCPAnalysisDiagnosis, formatCPAnalysisDiagnosis, copyCPAnalysisDiagnosis, type CPAnalysisDiagnosis } from '../services/cpAnalysisAIDiagnostics';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   FileSpreadsheet,
   Brain,
@@ -102,6 +104,30 @@ export const CPAnalysisManager: React.FC<CPAnalysisManagerProps> = ({
   const [dismissedFindingIds, setDismissedFindingIds] = useState<Set<string>>(new Set());
   const [appliedRecords, setAppliedRecords] = useState<AppliedFindingRecord[]>([]);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+
+  const [aiDiagnosis, setAIDiagnosis] = useState<CPAnalysisDiagnosis | null>(null);
+  const [manualDiagnosisCopy, setManualDiagnosisCopy] = useState(false);
+  const [copyStatus, setCopyStatus] = useState('');
+  const [aiDraftEngine, setAIDraftEngine] = useState<'gemini' | 'pedagogical_engine' | null>(null);
+  const [aiProposal, setAIProposal] = useState<{base: string; items?: CPAnalysisItem[]; patches: UnderstandingPatch[]; suggestions: Array<{itemId?:string; elementId:string; value:string}>; summary:string; engine:'gemini' | 'pedagogical_engine'} | null>(null);
+  const requestVersion = useRef(0);
+  const latestItems = useRef(items);
+  latestItems.current = items;
+  useEffect(() => {
+    requestVersion.current++;
+    setAIProposal(null); setAIDraftEngine(null); setAIDiagnosis(null); setAnalysisError(null); setManualDiagnosisCopy(false); setCopyStatus('');
+    return () => { requestVersion.current++; };
+  }, [cp, cpAnalysis, context.subject, context.phase, context.grade, context.academicYear, context.curriculum, context.profileId, academicSetting.id]);
+  const reportAIError = (code:string, stage:string, issues: Parameters<typeof createCPAnalysisDiagnosis>[4] = []) => {
+    const diagnosis=createCPAnalysisDiagnosis(context, cp.elements?.length || 0, code, stage, issues);
+    setAIDiagnosis(diagnosis); setAnalysisError(diagnosis.message); setManualDiagnosisCopy(false); setCopyStatus('');
+  };
+  const handleCopyDiagnosis = async () => {
+    const report = formatCPAnalysisDiagnosis(aiDiagnosis || createCPAnalysisDiagnosis(context, cp.elements?.length || 0, 'VALIDATION_FAILED','save'));
+    const result=await copyCPAnalysisDiagnosis(report);
+    setCopyStatus(result==='copied'?'Diagnosis disalin.':'Salin teks diagnosis di bawah secara manual.');
+    setManualDiagnosisCopy(result==='manual');
+  };
 
   // Modal preview state for Before -> After suggestion application
   const [activePreviewModal, setActivePreviewModal] = useState<{
@@ -282,7 +308,7 @@ export const CPAnalysisManager: React.FC<CPAnalysisManagerProps> = ({
 
   const needsReview = cpAnalysis?.needsReview || isCPOutdated;
 
-  const validation = validateCPAnalysisDataWorkflow(
+  const baseValidation = validateCPAnalysisDataWorkflow(
     {
       ...cpAnalysis,
       id: cpAnalysis?.id || `cpanalysis-${academicSetting.id}`,
@@ -293,13 +319,18 @@ export const CPAnalysisManager: React.FC<CPAnalysisManagerProps> = ({
     cp
   );
 
+  const understandingIssues=validateStep4Understanding(items,cp.elements || []);
+  const validation={...baseValidation,isSiap:baseValidation.isSiap && !understandingIssues.length,
+    issues:[...baseValidation.issues,...understandingIssues.map(issue=>issue.elementId+' / kolom 3: '+issue.code)]};
+
   const handleSave = (): boolean => {
     const nextGeneratedBy =
-      cpAnalysis?.generatedBy === 'AI' ? 'AI_EDITED_BY_TEACHER' : cpAnalysis?.generatedBy || 'TEACHER';
+      aiDraftEngine==='gemini' ? (cpAnalysis?.items.length ? 'AI_EDITED_BY_TEACHER' : 'AI') : cpAnalysis?.generatedBy === 'AI' ? 'AI_EDITED_BY_TEACHER' : cpAnalysis?.generatedBy || 'TEACHER';
 
     const shouldKeepReview = Boolean(cpAnalysis?.needsReview || isCPOutdated);
 
     const candidate: CPAnalysisData = {
+      ...cpAnalysis,
       id: cpAnalysis?.id || `cpanalysis-${academicSetting.id}`,
       academicSettingId: academicSetting.id,
       cpId: cp.id,
@@ -312,6 +343,7 @@ export const CPAnalysisManager: React.FC<CPAnalysisManagerProps> = ({
       generalSummary,
       items,
       generatedBy: nextGeneratedBy,
+      ...(aiDraftEngine ? {generationEngine:aiDraftEngine,provenance:{generatedBy:aiDraftEngine==='gemini'?'AI' as const:'SYSTEM' as const,engine:aiDraftEngine,generatedAt:new Date().toISOString()}} : {}),
       needsReview: shouldKeepReview,
       reviewReason: shouldKeepReview
         ? cpAnalysis?.reviewReason || (isCPOutdated ? 'Teks CP telah diperbarui sejak analisis ini dibuat. Mohon sesuaikan analisis.' : undefined)
@@ -324,10 +356,12 @@ export const CPAnalysisManager: React.FC<CPAnalysisManagerProps> = ({
     };
 
     const candidateValidation = validateCPAnalysisDataWorkflow(candidate, cp);
+    const fieldIssues=validateStep4Understanding(candidate.items,cp.elements || []);
+    const ready=candidateValidation.isSiap && !fieldIssues.length;
 
     const updated: CPAnalysisData = {
       ...candidate,
-      workflowStatus: candidateValidation.isSiap ? 'SIAP' : 'PERLU_DILENGKAPI',
+      workflowStatus: ready ? 'SIAP' : 'PERLU_DILENGKAPI',
     };
 
     onSaveCPAnalysis(updated);
@@ -335,11 +369,8 @@ export const CPAnalysisManager: React.FC<CPAnalysisManagerProps> = ({
     setShowSavedToast(true);
     setTimeout(() => setShowSavedToast(false), 2500);
 
-    if (!candidateValidation.isSiap) {
-      setAnalysisError(
-        candidateValidation.issues[0] ||
-        'Analisis CP belum siap untuk dilanjutkan.'
-      );
+    if (!ready) {
+      reportAIError('VALIDATION_FAILED','save', [...fieldIssues,...candidateValidation.issues.map(()=>({elementId:'',field:'workflow',code:'WORKFLOW_NOT_READY'}))]);
       return false;
     }
 
@@ -347,90 +378,50 @@ export const CPAnalysisManager: React.FC<CPAnalysisManagerProps> = ({
     return true;
   };
 
-  const executeAIAnalysis = async () => {
-    setIsAnalyzing(true);
-    setAnalysisError(null);
-
-    try {
-      const res = await analyzeCPWithAI({
-        cpText: cp.generalDescription || '',
-        elements: cp.elements || [],
-        subject: context.subject,
-        grade: context.grade,
-        phase: context.phase,
-        curriculum: context.curriculum,
-      });
-
-      const newItems: CPAnalysisItem[] = (res.items || []).map((it, idx) => {
-        const canonicalElement = (cp.elements || []).find((el) => el.id === it.elementId);
-        if (!canonicalElement) {
-          throw new Error(`Hasil analisis memuat referensi elemen tidak dikenal (ID: ${it.elementId || 'kosong'}).`);
-        }
-        return {
-          id: `ana-item-${Date.now()}-${idx + 1}-${Math.random().toString(36).substring(2, 6)}`,
-          elementId: canonicalElement.id,
-          elementName: canonicalElement.name,
-          scopeCode: it.scopeCode || '',
-          cpText: canonicalElement.content || '',
-          cpCompetence: it.cpCompetence || '',
-          materialScope: it.materialScope || '',
-          meaningfulUnderstanding: it.meaningfulUnderstanding || '',
-          suggestedTp: it.suggestedTp || '',
-          order: idx + 1,
-        };
-      });
-
-      const nextSummary = res.generalSummary || generalSummary || '';
-      setItems(newItems);
-      setGeneralSummary(nextSummary);
-
-      const isGemini = res.engine === 'gemini';
-      const candidateData: CPAnalysisData = {
-        id: cpAnalysis?.id || `cpanalysis-${academicSetting.id}`,
-        academicSettingId: academicSetting.id,
-        cpId: cp.id,
-        cpSourceId: cp.source?.id || cp.source?.title,
-        cpRegulationIds: cp.source?.regulationIds || cp.regulationIds || [],
-        cpVersion: cp.cpVersion ?? cp.source?.versionCode,
-        academicYear: context.academicYear,
-        subjectCode: context.subject,
-        phase: context.phase,
-        generalSummary: nextSummary,
-        items: newItems,
-        generatedBy: isGemini ? 'AI' : undefined,
-        generationEngine: res.engine || (isGemini ? 'gemini' : 'pedagogical_engine'),
-        provenance: {
-          generatedBy: isGemini ? 'AI' : 'SYSTEM',
-          generatedAt: new Date().toISOString(),
-          engine: res.engine || (isGemini ? 'gemini' : 'pedagogical_engine'),
-        },
-        generatedAt: new Date().toISOString(),
-        needsReview: false,
-        reviewReason: undefined,
-        basedOnCpUpdatedAt: cp.updatedAt || new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      };
-
-      const val = validateCPAnalysisDataWorkflow(candidateData, cp);
-      const updated: CPAnalysisData = {
-        ...candidateData,
-        workflowStatus: val.isSiap ? 'SIAP' : 'PERLU_DILENGKAPI',
-      };
-
-      onSaveCPAnalysis(updated);
-      setShowSavedToast(true);
-      setTimeout(() => setShowSavedToast(false), 3000);
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Gagal menganalisis CP dengan AI';
-      setAnalysisError(msg);
-    } finally {
-      setIsAnalyzing(false);
+  const executeAIAnalysis = async (requestedTargets?: UnderstandingTarget[]) => {
+    if(isAnalyzing) return;
+    const snapshot=JSON.stringify(items);
+    const token=++requestVersion.current;
+    const targets=requestedTargets || (items.length ? getUnderstandingTargets(items,cp.elements || []) : []);
+    if(items.length && !targets.length) {
+      setNotificationToast('Tidak ada kolom 3 bermasalah. Data analisis lama dipertahankan.');
+      return;
     }
+    setIsAnalyzing(true); setAnalysisError(null); setAIDiagnosis(null); setAIProposal(null);
+    try {
+      const res=await analyzeCPWithAI({cpText:cp.generalDescription || '',elements:cp.elements || [],subject:context.subject,grade:context.grade,phase:context.phase,curriculum:context.curriculum,
+        ...(targets.length ? {retryTargets:targets} : {})});
+      if(token!==requestVersion.current) return;
+      if(snapshot!==JSON.stringify(latestItems.current)) {reportAIError('DRAFT_CHANGED','apply');return;}
+      const checked=res.validation || validateAnalysisAI(res,cp.elements || [],targets);
+      if(checked.issues.length) reportAIError('VALIDATION_FAILED','validation',checked.issues);
+      if(!checked.items.length) return;
+      if(!targets.length && checked.issues.some(issue=>['CP_COVERAGE_REVIEW','CANONICAL_REFERENCE_INVALID','RESPONSE_INVALID'].includes(issue.code))) return;
+      setAIProposal({base:snapshot,
+        items:items.length?undefined:createInitialAnalysisDraft(checked,cp.elements || []),
+        patches:targets.length?createUnderstandingPatches(items,checked):[],
+        suggestions:targets.length?checked.items.filter(row=>!checked.issues.some(issue=>issue.elementId===row.elementId && (!issue.itemId || issue.itemId===row.itemId))).map(row=>({itemId:row.itemId,elementId:row.elementId,value:row.meaningfulUnderstanding})):[],
+        summary:res.generalSummary || '',engine:res.engine || 'pedagogical_engine'});
+    } catch(error) {
+      if(token!==requestVersion.current) return;
+      const failure=error instanceof CPAnalysisAIError?error:new CPAnalysisAIError('AI_API_ERROR','transport');
+      reportAIError(failure.code,failure.stage,targets.length?targets.map(target=>({elementId:target.elementId,itemId:target.itemId,field:'meaningfulUnderstanding',code:failure.code})):(cp.elements || []).map(element=>({elementId:element.id,field:'items',code:failure.code})));
+    } finally {setIsAnalyzing(false);}
+  };
+
+  const handleApplyAIProposal = () => {
+    if(!aiProposal) return;
+    if(aiProposal.base!==JSON.stringify(items)) {reportAIError('DRAFT_CHANGED','apply');setAIProposal(null);return;}
+    setItems(aiProposal.items || applyUnderstandingPatches(items,aiProposal.patches));
+    if(aiProposal.items && !generalSummary.trim()) setGeneralSummary(aiProposal.summary);
+    setAIDraftEngine(aiProposal.engine);
+    setHasUnsavedChanges(true); setIsReviewStale(true); setAIProposal(null);
+    setNotificationToast('Hasil diterapkan ke draft. Periksa lalu klik Simpan Analisis; data tersimpan belum berubah.');
   };
 
   const handleRunAIAnalysis = () => {
     if (!cp.generalDescription && (!cp.elements || cp.elements.length === 0)) {
-      setAnalysisError('Capaian Pembelajaran (CP) rujukan belum diisi pada Langkah 03.');
+      reportAIError('CP_ELEMENTS_REQUIRED','request');
       return;
     }
 
@@ -622,9 +613,24 @@ export const CPAnalysisManager: React.FC<CPAnalysisManagerProps> = ({
           <div className="space-y-1">
             <span className="font-bold text-rose-950">Gagal Melakukan Analisis AI</span>
             <p className="text-rose-800">{analysisError}</p>
+            {aiDiagnosis && <ul>{aiDiagnosis.issues.map((issue,index)=><li key={index}>{issue.elementId || 'Respons'} / {issue.field}: {issue.code} — {explainAnalysisIssue(issue.code)}</li>)}</ul>}
+            <button type="button" onClick={handleCopyDiagnosis} className="rounded border px-3 py-2 font-bold">Salin Diagnosis</button>
+            {copyStatus && <p role="status">{copyStatus}</p>}
+            {manualDiagnosisCopy && <textarea aria-label="Diagnosis AI untuk disalin manual" readOnly rows={10} className="w-full" value={formatCPAnalysisDiagnosis(aiDiagnosis || createCPAnalysisDiagnosis(context, cp.elements?.length || 0,'VALIDATION_FAILED','save'))} onFocus={event=>event.target.select()} />}
+            {getUnderstandingTargets(items,cp.elements || []).map(target=><button type="button" key={target.itemId} disabled={isAnalyzing} onClick={()=>executeAIAnalysis([target])} className="block underline">Coba Lagi Kolom 3 — {target.elementId} / {target.itemId}</button>)}
+            {!items.length && <button type="button" disabled={isAnalyzing} onClick={()=>executeAIAnalysis()} className="block underline">Coba Lagi Analisis</button>}
           </div>
         </div>
       )}
+
+      {aiProposal && <div className="p-4 border rounded-xl space-y-3 bg-purple-50">
+        <p className="font-bold">Tinjau Hasil AI — belum disimpan</p>
+        {aiProposal.items?.map(item=><div key={item.id}><strong>{item.elementName}</strong><p>1. {item.cpCompetence}</p><p>2. {item.materialScope}</p><p>3. {item.meaningfulUnderstanding || '(Perlu retry / input guru)'}</p><p>4. {item.suggestedTp}</p></div>)}
+        {aiProposal.suggestions.map((suggestion,index)=><div key={index}><strong>{suggestion.elementId} / {suggestion.itemId}</strong><p>Usulan kolom 3: {suggestion.value}</p><p>Nilai lama: {items.find(item=>item.id===suggestion.itemId)?.meaningfulUnderstanding || '(kosong)'}</p></div>)}
+        <p className="text-xs">Data manual yang sudah terisi tidak ditimpa. Gunakan usulan sebagai referensi untuk edit manual bila diperlukan.</p>
+        <button type="button" disabled={isAnalyzing || (!aiProposal.items && !aiProposal.patches.length)} onClick={handleApplyAIProposal} className="rounded bg-purple-700 text-white px-3 py-2">Terapkan ke Draft {aiProposal.items?'Baru':'Kolom 3 Kosong'}</button>
+        <button type="button" onClick={()=>setAIProposal(null)} className="px-3 py-2">Abaikan Hasil AI</button>
+      </div>}
 
       {semanticReview && (() => {
         const visibleFindings = (semanticReview.findings || []).filter(
@@ -1117,7 +1123,7 @@ export const CPAnalysisManager: React.FC<CPAnalysisManagerProps> = ({
               <h3 className="text-base font-bold text-slate-900">Konfirmasi Analisis AI</h3>
             </div>
             <p className="text-xs text-slate-600 leading-relaxed">
-              Analisis CP sudah berisi data. Menjalankan analisis AI baru akan memperbarui daftar kompetensi, lingkup materi, dan usulan TP secara otomatis berdasarkan CP rujukan. Apakah Anda ingin melanjutkan?
+              Analisis sudah berisi data. AI hanya akan mengusulkan perbaikan kolom 3 yang bermasalah. Kolom lain, ID baris dan data manual dipertahankan. Hasil harus ditinjau sebelum diterapkan dan disimpan.
             </p>
             <div className="flex items-center justify-end gap-2 pt-2">
               <button
