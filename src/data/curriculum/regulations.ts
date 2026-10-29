@@ -13,18 +13,18 @@ export const OFFICIAL_REGULATION_SOURCES: RegulationSource[] = [
   {
     id: 'DEC-BKPDM-020-2026',
     title:
-      'Keputusan Kepala Badan Kebijakan Pendidikan Dasar dan Menengah Nomor 020 Tahun 2026 tentang Perubahan atas Keputusan Kepala BSKAP Nomor 046/H/KR/2025',
+      'Keputusan Kepala Badan Standar, Kurikulum, dan Penjaminan Mutu Pendidikan Nomor 020 Tahun 2026 tentang Capaian Pembelajaran Pendidikan Agama dan Budi Pekerti pada Pendidikan Anak Usia Dini, Jenjang Pendidikan Dasar, dan Jenjang Pendidikan Menengah',
     number: '020 Tahun 2026',
     year: 2026,
     type: 'OFFICIAL_DECISION',
     authority:
-      'Badan Kebijakan Pendidikan Dasar dan Menengah (BKPDM) Kementerian Pendidikan Dasar dan Menengah RI',
+      'Badan Standar, Kurikulum, dan Penjaminan Mutu Pendidikan (BKPDM) Kementerian Pendidikan Dasar dan Menengah RI',
     legalEffectiveDate: null,
     implementationFromAcademicYear: '2026/2027',
     sourceUrl:
-      'https://www.kemendikdasmen.go.id/download/file/1933',
+      'https://kurikulum.kemdikbud.go.id/unduhan/keputusan-kepala-bkpdm-nomor-020-tahun-2026',
     notes:
-      'REVIEW: sumber URL adalah siaran pers resmi 23 Juni 2026, bukan naskah keputusan. Batas TA 2026/2027 dipertahankan dari registry lama dan masih perlu verifikasi masa implementasi. Pembaruan Capaian Pembelajaran khusus mata pelajaran kelompok Pendidikan Agama dan Budi Pekerti (PAI, Kristen, Katolik, Hindu, Buddha, Khonghucu) mulai Tahun Ajaran 2026/2027. Tidak mengubah CP mata pelajaran umum/non-agama.',
+      'Pembaruan Capaian Pembelajaran khusus mata pelajaran kelompok Pendidikan Agama dan Budi Pekerti (PAI, Kristen, Katolik, Hindu, Buddha, Khonghucu) mulai Tahun Ajaran 2026/2027. Tidak mengubah CP mata pelajaran umum/non-agama.',
   },
   {
     id: 'REG-PERMENDIKBUDRISTEK-12-2024',

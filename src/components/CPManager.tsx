@@ -65,6 +65,7 @@ export const CPManager: React.FC<CPManagerProps> = ({
   const [selectedResult, setSelectedResult] = useState<CPSourceSearchResult | null>(null);
 
   const [saveToast, setSaveToast] = useState(false);
+  const [pendingReviewedSource, setPendingReviewedSource] = useState(false);
   const [validationError, setValidationError] = useState<string | null>(null);
 
   // Sync if prop changes
@@ -72,6 +73,7 @@ export const CPManager: React.FC<CPManagerProps> = ({
     setGeneralDescription(cp.generalDescription || '');
     setElements(cp.elements || []);
     setSource(cp.source);
+    setPendingReviewedSource(false);
     setAiNotes(cp.aiNotes || '');
   }, [cp]);
 
@@ -85,9 +87,9 @@ export const CPManager: React.FC<CPManagerProps> = ({
 
   // Perform search based on ActiveContext
   const handleOpenSourceSearch = () => {
-    const report = cpSourceRepository.searchWithDiagnostics(context, { academicSetting });
+    const report = cpSourceRepository.searchSourceChoices(context, { academicSetting });
     setSourceSearch(report);
-    setSelectedResult(report.status === 'RESOLVED' && report.results.length === 1 && report.results[0].isSelectable
+    setSelectedResult(report.status === 'RESOLVED' && report.results.length === 1 && report.results[0].isSelectable && !report.results[0].sourceMeta.sourceReview
       ? report.results[0] : null);
     setIsSourceModalOpen(true);
   };
@@ -95,7 +97,7 @@ export const CPManager: React.FC<CPManagerProps> = ({
   const handleApplySelectedSource = (item: CPSourceSearchResult) => {
     if (sourceSearch?.status !== 'RESOLVED' || !item.isSelectable) return;
     if (
-      (generalDescription.trim().length > 0 || elements.length > 0) &&
+      generalDescription.trim().length > 0 &&
       !confirm('Gantikan teks CP saat ini dengan rujukan terpilih?')
     ) {
       return;
@@ -106,15 +108,18 @@ export const CPManager: React.FC<CPManagerProps> = ({
     setSource(item.sourceMeta);
     setIsSourceModalOpen(false);
 
+    if (item.sourceMeta.sourceReview) {
+      // A source choice edits only local draft state. Existing project identity and TP/ATP remain untouched.
+      setPendingReviewedSource(true);
+      return;
+    }
+    setPendingReviewedSource(false);
+
     // Auto save
     const now = new Date().toISOString();
     const candidate: CPData = {
       ...cp,
       academicSettingId: academicSetting.id,
-      cpId: item.sourceMeta.id,
-      cpVersion: item.sourceMeta.versionCode,
-      regulationSourceId: item.sourceMeta.regulationId,
-      regulationIds: item.sourceMeta.regulationIds,
       generalDescription: item.generalDescription,
       elements: item.elements,
       source: item.sourceMeta,
@@ -209,6 +214,7 @@ export const CPManager: React.FC<CPManagerProps> = ({
       workflowStatus: validation.status,
     };
     onSaveCP(updated);
+    setPendingReviewedSource(false);
     setSaveToast(true);
     setTimeout(() => setSaveToast(false), 2500);
     return true;
@@ -229,6 +235,7 @@ export const CPManager: React.FC<CPManagerProps> = ({
 
   return (
     <div className="space-y-6">
+      {pendingReviewedSource && <p role="status" className="text-sm text-amber-800">Sumber REVIEW dimuat sebagai draft. CP tersimpan belum berubah. Gunakan Simpan CP untuk menyimpan perubahan secara eksplisit.</p>}
       {validationError && (
         <div className="p-4 rounded-xl bg-red-50 border border-red-200 flex items-start gap-3">
           <AlertTriangle className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
@@ -477,6 +484,7 @@ export const CPManager: React.FC<CPManagerProps> = ({
             </div>
 
             <div className="flex-1 overflow-y-auto space-y-3 pr-1">
+              {searchResults.some(item => item.sourceMeta.sourceReview) && <p className="text-xs text-amber-800">{sourceSearch?.reason}</p>}
               {sourceSearch && sourceSearch.status !== 'RESOLVED' && (
                 <CPSourceSearchDiagnostic report={sourceSearch} />
               )}
@@ -520,6 +528,7 @@ export const CPManager: React.FC<CPManagerProps> = ({
                                   <span>{itemVerStatus === 'VERSION_CONFLICT' ? 'Konflik Versi Sumber' : 'Sumber Belum Terverifikasi'}</span>
                                 </span>
                               )}
+                              {item.sourceMeta.sourceReview && <span className="text-xs font-semibold text-amber-800">Tambahan CP 046/2025 • REVIEW</span>}
                               <span className="text-xs font-mono font-bold text-slate-700">
                                 {item.phase} ({item.grade})
                               </span>
@@ -582,7 +591,7 @@ export const CPManager: React.FC<CPManagerProps> = ({
                   className="px-5 py-2.5 rounded-xl text-xs font-bold text-white bg-blue-700 hover:bg-blue-800 shadow-xs transition inline-flex items-center gap-1.5"
                 >
                   <CheckCircle2 className="w-4 h-4" />
-                  <span>Gunakan Dokumen CP Ini</span>
+                  <span>{selectedResult.sourceMeta.sourceReview ? 'Muat Sumber REVIEW ke Draft' : 'Gunakan Dokumen CP Ini'}</span>
                 </button>
               )}
             </div>

@@ -1,4 +1,4 @@
-import { CURRICULUM_SUBJECTS } from './curriculum/subjects';
+import { CP046_SUBJECTS } from './curriculum/subjects';
 import { SMP_REVIEW_CP_ENTRIES } from './curriculum/cp/smp';
 import { SMA_REVIEW_CP_ENTRIES } from './curriculum/cp/sma';
 import {
@@ -175,7 +175,7 @@ export const SUBJECT_OPTIONS: Record<'SD' | 'SMP' | 'SMA' | 'SMK', string[]> = {
 // Extend existing choices without rewriting any saved teacher selection.
 for (const [level, entries] of [['SMP', SMP_REVIEW_CP_ENTRIES], ['SMA', SMA_REVIEW_CP_ENTRIES]] as const) {
   for (const code of new Set(entries.map(entry => entry.subjectCode))) {
-    const name = CURRICULUM_SUBJECTS.find(subject => subject.code === code)!.name;
+    const name = CP046_SUBJECTS.find(subject => subject.code === code)!.name;
     if (!SUBJECT_OPTIONS[level].includes(name)) SUBJECT_OPTIONS[level].push(name);
   }
 }

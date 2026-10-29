@@ -460,7 +460,6 @@ export const SMP_HISTORICAL_CP_ENTRIES: MasterCPEntry[] = [
   },
 ];
 
-export const SMP_REVIEW_CP_ENTRIES = adaptCP046Review(review, 'SMP').map(entry => ({
-  ...entry, supersedesEntryIds: SMP_HISTORICAL_CP_ENTRIES.filter(old => old.subjectCode === entry.subjectCode && old.phase === entry.phase && old.regulationSourceId !== 'DEC-BKPDM-020-2026').map(old => old.id),
-}));
-export const SMP_CP_ENTRIES: MasterCPEntry[] = [...SMP_HISTORICAL_CP_ENTRIES, ...SMP_REVIEW_CP_ENTRIES];
+export const SMP_REVIEW_CP_ENTRIES = adaptCP046Review(review, 'SMP');
+// Existing consumers retain the exact historical registry from main.
+export const SMP_CP_ENTRIES: MasterCPEntry[] = SMP_HISTORICAL_CP_ENTRIES;

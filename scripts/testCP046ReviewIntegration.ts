@@ -9,7 +9,7 @@ import { ALL_MASTER_CP_ENTRIES, resolveCPContext } from '../src/data/curriculum/
 import { SMP_REVIEW_CP_ENTRIES } from '../src/data/curriculum/cp/smp';
 import { SMA_REVIEW_CP_ENTRIES } from '../src/data/curriculum/cp/sma';
 import { CP046_SUBJECT_CODES, separateElementLabel } from '../src/data/curriculum/cp/review046Adapter';
-import { CURRICULUM_SUBJECTS, findSubjectByNameOrAlias, isReligionSubject, normalizeSubjectString } from '../src/data/curriculum/subjects';
+import { CP046_SUBJECTS, findCP046Subject, isReligionSubject, normalizeSubjectString } from '../src/data/curriculum/subjects';
 import { SUBJECT_OPTIONS } from '../src/data/curriculumDefaults';
 import { cpSourceRepository } from '../src/services/cpSourceRepository';
 import { validateCPDataWorkflow } from '../src/services/cpWorkflowService';
@@ -20,16 +20,16 @@ assert.equal(entries.flatMap(r=>r.elements).reduce((n,e)=>n+(e.subelements?.leng
 assert.equal(new Set(Object.values(CP046_SUBJECT_CODES)).size,Object.keys(CP046_SUBJECT_CODES).length);
 assert.equal(new Set(ALL_MASTER_CP_ENTRIES.map(e=>e.id)).size,ALL_MASTER_CP_ENTRIES.length);
 const identities = new Map<string,string>();
-for(const s of CURRICULUM_SUBJECTS) for(const name of [s.name,...s.aliases||[]]) {
+for(const s of CP046_SUBJECTS) for(const name of [s.name,...s.aliases||[]]) {
  const key=normalizeSubjectString(name); assert(!identities.has(key)||identities.get(key)===s.code, name); identities.set(key,s.code);
 }
 for(const entry of entries) {
  assert.equal(entry.verificationStatus,'UNVERIFIED');
- assert.equal(findSubjectByNameOrAlias(entry.sourceReview!.subjectName)?.code,entry.subjectCode);
- assert(SUBJECT_OPTIONS[entry.level].some(name=>findSubjectByNameOrAlias(name)?.code===entry.subjectCode));
+ assert.equal(findCP046Subject(entry.sourceReview!.subjectName)?.code,entry.subjectCode);
+ assert(SUBJECT_OPTIONS[entry.level].some(name=>findCP046Subject(name)?.code===entry.subjectCode));
  for(const academicYear of ['2024/2025','2025/2026','2026/2027']) {
   const context={subject:entry.subjectCode, phase:entry.phase,level:entry.level,academicYear};
-  const before=JSON.stringify(context);const report=cpSourceRepository.searchWithDiagnostics(context);
+  const before=JSON.stringify(context);const report=cpSourceRepository.searchWithDiagnostics(context, { sourceSet: 'review046' });
   assert.notEqual(report.status,'AMBIGUOUS',report.reason);assert.equal(JSON.stringify(context),before);
   if(academicYear==='2024/2025')assert(!report.results.some(r=>r.id===entry.id));
   else if(academicYear==='2026/2027'&&isReligionSubject(entry.subjectCode))assert(!report.results.some(r=>r.sourceMeta.regulationId==='DEC-BSKAP-046-2025'));
@@ -44,11 +44,11 @@ for(const entry of entries) {
    assert.deepEqual(saved.elements,result.elements);
   }
  }
- const wrong=resolveCPContext({subjectCode:entry.subjectCode,phase:entry.phase,level:entry.level==='SMP'?'SMA':'SMP',academicYear:'2025/2026'});assert.equal(wrong.status,'UNRESOLVED');
+ const wrong=resolveCPContext({sourceSet:'review046',subjectCode:entry.subjectCode,phase:entry.phase,level:entry.level==='SMP'?'SMA':'SMP',academicYear:'2025/2026'});assert.equal(wrong.status,'UNRESOLVED');
 }
 const entry=entries[0];const duplicate={...entry,id:'conflicting-unrelated-version'};
-assert.equal(resolveCPContext({subjectCode:entry.subjectCode,phase:entry.phase,level:entry.level,academicYear:'2025/2026',entriesPool:[entry,duplicate]}).status,'AMBIGUOUS');
-assert.equal(findSubjectByNameOrAlias('Bahasa'), undefined);
+assert.equal(resolveCPContext({sourceSet:'review046',subjectCode:entry.subjectCode,phase:entry.phase,level:entry.level,academicYear:'2025/2026',entriesPool:[entry,duplicate]}).status,'AMBIGUOUS');
+assert.equal(findCP046Subject('Bahasa'), undefined);
 assert.equal(separateElementLabel('Seni','Seniman berkarya'),'Seniman berkarya');
 for(const [level,version] of [['smp','v5'],['sma','v6']]) {
  const file=`cp-${level}-bskap-046-2025-${version}-review.json`;
@@ -73,7 +73,7 @@ state.profiles=[{id:'p',name:'Teacher',nip:'',status:'PNS',defaultSubject:'PAK',
 state.yearPlans=[{id:'y',profileId:'p',schoolId:'s',academicYear:'2025/2026',curriculumType:'KURIKULUM_MERDEKA',subject:'PAK',grade:'Kelas 7',phase:'D',level:'SMP',createdAt:now,updatedAt:now}];
 state.workspaces=[{id:'w',yearPlanId:'y',profileId:'p',schoolId:'s',name:'CP review',createdAt:now,updatedAt:now}];
 state.semesterPlans=[1,2].map(semester=>({id:'sp'+semester,yearPlanId:'y',semester:semester as 1|2,createdAt:now,updatedAt:now}));
-const selected=cpSourceRepository.search({subject:'PAK',level:'SMP',phase:'D',academicYear:'2025/2026'})[0];
+const selected=cpSourceRepository.searchWithDiagnostics({subject:'PAK',level:'SMP',phase:'D',academicYear:'2025/2026'}, {sourceSet:'review046'}).results[0];
 state.annualData.cp=[{yearPlanId:'y',value:{id:'cp',academicSettingId:'y',generalDescription:selected.generalDescription,elements:selected.elements,source:selected.sourceMeta,workflowStatus:'SIAP',updatedAt:now}}];
 const originalState=JSON.stringify(state);
 const archive=exportCompleteAdministrationProjectFromState(state,'y');

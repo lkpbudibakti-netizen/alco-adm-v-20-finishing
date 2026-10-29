@@ -7,21 +7,6 @@ import { CurriculumSubject } from './types';
  * Gunakan stable code yang konsisten lintas jenjang SD, SMP, SMA.
  */
 export const CURRICULUM_SUBJECTS: CurriculumSubject[] = [
-  { code: 'SEJARAH_LANJUT', name: 'Sejarah Tingkat Lanjut', aliases: [] },
-  { code: 'PRAKARYA_BUDI_DAYA', name: 'Prakarya Budi Daya', aliases: [] },
-  { code: 'PRAKARYA_KERAJINAN', name: 'Prakarya Kerajinan', aliases: [] },
-  { code: 'PRAKARYA_PENGOLAHAN', name: 'Prakarya Pengolahan', aliases: [] },
-  { code: 'PRAKARYA_REKAYASA', name: 'Prakarya Rekayasa', aliases: [] },
-  { code: 'PKWU_BUDI_DAYA', name: 'Prakarya Dan Kewirausahaan Budi Daya', aliases: [] },
-  { code: 'PKWU_KERAJINAN', name: 'Prakarya Dan Kewirausahaan Kerajinan', aliases: [] },
-  { code: 'PKWU_PENGOLAHAN', name: 'Prakarya Dan Kewirausahaan Pengolahan', aliases: [] },
-  { code: 'PKWU_REKAYASA', name: 'Prakarya Dan Kewirausahaan Rekayasa', aliases: [] },
-  { code: 'B_ARAB', name: 'Bahasa Arab', aliases: [] },
-  { code: 'B_JEPANG', name: 'Bahasa Jepang', aliases: [] },
-  { code: 'B_JERMAN', name: 'Bahasa Jerman', aliases: [] },
-  { code: 'B_KOREA', name: 'Bahasa Korea', aliases: [] },
-  { code: 'B_MANDARIN', name: 'Bahasa Mandarin', aliases: [] },
-  { code: 'B_PRANCIS', name: 'Bahasa Prancis', aliases: ['Bahasa Perancis'] },
   // --- KELOMPOK AGAMA DAN BUDI PEKERTI ---
   {
     code: 'PAI',
@@ -282,7 +267,7 @@ export const CURRICULUM_SUBJECTS: CurriculumSubject[] = [
   {
     code: 'BAHASA_ASING_LAIN',
     name: 'Bahasa Asing Lainnya',
-    aliases: [],
+    aliases: ['Bahasa Arab', 'Bahasa Jepang', 'Bahasa Jerman', 'Bahasa Perancis', 'Bahasa Mandarin', 'Bahasa Korea'],
     defaultLevel: 'SMA',
   },
 ];
@@ -331,8 +316,15 @@ export function findSubjectByNameOrAlias(nameOrAlias: string): CurriculumSubject
   );
   if (byAlias) return byAlias;
 
-  // Incomplete identities require an explicit subject selection.
-  return undefined;
+  // Fuzzy match with word boundary safety
+  return CURRICULUM_SUBJECTS.find((s) => {
+    const sNorm = normalizeSubjectString(s.name);
+    if (normQuery.includes(sNorm) || sNorm.includes(normQuery)) return true;
+    return s.aliases?.some((a) => {
+      const aNorm = normalizeSubjectString(a);
+      return normQuery.includes(aNorm) || aNorm.includes(normQuery);
+    });
+  });
 }
 
 /**
@@ -359,3 +351,31 @@ export function isReligionSubject(subjectCode?: string): boolean {
   return (RELIGION_SUBJECT_CODES as readonly string[]).includes(norm);
 }
 
+
+/** Additional identities are scoped to explicit CP046 source selection; legacy lookup is unchanged. */
+export const CP046_SUBJECTS: CurriculumSubject[] = [
+  ...CURRICULUM_SUBJECTS.filter(subject => !['PRAKARYA', 'BAHASA_ASING_LAIN', 'LOCAL_CONTENT', 'IPAS'].includes(subject.code)),
+  { code: 'SEJARAH_LANJUT', name: 'Sejarah Tingkat Lanjut', aliases: [] },
+  { code: 'PRAKARYA_BUDI_DAYA', name: 'Prakarya Budi Daya', aliases: [] },
+  { code: 'PRAKARYA_KERAJINAN', name: 'Prakarya Kerajinan', aliases: [] },
+  { code: 'PRAKARYA_PENGOLAHAN', name: 'Prakarya Pengolahan', aliases: [] },
+  { code: 'PRAKARYA_REKAYASA', name: 'Prakarya Rekayasa', aliases: [] },
+  { code: 'PKWU_BUDI_DAYA', name: 'Prakarya Dan Kewirausahaan Budi Daya', aliases: [] },
+  { code: 'PKWU_KERAJINAN', name: 'Prakarya Dan Kewirausahaan Kerajinan', aliases: [] },
+  { code: 'PKWU_PENGOLAHAN', name: 'Prakarya Dan Kewirausahaan Pengolahan', aliases: [] },
+  { code: 'PKWU_REKAYASA', name: 'Prakarya Dan Kewirausahaan Rekayasa', aliases: [] },
+  { code: 'B_ARAB', name: 'Bahasa Arab', aliases: [] },
+  { code: 'B_JEPANG', name: 'Bahasa Jepang', aliases: [] },
+  { code: 'B_JERMAN', name: 'Bahasa Jerman', aliases: [] },
+  { code: 'B_KOREA', name: 'Bahasa Korea', aliases: [] },
+  { code: 'B_MANDARIN', name: 'Bahasa Mandarin', aliases: [] },
+  { code: 'B_PRANCIS', name: 'Bahasa Prancis', aliases: ['Bahasa Perancis'] },
+];
+
+export function findCP046Subject(input: string): CurriculumSubject | undefined {
+  const code = input.trim().toUpperCase();
+  const name = normalizeSubjectString(input);
+  return CP046_SUBJECTS.find(subject => subject.code === code)
+    || CP046_SUBJECTS.find(subject => normalizeSubjectString(subject.name) === name)
+    || CP046_SUBJECTS.find(subject => subject.aliases?.some(alias => normalizeSubjectString(alias) === name));
+}

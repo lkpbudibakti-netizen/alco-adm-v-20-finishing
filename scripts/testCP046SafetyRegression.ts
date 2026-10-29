@@ -35,12 +35,12 @@ adapted[0].sourceReview!.grades.push(999);
 adapted[0].sourceReview!.pages.awal = 999;
 assert.equal(JSON.stringify(raw), rawBefore, 'Adapter metadata must not alias original JSON');
 const context = {subject: entries[0].subjectCode, phase: entries[0].phase, level: entries[0].level, academicYear:'2025/2026'};
-const result = cpSourceRepository.search(context)[0];
+const result = cpSourceRepository.searchWithDiagnostics(context, {sourceSet:'review046'}).results[0];
 result.sourceMeta.sourceReview!.pages.awal = 999;
 result.sourceMeta.sourceReview!.grades.push(999);
 result.elements[0].content = 'Teacher draft';
 assert.equal(JSON.stringify(ALL_MASTER_CP_ENTRIES), registryBefore, 'Search results must not mutate master CP metadata');
-assert.equal(cpSourceRepository.search(context)[0].sourceMeta.sourceReview!.pages.awal, entries[0].sourceReview!.pages.awal);
+assert.equal(cpSourceRepository.searchWithDiagnostics(context, {sourceSet:'review046'}).results[0].sourceMeta.sourceReview!.pages.awal, entries[0].sourceReview!.pages.awal);
 console.log('PASS: adapter and search metadata are independent from source JSON and master registry.');
 
 function sourceProjection(elements: CPElem[]): unknown[] {
@@ -57,7 +57,7 @@ function assertSourceIdentity(elements: CPElem[], master: typeof entries[number]
 }
 
 for (const entry of entries) {
-  const selected = cpSourceRepository.search({subject:entry.subjectCode, phase:entry.phase, level:entry.level, academicYear:'2025/2026'})[0];
+  const selected = cpSourceRepository.searchWithDiagnostics({subject:entry.subjectCode, phase:entry.phase, level:entry.level, academicYear:'2025/2026'}, {sourceSet:'review046'}).results[0];
   assert.equal(selected.id, entry.id);
   assertSourceIdentity(selected.elements, entry.elements);
   const state = createInitialStorageV5();

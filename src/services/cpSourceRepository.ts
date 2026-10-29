@@ -1,6 +1,7 @@
 import { ActiveContext, AcademicSetting, CPSource, CPElem, CPVerificationStatus, normalizeCPVerificationStatus } from '../types';
 import {
   ALL_MASTER_CP_ENTRIES,
+  REVIEW_CP046_ENTRIES,
   MasterCPEntry,
   CPElement,
   parseAcademicYearStart,
@@ -8,7 +9,7 @@ import {
 } from '../data/curriculum/cp';
 import { CurriculumPhase, SchoolLevel } from '../data/curriculum/types';
 import { getRegulationSource } from '../data/curriculum/regulations';
-import { findSubjectByCode, findSubjectByNameOrAlias } from '../data/curriculum/subjects';
+import { findSubjectByCode, findSubjectByNameOrAlias, findCP046Subject } from '../data/curriculum/subjects';
 
 export interface CPSourceSearchResult {
   id: string;
@@ -256,7 +257,7 @@ class CPSourceRepository {
     context: Partial<ActiveContext>,
     options?: { conflict?: boolean; reason?: string }
   ): CPSourceSearchResult {
-    const subject = findSubjectByCode(entry.subjectCode);
+    const subject = entry.sourceReview ? findCP046Subject(entry.subjectCode) : findSubjectByCode(entry.subjectCode);
     const regulation = getRegulationSource(entry.regulationSourceId);
     const status = options?.conflict
       ? 'VERSION_CONFLICT'
@@ -270,13 +271,13 @@ class CPSourceRepository {
       title: regulation?.title || `Capaian Pembelajaran ${subject?.name || entry.subjectCode} Fase ${entry.phase}`,
       institution: regulation?.authority || 'Kementerian Pendidikan RI',
       documentYear,
-      url: regulation?.sourceUrl,
+      url: entry.sourceReview ? entry.evidence?.[0]?.sourceUrl : regulation?.sourceUrl,
       page: entry.evidence?.[0]
         ? [
             entry.evidence[0].locator?.attachment,
             entry.evidence[0].locator?.page ? `Hal. ${entry.evidence[0].locator.page}` : undefined,
             entry.evidence[0].locator?.table,
-            entry.evidence[0].locator?.note,
+            entry.sourceReview ? entry.evidence[0].locator?.note : undefined,
           ].filter(Boolean).join(' • ')
         : `Fase ${entry.phase}`,
       retrievedAt: new Date().toISOString(),
@@ -323,7 +324,7 @@ class CPSourceRepository {
 
   public searchWithDiagnostics(
     context: Partial<ActiveContext>,
-    options: { entriesPool?: MasterCPEntry[]; academicSetting?: Partial<AcademicSetting> } = {}
+    options: { entriesPool?: MasterCPEntry[]; academicSetting?: Partial<AcademicSetting>; sourceSet?: 'review046' } = {}
   ): CPSourceSearchReport {
     const actualContext = {
       subject: context.subject || '', level: context.level || '',
@@ -336,7 +337,8 @@ class CPSourceRepository {
       return unresolved('subject aktual kosong; mata pelajaran diperlukan untuk pencarian CP resmi.');
     }
 
-    const subject = findSubjectByCode(targetSubject) || findSubjectByNameOrAlias(targetSubject);
+    const lookup = options.sourceSet === 'review046' ? findCP046Subject : (input: string) => findSubjectByCode(input) || findSubjectByNameOrAlias(input);
+    const subject = lookup(targetSubject);
     if (!subject) return unresolved('subject aktual tidak dikenali dalam katalog mata pelajaran: ' + targetSubject);
 
     const phase = this.normalizePhase(context.phase);
@@ -348,7 +350,7 @@ class CPSourceRepository {
 
     if (options.academicSetting) {
       const setting = options.academicSetting;
-      const settingSubject = findSubjectByCode(setting.subject || '') || findSubjectByNameOrAlias(setting.subject || '');
+      const settingSubject = lookup(setting.subject || '');
       const mismatches: string[] = [];
       const compare = (field: string, same: boolean, actual: string | undefined) => {
         if (!same) mismatches.push(`${field} academicSetting="${actual || '(kosong)'}"`);
@@ -362,10 +364,11 @@ class CPSourceRepository {
 
     const resolution = resolveCPContext({
       subjectCode: subject.code,
+      sourceSet: options.sourceSet,
       phase,
       level,
       academicYear: context.academicYear,
-      entriesPool: options.entriesPool || this.registry,
+      entriesPool: options.entriesPool || (options.sourceSet === 'review046' ? REVIEW_CP046_ENTRIES : this.registry),
     });
 
     if (resolution.status === 'RESOLVED' && resolution.cp) {
@@ -380,6 +383,18 @@ class CPSourceRepository {
     }
 
     return unresolved(resolution.reason || 'Tidak ditemukan sumber CP resmi sesuai context aktif.');
+  }
+
+  /** Choices are intentionally separate from default historical resolution. */
+  public searchSourceChoices(context: Partial<ActiveContext>, options: { academicSetting?: Partial<AcademicSetting> } = {}): CPSourceSearchReport {
+    const historical = this.searchWithDiagnostics(context, options);
+    const reviewed = this.searchWithDiagnostics(context, { ...options, sourceSet: 'review046' });
+    if (!reviewed.results.length) return historical;
+    const results = [...historical.results, ...reviewed.results];
+    return { context: historical.context,
+      status: results.some(result => result.isSelectable) ? 'RESOLVED' : 'AMBIGUOUS',
+      reason: 'Pilihan sumber terpisah. Historis: ' + historical.status + '. Tambahan 046/2025 REVIEW: ' + reviewed.status + '. Pilih sumber secara eksplisit; CP tersimpan tidak diubah.',
+      results };
   }
 
   /**

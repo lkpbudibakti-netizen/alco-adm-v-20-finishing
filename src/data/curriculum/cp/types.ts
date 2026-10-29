@@ -24,6 +24,5 @@ export interface MasterCPEntry {
   effectiveUntil?: string | null;
   verificationStatus: VerificationStatus;
   notes?: string;
-  supersedesEntryIds?: string[];
   sourceReview?: { schemaVersion: string; status: string; regulation: string; attachment: string; file: string; pdfSha256: string; section: string; subjectName: string; grades: number[]; pages: { awal: number; akhir_terdeteksi: number }; extractedText: string; recordStatus: string };
 }
