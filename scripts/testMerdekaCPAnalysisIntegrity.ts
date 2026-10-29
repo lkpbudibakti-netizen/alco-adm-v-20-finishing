@@ -171,7 +171,7 @@ runTest('5. Local derive does not use: generatedBy: "AI"', () => {
   const compSource = fs.readFileSync(compPath, 'utf-8').replace(/\r\n/g, '\n');
 
   // Find handleGenerateFromCP function body
-  const match = compSource.match(/const handleGenerateFromCP = \(\) => \{([\s\S]*?)\n  \};/);
+  const match = compSource.match(/const handleGenerateFromCP = \([^)]*\) => \{([\s\S]*?)\n  \};/);
   assert.ok(match, 'handleGenerateFromCP must be present in CPAnalysisManager');
   const body = match[1];
 
@@ -181,8 +181,8 @@ runTest('5. Local derive does not use: generatedBy: "AI"', () => {
     'handleGenerateFromCP must NOT set generatedBy: "AI"'
   );
   assert.ok(
-    body.includes("generatedBy: 'TEACHER'"),
-    'handleGenerateFromCP must set generatedBy: "TEACHER"'
+    !body.includes("onSaveCPAnalysis("),
+    'Structure action must not auto-save or rewrite provenance'
   );
 });
 
@@ -209,10 +209,10 @@ runTest('7. basedOnCpUpdatedAt remains tied to current CP timestamp', () => {
   const compPath = path.resolve(process.cwd(), 'src/components/CPAnalysisManager.tsx');
   const compSource = fs.readFileSync(compPath, 'utf-8').replace(/\r\n/g, '\n');
 
-  // Both handleSave and handleGenerateFromCP must tie basedOnCpUpdatedAt to cp.updatedAt
+  // Explicit save preserves stored lineage; pulling structure never rebases or saves.
   const matches = compSource.match(/basedOnCpUpdatedAt:\s*cp\.updatedAt/g);
   assert.ok(
-    matches && matches.length >= 1 && compSource.includes('cpAnalysis?.basedOnCpUpdatedAt ||'),
+    compSource.includes('cpAnalysis?.basedOnCpUpdatedAt ||') && compSource.includes('cp.updatedAt ||'),
     'Explicit save must preserve existing basedOnCpUpdatedAt; local derive references current CP'
   );
 });
@@ -667,7 +667,7 @@ runTest('25. handleSave evaluates candidate to determine final workflowStatus', 
   );
 });
 
-runTest('26. AI stages a proposal without saving/rebasing; explicit local derive retains its rebase contract', () => {
+runTest('26. AI stages a proposal without saving/rebasing; explicit local structure remains draft only', () => {
   const compPath = path.resolve(process.cwd(), 'src/components/CPAnalysisManager.tsx');
   const compSource = fs.readFileSync(compPath, 'utf-8').replace(/\r\n/g, '\n');
 
@@ -677,10 +677,10 @@ runTest('26. AI stages a proposal without saving/rebasing; explicit local derive
   assert.ok(!aiMatch[1].includes('needsReview: false'), 'AI must not clear stored review state');
   assert.ok(!aiMatch[1].includes('onSaveCPAnalysis('), 'AI must stage results without auto-saving');
 
-  const deriveMatch = compSource.match(/handleGenerateFromCP = \(\) => \{([\s\S]*?)\n  \};/);
+  const deriveMatch = compSource.match(/handleGenerateFromCP = \([^)]*\) => \{([\s\S]*?)\n  \};/);
   assert.ok(deriveMatch, 'handleGenerateFromCP must exist');
-  assert.ok(deriveMatch[1].includes('needsReview: false'), 'handleGenerateFromCP must clear needsReview');
-  assert.ok(deriveMatch[1].includes('basedOnCpUpdatedAt: cp.updatedAt'), 'handleGenerateFromCP must rebase to cp.updatedAt');
+  assert.ok(!deriveMatch[1].includes('needsReview: false'), 'Structure draft must preserve stored needsReview');
+  assert.ok(!deriveMatch[1].includes('onSaveCPAnalysis('), 'Structure draft must never auto-save/rebase source metadata');
 });
 
 runTest('27. CP invalid -> CPAnalysis tidak SIAP (CP prerequisite restored)', () => {
@@ -803,7 +803,7 @@ runTest('32. /api/ai/analyze-cp enforces semantic coverage and includes PJOK Fas
     '/api/ai/analyze-cp must build deterministic baseline using fallbackAnalyzeCP'
   );
   assert.ok(
-    serverSource.includes('checkSemanticCoverage(fallbackAnalyzeCP(input).items,validation.items)'),
+    serverSource.includes('cp4Coverage(validation.items,elements)'),
     '/api/ai/analyze-cp must compare substantive tokens for semantic coverage guard'
   );
   assert.ok(

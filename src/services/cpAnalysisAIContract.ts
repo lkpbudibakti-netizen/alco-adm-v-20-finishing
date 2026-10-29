@@ -1,7 +1,10 @@
 import type { CPElem, CPAnalysisItem } from '../types';
 
+export const CP4_FIELDS=['cpCompetence','materialScope','meaningfulUnderstanding','suggestedTp'] as const;
+export type CP4Field=typeof CP4_FIELDS[number];
+export interface CP4RepairTarget extends Record<CP4Field,string> {itemId:string;elementId:string;fields:CP4Field[];clauseText?:string}
 export interface UnderstandingTarget { itemId: string; elementId: string; cpCompetence: string; materialScope: string }
-export interface AnalysisIssue { elementId: string; itemId?: string; field: string; code: string }
+export interface AnalysisIssue { elementId: string; itemId?: string; field: string; code: string; category?:'technical'|'structure'|'quality';rowIndex?:number;clauseIndex?:number }
 export interface AnalysisAIRow {
   elementId: string; itemId?: string; elementName: string; cpText: string;
   cpCompetence: string; materialScope: string; scopeCode: string;
@@ -25,33 +28,37 @@ export function understandingIssue(value: unknown, element: Pick<CPElem,'content
   return null;
 }
 
-export function validateAnalysisAI(payload: unknown, elements: CPElem[], targets: UnderstandingTarget[] = []): AnalysisAIValidation {
+export function validateAnalysisAI(payload: unknown, elements: CPElem[], targets: UnderstandingTarget[] = [], repairTargets:CP4RepairTarget[]=[]): AnalysisAIValidation {
   const issues: AnalysisIssue[] = []; const items: AnalysisAIRow[] = [];
   const raw = payload && typeof payload === 'object' ? (payload as any).items : null;
-  if(!Array.isArray(raw) || !raw.length) return {items,issues:[{elementId:'',field:'items',code:'RESPONSE_INVALID'}],valid:false};
+  if(!Array.isArray(raw) || !raw.length) return {items,issues:[{elementId:'',field:'items',code:'RESPONSE_INVALID',category:'technical'}],valid:false};
   const seen = new Set<string>();
-  for(const input of raw) {
+  for(const [rowIndex,input] of raw.entries()) {
     const elementId = text(input?.elementId);
     const element = elements.find(e=>e.id === elementId);
-    const itemId = targets.length ? text(input?.itemId) : '';
-    const target = targets.find(t=>t.itemId===itemId && t.elementId===elementId);
-    if(!element || (targets.length && !target)) {issues.push({elementId:element?.id || '',field:'elementId',code:'CANONICAL_REFERENCE_INVALID'});continue;}
-    if(targets.length && seen.has(itemId)) {issues.push({elementId,itemId,field:'itemId',code:'DUPLICATE_TARGET'});continue;}
-    seen.add(targets.length ? itemId : elementId);
+    const itemId = targets.length || repairTargets.length ? text(input?.itemId) : '';
+    const repair=repairTargets.find(t=>t.itemId===itemId&&t.elementId===elementId);
+    const target = repair || targets.find(t=>t.itemId===itemId && t.elementId===elementId);
+    if(!element || ((targets.length || repairTargets.length) && !target)) {issues.push({elementId:element?.id || '',field:'elementId',code:'CANONICAL_REFERENCE_INVALID'});continue;}
+    if((targets.length || repairTargets.length) && seen.has(itemId)) {issues.push({elementId,itemId,field:'itemId',code:'DUPLICATE_TARGET'});continue;}
+    seen.add(targets.length || repairTargets.length ? itemId : elementId);
     const row: AnalysisAIRow = {elementId,itemId:itemId || undefined,elementName:element.name,cpText:element.content || '',
       cpCompetence:target?.cpCompetence ?? text(input.cpCompetence),materialScope:target?.materialScope ?? text(input.materialScope),
       scopeCode:text(input.scopeCode),meaningfulUnderstanding:text(input.meaningfulUnderstanding),suggestedTp:text(input.suggestedTp)};
-    if(!targets.length) for(const field of ['cpCompetence','materialScope','suggestedTp'] as const) {
-      if(!row[field]) issues.push({elementId,field,code:'FIELD_EMPTY'});
+    if(repair)for(const field of CP4_FIELDS)row[field]=repair.fields.includes(field)?text(input[field]):repair[field];
+    if(!targets.length) for(const field of (repair?.fields || ['cpCompetence','materialScope','suggestedTp']) as typeof CP4_FIELDS[number][]) {
+      if(!row[field]) issues.push({elementId,itemId:itemId||undefined,rowIndex,field,code:field==='meaningfulUnderstanding'?'MU_EMPTY':'FIELD_EMPTY'});
     }
-    const code=understandingIssue(input.meaningfulUnderstanding,element);
-    if(code) issues.push({elementId,itemId:itemId||undefined,field:'meaningfulUnderstanding',code});
+    const code=(!repair || repair.fields.includes('meaningfulUnderstanding'))?understandingIssue(input.meaningfulUnderstanding,element):null;
+    if(code) issues.push({elementId,itemId:itemId||undefined,rowIndex,field:'meaningfulUnderstanding',code});
     items.push(row);
   }
-  for(const target of targets.length ? targets : elements.map(e=>({elementId:e.id,itemId:''}))) {
-    if(!seen.has(targets.length ? target.itemId : target.elementId)) issues.push({elementId:target.elementId,itemId:target.itemId||undefined,field:'items',code:'ELEMENT_MISSING'});
+  for(const target of repairTargets.length ? repairTargets : targets.length ? targets : elements.map(e=>({elementId:e.id,itemId:''}))) {
+    if(!seen.has(targets.length || repairTargets.length ? target.itemId : target.elementId)) issues.push({elementId:target.elementId,itemId:target.itemId||undefined,field:'items',code:'ELEMENT_MISSING'});
   }
-  return {items,issues,valid:issues.length===0};
+  for(const issue of issues)issue.category=['MU_GROUNDING_REVIEW','CP_COVERAGE_REVIEW','MU_INVALID'].includes(issue.code)?'quality':issue.code==='RESPONSE_INVALID'?'technical':'structure';
+  const keys=new Set<string>();const unique=issues.filter(issue=>{const key=JSON.stringify([issue.elementId,issue.itemId,issue.rowIndex,issue.field,issue.code,issue.clauseIndex]);if(keys.has(key))return false;keys.add(key);return true;});
+  return {items,issues:unique,valid:unique.length===0};
 }
 
 export function getUnderstandingTargets(items: CPAnalysisItem[], elements: CPElem[]): UnderstandingTarget[] {
@@ -72,7 +79,7 @@ export function validateStep4Understanding(items:CPAnalysisItem[], elements:CPEl
 }
 
 export function explainAnalysisIssue(code:string):string {
-  return ({MU_EMPTY:'Kolom 3 kosong atau bukan teks.',MU_INVALID:'Kolom 3 bukan pemahaman bermakna yang valid.',MU_GROUNDING_REVIEW:'Keterkaitan kolom 3 atau istilah isi belum terbukti dari CP; perlu ditinjau.',FIELD_EMPTY:'Kolom analisis wajib kosong.',ELEMENT_MISSING:'Elemen/baris target belum tercakup dalam respons.',CANONICAL_REFERENCE_INVALID:'Referensi elemen/baris tidak sesuai ID kanonikal.',DUPLICATE_TARGET:'AI mengembalikan target retry yang sama lebih dari sekali.',CP_COVERAGE_REVIEW:'Cakupan klausa CP belum lengkap.',RESPONSE_INVALID:'Struktur respons analisis tidak valid.',WORKFLOW_NOT_READY:'Prasyarat workflow analisis belum lengkap.'} as Record<string,string>)[code] || 'Permintaan AI gagal pada target ini.';
+  return ({PEDAGOGY_REVIEW:'Keselarasan kompetensi, materi atau usulan TP terhadap CP perlu ditinjau.',MU_EMPTY:'Kolom 3 kosong atau bukan teks.',MU_INVALID:'Kolom 3 bukan pemahaman bermakna yang valid.',MU_GROUNDING_REVIEW:'Keterkaitan kolom 3 atau istilah isi belum terbukti dari CP; perlu ditinjau.',FIELD_EMPTY:'Kolom analisis wajib kosong.',ELEMENT_MISSING:'Elemen/baris target belum tercakup dalam respons.',CANONICAL_REFERENCE_INVALID:'Referensi elemen/baris tidak sesuai ID kanonikal.',DUPLICATE_TARGET:'AI mengembalikan target retry yang sama lebih dari sekali.',CP_COVERAGE_REVIEW:'Cakupan klausa CP belum lengkap.',RESPONSE_INVALID:'Struktur respons analisis tidak valid.',WORKFLOW_NOT_READY:'Prasyarat workflow analisis belum lengkap.'} as Record<string,string>)[code] || 'Permintaan AI gagal pada target ini.';
 }
 
 export interface UnderstandingPatch { itemId:string; elementId:string; before:string; after:string }

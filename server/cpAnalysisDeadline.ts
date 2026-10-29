@@ -2,6 +2,7 @@ import type { Request, Response } from 'express';
 import { createHash } from 'node:crypto';
 import { CP4_RUN_POLICY, CP4_MODEL, initialCP4Trace, isCP4RequestId, newCP4RequestId, type CP4Trace } from '../src/services/cpAnalysisRun';
 import { buildCPAnalysisRequest, handleCPAnalysisAI, parseCPAnalysisJSON } from './cpAnalysisAI';
+import { CP4ResponseError, parseCP4JSON } from '../src/services/cpAnalysisResponse';
 
 export class CP4DeadlineError extends Error {
   constructor(public code:'AI_TIMEOUT'|'AI_ABORTED'|'AI_PROVIDER_ERROR', public trace:CP4Trace) {super(code);}
@@ -43,8 +44,9 @@ export async function runCP4Provider(request:ReturnType<typeof buildCPAnalysisRe
       if(Date.now()-attemptStart>=timeoutMs)throw fail('AI_TIMEOUT',source);
       trace.attempts.push({attempt,elapsedMs:Date.now()-attemptStart,outcome:'success'});
       trace.lastStage='response';trace.elapsedMs=Date.now()-started;
-      return {payload:parseCPAnalysisJSON(response.text),trace};
+      return {payload:parseCP4JSON(response.text,{source:'provider'}),trace};
     } catch(error) {
+      if(error instanceof CP4ResponseError){error.trace=structuredClone(trace);throw error;}
       if(error instanceof CP4DeadlineError) {
         trace.attempts.push({attempt,elapsedMs:Date.now()-attemptStart,outcome:error.code==='AI_ABORTED'?'aborted':error.trace.timeoutSource==='server'?'server_timeout':'provider_timeout'});
         throw fail(error.code,error.trace.timeoutSource);
@@ -95,7 +97,7 @@ export async function serveCP4Analysis(req:Request,res:Response, apiKey:string|n
       try {
         const outcome=await runCP4Provider(request,generate,{requestId,deadlineAt,signal:controller.signal,keySource});
         trace=outcome.trace;return outcome.payload;
-      } catch(error) {if(error instanceof CP4DeadlineError)trace=error.trace;throw error;}
+      } catch(error) {if(error instanceof CP4DeadlineError || (error instanceof CP4ResponseError && error.trace))trace=error.trace!;throw error;}
     }:undefined,true);
     if(controller.signal.aborted || res.destroyed)return;
     trace.lastStage=result.body.stage==='provider'?'provider':'validation';
@@ -104,6 +106,7 @@ export async function serveCP4Analysis(req:Request,res:Response, apiKey:string|n
     return res.status(result.status).json({...result.body,trace});
   } catch(error) {
     if(controller.signal.aborted || res.destroyed)return;
+    if(error instanceof CP4ResponseError)return res.status(502).json({code:'RESPONSE_INVALID',stage:'response',responseInfo:error.info,trace:{...trace,lastStage:'response',elapsedMs:Date.now()-started}});
     if(error instanceof CP4DeadlineError) {
       return res.status(error.code==='AI_TIMEOUT'?504:502).json({code:error.code,stage:error.trace.lastStage,trace:{...error.trace,elapsedMs:Date.now()-started}});
     }

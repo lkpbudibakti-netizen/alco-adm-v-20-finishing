@@ -1,3 +1,4 @@
+import { validateCP4Input,planCP4Repair,stageCP4Proposal,applyCP4Proposal } from '../src/services/cpAnalysisDraft';
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import { createServer } from 'node:http';
@@ -109,7 +110,7 @@ try {
   globalThis.fetch=async(_,options)=>{network++;signal=options?.signal as AbortSignal;return new Promise<Response>(resolve=>lateResolve=resolve);};
   const timeout=analyzeCPWithAI(input,12);
   await assert.rejects(()=>timeout,(error:any)=>error.code==='AI_TIMEOUT'&&error.trace.timeoutSource==='client'&&error.trace.requestId.startsWith('cp4-')&&error.trace.elapsedMs>=10);
-  assert(signal?.aborted);lateResolve(new Response(JSON.stringify({data:payload,engine:'gemini'})));await wait(2);assert.equal(network,1);
+  assert(signal?.aborted);lateResolve(new Response(JSON.stringify({data:payload,engine:'gemini'}),{headers:{'Content-Type':'application/json'}}));await wait(2);assert.equal(network,1);
   const canceled=new AbortController();canceled.abort();network=0;
   await assert.rejects(()=>analyzeCPWithAI(input,{signal:canceled.signal}),(error:any)=>error.code==='AI_ABORTED');assert.equal(network,0);
   const controller=new AbortController();
@@ -117,9 +118,9 @@ try {
   network=0;const requestId=newCP4RequestId();
   const first=analyzeCPWithAI(input,{requestId});await wait(2);
   await assert.rejects(()=>analyzeCPWithAI(input,{requestId}),(error:any)=>error.code==='AI_DUPLICATE_REQUEST');assert.equal(network,1);
-  lateResolve(new Response(JSON.stringify({data:payload,engine:'gemini'})));assert((await first).validation!.valid);
+  lateResolve(new Response(JSON.stringify({data:payload,engine:'gemini'}),{headers:{'Content-Type':'application/json'}}));assert((await first).validation!.valid);
   store.set(GEMINI_API_KEY_STORAGE_KEY,'fixture-secret-key');network=0;
-  globalThis.fetch=async(_,options)=>{network++;const h=new Headers(options?.headers);assert.equal(h.get('X-Gemini-API-Key'),'fixture-secret-key');return new Response(JSON.stringify({code:'AI_NOT_CONFIGURED',stage:'provider'}),{status:503});};
+  globalThis.fetch=async(_,options)=>{network++;const h=new Headers(options?.headers);assert.equal(h.get('X-Gemini-API-Key'),'fixture-secret-key');return new Response(JSON.stringify({code:'AI_NOT_CONFIGURED',stage:'provider'}),{status:503,headers:{'Content-Type':'application/json'}});};
   await assert.rejects(()=>analyzeCPWithAI(input),(error:any)=>error.code==='AI_NOT_CONFIGURED');assert.equal(network,1);assert.equal(store.get(GEMINI_API_KEY_STORAGE_KEY),'fixture-secret-key');
   for(const code of [401,403,429]) {
     network=0;globalThis.fetch=async()=>{network++;return new Response('{}',{status:code});};await assert.rejects(()=>analyzeCPWithAI(input));assert.equal(network,1);
@@ -128,7 +129,7 @@ try {
     const lastStage=source==='server'?'validation':'provider';
     globalThis.fetch=async(_,options)=>{
       const trace={...initialCP4Trace(new Headers(options?.headers).get('X-CP4-Request-ID')!,'request'),timeoutSource:source,lastStage,model:CP4_MODEL,attempt:1,elapsedMs:30};
-      return new Response(JSON.stringify({code:'AI_TIMEOUT',stage:lastStage,trace}),{status:504});
+      return new Response(JSON.stringify({code:'AI_TIMEOUT',stage:lastStage,trace}),{status:504,headers:{'Content-Type':'application/json'}});
     };
     await assert.rejects(()=>analyzeCPWithAI(input),(error:any)=>error.trace.timeoutSource===source&&error.trace.attempt===1&&error.trace.model===CP4_MODEL&&error.stage===lastStage);
   }
@@ -183,10 +184,10 @@ try {
   saveStorageV5(state);const before=JSON.stringify([...store]),loaded=loadStorageV5();storageWrites=0;
   function ui(answer:()=>Promise<any>) {
     const output:any={saved:0,proposal:null,errors:[],busy:[]};
-    const bindings:any={isAnalyzing:false,items:rows,cp:state.annualData.cp[0].value,context:input,activeAIRequest:{current:null},requestVersion:{current:0},latestItems:{current:rows},
-      newCP4RequestId,initialCP4Trace,analyzeCPWithAI:answer,CPAnalysisAIError,validateAnalysisAI,getUnderstandingTargets,createUnderstandingPatches,createInitialAnalysisDraft,
+    const bindings:any={isAnalyzing:false,items:rows,aiProposal:null,cp:state.annualData.cp[0].value,context:input,activeAIRequest:{current:null},requestVersion:{current:0},latestItems:{current:rows},
+      validateCP4Input,planCP4Repair,stageCP4Proposal,applyCP4Proposal,newCP4RequestId,initialCP4Trace,analyzeCPWithAI:answer,CPAnalysisAIError,validateAnalysisAI,getUnderstandingTargets,createUnderstandingPatches,createInitialAnalysisDraft,
       reportAIError:(...args:any[])=>output.errors.push(args),setAIProposal:(value:any)=>output.proposal=value,onSaveCPAnalysis:()=>output.saved++,setIsAnalyzing:(value:boolean)=>output.busy.push(value),setItems:()=>{throw Error('AI must not write editor values');}};
-    for(const setter of ['setNotificationToast','setAnalysisError','setAIDiagnosis'])bindings[setter]=()=>{};
+    for(const setter of ['setApprovedSuggestions','setNotificationToast','setAnalysisError','setAIDiagnosis'])bindings[setter]=()=>{};
     return {output,bindings,execute:callback(bindings)};
   }
   let resolveUI:(value:any)=>void=()=>{},generations=0;

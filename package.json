@@ -32,6 +32,8 @@
     "test:audit9c8:export": "tsx scripts/testAuditNo9C8DocumentExportRegression.ts",
     "test:regulatory2026": "tsx scripts/testAudit2026RegulatoryCompatibility.ts",
     "test:p0c-atp-semantic": "tsx scripts/testP0CAtpSemanticFidelityRegression.ts",
+    "test:step4-hardening": "tsx scripts/testStep4HardeningRegression.ts p0 && tsx scripts/testStep4HardeningRegression.ts p1 && tsx scripts/testStep4HardeningRegression.ts p2 && tsx scripts/testStep4HardeningRegression.ts p3",
+    "test:step4-downstream": "tsx scripts/testStep4DownstreamCompatibility.ts",
     "test:step4-deadline": "tsx scripts/testStep4DeadlineRegression.ts",
     "test:step4-understanding": "tsx scripts/testStep4MeaningfulUnderstandingRegression.ts",
     "test:cp-semantic": "tsx scripts/testCPAnalysisSemanticReviewRegression.ts",
