@@ -23,19 +23,19 @@ function runTest(name: string, fn: () => void) {
 console.log('--- RUNNING MERDEKA ATP ANNUALIZATION INTEGRITY REGRESSION ---\n');
 
 const atpManagerPath = path.resolve(process.cwd(), 'src/components/ATPManager.tsx');
-const atpManagerSource = fs.readFileSync(atpManagerPath, 'utf-8');
+const atpManagerSource = readSource(atpManagerPath, 'utf-8');
 
 const serverPath = path.resolve(process.cwd(), 'server.ts');
-const serverSource = fs.readFileSync(serverPath, 'utf-8');
+const serverSource = readSource(serverPath, 'utf-8');
 
 const workflowServicePath = path.resolve(process.cwd(), 'src/services/cpWorkflowService.ts');
-const workflowServiceSource = fs.readFileSync(workflowServicePath, 'utf-8');
+const workflowServiceSource = readSource(workflowServicePath, 'utf-8');
 
 const typesPath = path.resolve(process.cwd(), 'src/types/index.ts');
-const typesSource = fs.readFileSync(typesPath, 'utf-8');
+const typesSource = readSource(typesPath, 'utf-8');
 
 const appPath = path.resolve(process.cwd(), 'src/App.tsx');
-const appSource = fs.readFileSync(appPath, 'utf-8');
+const appSource = readSource(appPath, 'utf-8');
 
 // 1. Annual ATP generation source does not require context.semester
 runTest('1. Annual ATP generation source does not require context.semester', () => {
@@ -86,7 +86,9 @@ runTest('5. ATP edit modal has no Semester selector for Merdeka annual flow', ()
 // 6. ATP table does not display Sem 1 / Sem 2
 runTest('6. ATP table does not display Sem 1 / Sem 2 or "Sem / JP" column', () => {
   assert.ok(!atpManagerSource.includes('Sem / JP'), 'Table header must not say "Sem / JP"');
-  assert.ok(atpManagerSource.includes('Alokasi JP'), 'Table header must say "Alokasi JP"');
+  const table = atpManagerSource.match(/<thead>([\s\S]*?)<\/thead>/)![1];
+  assert.ok(table.includes('Fokus Langkah') && table.includes('TP Tertaut'), 'V20 ATP table describes sequencing and linked TP');
+  assert.ok(!table.includes('JP'), 'Semester JP is allocated in annual planning, not the ATP sequence table');
   assert.ok(!atpManagerSource.includes('`Sem ${item.semester}`'), 'Table rows must not render `Sem ${item.semester}`');
 });
 
@@ -103,9 +105,10 @@ runTest('7. Page copy describes ATP as annual context without semester', () => {
 });
 
 // 8. Total label is annual-neutral, not "Total Alokasi Waktu Semester"
-runTest('8. Total label is annual-neutral ("Total Alokasi Waktu:")', () => {
+runTest('8. ATP continues to mapping before annual time planning', () => {
   assert.ok(!atpManagerSource.includes('Total Alokasi Waktu Semester:'), 'Footer must not say "Total Alokasi Waktu Semester:"');
-  assert.ok(atpManagerSource.includes('Total Alokasi Waktu:'), 'Footer must say "Total Alokasi Waktu:"');
+  assert.ok(atpManagerSource.includes('Lanjut ke Pemetaan Unit/Bab (07)'), 'V20 ATP footer must lead to mapping');
+  assert.ok(!atpManagerSource.includes('Total Alokasi Waktu:'), 'ATP sequence must not claim semester JP totals');
 });
 
 // 9. Server /api/ai/generate-atp accepts valid Merdeka annual request without semester
@@ -130,11 +133,10 @@ runTest('10. Server Merdeka prompt uses annual context without semester', () => 
 });
 
 // 11. Server does not fabricate JP when weekly JP is unresolved
-runTest('11. Server removes synthetic JP when weekly JP is unresolved', () => {
-  assert.ok(
-    serverSource.includes('if (validatedWeeklyJP === undefined) {\n        // Enforce unresolved JP: do not leak synthetic or guessed numbers\n        delete item.jp;\n        delete item.allocatedJP;\n      }'),
-    'server.ts must delete item.jp and item.allocatedJP when validatedWeeklyJP is undefined'
-  );
+runTest('11. Server projects pure annual ATP sequence without semester JP authority', () => {
+ const body = serverSource.match(/resolvedItems\.push\(\{([\s\S]*?)\}\);/);
+ assert.ok(body, 'Server must project canonical ATP steps explicitly');
+ assert.deepStrictEqual(body[1].split(',').map(field=>field.trim()).filter(Boolean).map(field=>field.split(':')[0].trim()), ['stepNumber','linkedTpIds','focus']);
 });
 
 // 12. pedagogicalATPFingerprint does not include ATPItem.semester
@@ -148,8 +150,8 @@ runTest('12. pedagogicalATPFingerprint does not include ATPItem.semester', () =>
 // 13. Existing strict TP reference behavior remains intact
 runTest('13. Strict TP reference resolution and validation contracts remain intact', () => {
   const tps: TPItem[] = [
-    { id: 'tp-1', code: 'TP 1.1', statement: 'Memahami teks deskripsi', competence: 'Memahami', contentScope: 'Teks deskripsi', order: 1 },
-    { id: 'tp-2', code: 'TP 1.2', statement: 'Menulis teks deskripsi', competence: 'Menulis', contentScope: 'Teks deskripsi', order: 2 },
+    { id: 'tp-1', code: 'E1-DES-01', statement: 'Memahami teks deskripsi', competence: 'Memahami', contentScope: 'Teks deskripsi', order: 1 },
+    { id: 'tp-2', code: 'E1-DES-02', statement: 'Menulis teks deskripsi', competence: 'Menulis', contentScope: 'Teks deskripsi', order: 2 },
   ];
 
   // 13.1 Exact ID
@@ -158,10 +160,10 @@ runTest('13. Strict TP reference resolution and validation contracts remain inta
 
   // 13.2 Ambiguous TP
   const dupTPs: TPItem[] = [
-    { id: 'tp-1a', code: 'TP 1.1', statement: 'Memahami teks deskripsi A', competence: 'Memahami', contentScope: 'Teks deskripsi A', order: 1 },
-    { id: 'tp-1b', code: 'TP 1.1', statement: 'Memahami teks deskripsi B', competence: 'Memahami', contentScope: 'Teks deskripsi B', order: 2 },
+    { id: 'tp-1a', code: 'E1-DES-01', statement: 'Memahami teks deskripsi A', competence: 'Memahami', contentScope: 'Teks deskripsi A', order: 1 },
+    { id: 'tp-1b', code: 'E1-DES-01', statement: 'Memahami teks deskripsi B', competence: 'Memahami', contentScope: 'Teks deskripsi B', order: 2 },
   ];
-  const ambRes = resolveATPItemTPReference({ id: 'atp-1', stepNumber: 1, tpId: '', tpCode: 'TP 1.1', tpStatement: '', p3Dimensions: [] }, dupTPs);
+  const ambRes = resolveATPItemTPReference({ id: 'atp-1', stepNumber: 1, tpId: '', tpCode: 'E1-DES-01', tpStatement: '', p3Dimensions: [] }, dupTPs);
   assert.strictEqual(ambRes.status, 'AMBIGUOUS_REFERENCE');
 
   // 13.3 Dangling TP
@@ -192,8 +194,8 @@ runTest('13. Strict TP reference resolution and validation contracts remain inta
     subjectCode: 'BINDO',
     phase: 'A',
     items: [
-      { id: 'atp-1', stepNumber: 1, tpId: 'tp-1', tpCode: 'TP 1.1', tpStatement: 'Memahami teks deskripsi', p3Dimensions: [] },
-      { id: 'atp-2', stepNumber: 2, tpId: 'tp-1', tpCode: 'TP 1.1', tpStatement: 'Memahami teks deskripsi', p3Dimensions: [] },
+      { id: 'atp-1', stepNumber: 1, linkedTpIds: ['tp-1','tp-1'], focus: 'Memahami teks deskripsi' },
+      { id: 'atp-2', stepNumber: 2, tpId: 'tp-1', tpCode: 'E1-DES-01', tpStatement: 'Memahami teks deskripsi', p3Dimensions: [] },
     ],
     totalJP: 0,
     knownTotalJP: 0,
@@ -206,14 +208,14 @@ runTest('13. Strict TP reference resolution and validation contracts remain inta
   };
   const dupVal = validateATPReferences(dupAtp, mockTPData);
   assert.strictEqual(dupVal.isSiap, false, 'Duplicate TP reference in ATP must fail validation');
-  assert.ok(dupVal.issues.some((i) => i.includes('DUPLICATE_TP_REFERENCE')));
+  assert.ok(dupVal.issues.some((i) => i.includes('Duplicate TP Reference')));
 });
 
 // 14. ATP may remain valid structurally with JP unresolved
 runTest('14. ATP can be valid and confirmed as SIAP even when JP is unresolved', () => {
   const tps: TPItem[] = [
-    { id: 'tp-1', code: 'TP 1.1', statement: 'Memahami teks deskripsi', competence: 'Memahami', contentScope: 'Teks deskripsi', order: 1 },
-    { id: 'tp-2', code: 'TP 1.2', statement: 'Menulis teks deskripsi', competence: 'Menulis', contentScope: 'Teks deskripsi', order: 2 },
+    { id: 'tp-1', code: 'E1-DES-01', statement: 'Memahami teks deskripsi', competence: 'Memahami', contentScope: 'Teks deskripsi', order: 1 },
+    { id: 'tp-2', code: 'E1-DES-02', statement: 'Menulis teks deskripsi', competence: 'Menulis', contentScope: 'Teks deskripsi', order: 2 },
   ];
 
   const mockTPData: TPData = {
@@ -240,8 +242,8 @@ runTest('14. ATP can be valid and confirmed as SIAP even when JP is unresolved',
     phase: 'A',
     rationale: 'Rasional urutan pembelajaran',
     items: [
-      { id: 'atp-1', stepNumber: 1, tpId: 'tp-1', tpCode: 'TP 1.1', tpStatement: 'Memahami teks deskripsi', jp: undefined, p3Dimensions: [] },
-      { id: 'atp-2', stepNumber: 2, tpId: 'tp-2', tpCode: 'TP 1.2', tpStatement: 'Menulis teks deskripsi', jp: undefined, p3Dimensions: [] },
+      { id: 'atp-1', stepNumber: 1, linkedTpIds: ['tp-1'], focus: 'Memahami teks deskripsi', jp: undefined },
+      { id: 'atp-2', stepNumber: 2, linkedTpIds: ['tp-2'], focus: 'Menulis teks deskripsi', jp: undefined },
     ],
     totalJP: 0,
     knownTotalJP: 0,
@@ -253,8 +255,20 @@ runTest('14. ATP can be valid and confirmed as SIAP even when JP is unresolved',
     updatedAt: '2026-01-01T00:00:00Z',
   };
 
-  const valRes = validateATPReferences(validUnresolvedJPAtp, mockTPData);
-  assert.strictEqual(valRes.isSiap, true, 'ATP with valid TP references and sequence must pass validation even if JP is undefined');
+  // Full upstream lineage is required in V20; unresolved JP is the only missing input.
+  const stamp = '2026-01-01T00:00:00Z';
+  const cp = { id:'cp-1', academicSettingId:'acad-1', generalDescription:'Memahami dan menulis teks deskripsi.',
+    elements:[{id:'el-1',code:'E1',name:'Bahasa',content:'Memahami dan menulis teks deskripsi.'}],
+    source:{title:'CP',institution:'BSKAP',retrievedAt:stamp,verificationStatus:'UNVERIFIED' as const},updatedAt:stamp };
+  const analysis = { id:'analysis',academicSettingId:'acad-1',cpId:cp.id,workflowStatus:'SIAP' as const,
+    basedOnCpUpdatedAt:stamp,updatedAt:stamp,items:[{id:'analysis-1',elementId:'el-1',elementName:'Bahasa',scopeCode:'DES',
+    cpText:cp.elements[0].content,cpCompetence:'Memahami dan menulis',materialScope:'Teks deskripsi',order:1}] };
+  mockTPData.cpAnalysisId=analysis.id;
+  mockTPData.basedOnCpUpdatedAt=stamp;
+  mockTPData.basedOnAnalysisUpdatedAt=stamp;
+  mockTPData.items=mockTPData.items.map(item=>({...item,cpAnalysisItemIds:['analysis-1']}));
+  const valRes = validateATPReferences(validUnresolvedJPAtp, mockTPData, undefined, cp, analysis);
+  assert.strictEqual(valRes.isSiap, true, valRes.issues.join('; '));
   assert.strictEqual(valRes.issues.length, 0);
 });
 
@@ -275,3 +289,7 @@ runTest('16. App.tsx connects handleSaveATP to Storage V5 annual persistence', (
 });
 
 console.log('\nAll 16 Merdeka ATP Annualization Integrity contract tests PASSED successfully!\n');
+
+function readSource(file: string, encoding: 'utf-8' | 'utf8'): string {
+  return fs.readFileSync(file, encoding).replace(/\r\n/g, '\n');
+}

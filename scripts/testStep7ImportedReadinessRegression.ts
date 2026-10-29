@@ -32,9 +32,12 @@ assert.equal(valid.success, true, valid.issues.join('; '));
 assert.equal(resolveATPUnitMappingReadiness({ ...mapping, units: valid.nextUnits! }, atp, tp).canProceed, true);
 assert.deepEqual(valid.nextUnits!.map(u => [u.id, u.title, u.order]), mapping.units.map(u => [u.id, u.title, u.order]));
 assert.deepEqual(valid.nextUnits![0].materials[0], mapping.units[0].materials[0]);
-const irrelevant = apply([assign, { ...add, title: 'Pembagian pecahan' }]);
-assert.equal(irrelevant.success, false);
-assert.ok(irrelevant.issues.some(i => i.includes('kesesuaian')));
+// Teacher titles are not lineage authority: valid canonical IDs must remain usable.
+const renamed = apply([assign, { ...add, title: 'Pembagian pecahan' }]);
+assert.equal(renamed.success, true, renamed.issues.join('; '));
+assert.equal(renamed.nextUnits![0].materials.at(-1)!.title, 'Pembagian pecahan');
+const dangling = apply([assign, { ...add, linkedTpIds: ['missing-canonical-tp'] }]);
+assert.equal(dangling.success, false, 'Unknown canonical TP must fail closed');
 const destructiveAlign = apply([{ id: 'align', type: 'ALIGN_EXISTING_MATERIAL', targetUnitId: 'u0', targetMaterialId: 'm0',
   linkedTpIds: [], linkedAtpItemIds: [] }]);
 assert.equal(destructiveAlign.success, false);
