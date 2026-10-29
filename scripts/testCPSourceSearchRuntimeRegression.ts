@@ -82,7 +82,7 @@ try {
   cpSourceRepository.getLocalReferenceFallback = originalFallback;
 }
 const ui = readFileSync('src/components/CPManager.tsx', 'utf8');
-assert(ui.includes('searchWithDiagnostics(context, { academicSetting })'));
+assert(ui.includes('searchSourceChoices(context, { academicSetting })'));
 assert(ui.includes('<CPSourceSearchDiagnostic report={sourceSearch} />'));
 assert(ui.includes("sourceSearch?.status !== 'RESOLVED' || !item.isSelectable"));
 assert(!ui.includes('getLocalReferenceFallback'));

@@ -1,10 +1,12 @@
+import review from './sources/cp-sma-bskap-046-2025-v6-review.json';
+import { adaptCP046Review } from './review046Adapter';
 import { MasterCPEntry } from './types';
 
 /**
  * MASTER CAPAIAN PEMBELAJARAN RESMI JENJANG SMA (FASE E & FASE F)
  * Sumber Resmi: Keputusan Kepala BSKAP No. 032/H/KR/2024 & Permendikdasmen No. 13 Tahun 2025
  */
-export const SMA_CP_ENTRIES: MasterCPEntry[] = [
+export const SMA_HISTORICAL_CP_ENTRIES: MasterCPEntry[] = [
   // --- FASE E (KELAS 10 SMA) ---
   {
     id: 'cp25-sma-fase-e-pai',
@@ -478,3 +480,7 @@ export const SMA_CP_ENTRIES: MasterCPEntry[] = [
     ],
   },
 ];
+
+export const SMA_REVIEW_CP_ENTRIES = adaptCP046Review(review, 'SMA');
+// Existing consumers retain the exact historical registry from main.
+export const SMA_CP_ENTRIES: MasterCPEntry[] = SMA_HISTORICAL_CP_ENTRIES;

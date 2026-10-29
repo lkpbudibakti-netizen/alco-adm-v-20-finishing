@@ -89,7 +89,7 @@ runTest('1. No saved analysis -> initial analysis items are not fabricated', () 
 
 runTest('2. No automatic "Elemen Utama" synthetic analysis', () => {
   const compPath = path.resolve(process.cwd(), 'src/components/CPAnalysisManager.tsx');
-  const compSource = fs.readFileSync(compPath, 'utf-8');
+  const compSource = fs.readFileSync(compPath, 'utf-8').replace(/\r\n/g, '\n');
 
   // Ensure "Elemen Utama" is never synthetically created
   assert.strictEqual(
@@ -168,7 +168,7 @@ runTest('4. Local derive leaves empty: cpCompetence, materialScope (unless direc
 
 runTest('5. Local derive does not use: generatedBy: "AI"', () => {
   const compPath = path.resolve(process.cwd(), 'src/components/CPAnalysisManager.tsx');
-  const compSource = fs.readFileSync(compPath, 'utf-8');
+  const compSource = fs.readFileSync(compPath, 'utf-8').replace(/\r\n/g, '\n');
 
   // Find handleGenerateFromCP function body
   const match = compSource.match(/const handleGenerateFromCP = \(\) => \{([\s\S]*?)\n  \};/);
@@ -188,7 +188,7 @@ runTest('5. Local derive does not use: generatedBy: "AI"', () => {
 
 runTest('6. Local/manual save uses generatedBy: "TEACHER" or preserves valid previous non-false provenance', () => {
   const compPath = path.resolve(process.cwd(), 'src/components/CPAnalysisManager.tsx');
-  const compSource = fs.readFileSync(compPath, 'utf-8');
+  const compSource = fs.readFileSync(compPath, 'utf-8').replace(/\r\n/g, '\n');
 
   // Verify handleSave provenance handling
   const match = compSource.match(/const handleSave = (?:\(\): boolean =>|\(\) =>) \{([\s\S]*?)\n  \};/);
@@ -207,7 +207,7 @@ runTest('6. Local/manual save uses generatedBy: "TEACHER" or preserves valid pre
 
 runTest('7. basedOnCpUpdatedAt remains tied to current CP timestamp', () => {
   const compPath = path.resolve(process.cwd(), 'src/components/CPAnalysisManager.tsx');
-  const compSource = fs.readFileSync(compPath, 'utf-8');
+  const compSource = fs.readFileSync(compPath, 'utf-8').replace(/\r\n/g, '\n');
 
   // Both handleSave and handleGenerateFromCP must tie basedOnCpUpdatedAt to cp.updatedAt
   const matches = compSource.match(/basedOnCpUpdatedAt:\s*cp\.updatedAt/g);
@@ -219,7 +219,7 @@ runTest('7. basedOnCpUpdatedAt remains tied to current CP timestamp', () => {
 
 runTest('8. CP Analysis component integrity: CPAnalysisManager does not perform direct storage writes', () => {
   const compPath = path.resolve(process.cwd(), 'src/components/CPAnalysisManager.tsx');
-  const compSource = fs.readFileSync(compPath, 'utf-8');
+  const compSource = fs.readFileSync(compPath, 'utf-8').replace(/\r\n/g, '\n');
 
   assert.strictEqual(
     compSource.includes('saveStorageV5'),
@@ -512,7 +512,7 @@ runTest('18. fallback tidak memotong bagian akhir CP panjang (tidak ada 120 char
 
 runTest('19. source CPAnalysisManager tidak lagi mengandung it.elementId || (cp.elements && cp.elements[idx]?.id)', () => {
   const compPath = path.resolve(process.cwd(), 'src/components/CPAnalysisManager.tsx');
-  const compSource = fs.readFileSync(compPath, 'utf-8');
+  const compSource = fs.readFileSync(compPath, 'utf-8').replace(/\r\n/g, '\n');
 
   assert.strictEqual(
     compSource.includes('it.elementId || (cp.elements && cp.elements[idx]?.id)'),
@@ -618,7 +618,7 @@ runTest('22. Mismatch cpText terhadap elemen CP canonical -> ditolak validator (
 
 runTest('23. Ordinary save preserves previous basedOnCpUpdatedAt to prevent stale laundering', () => {
   const compPath = path.resolve(process.cwd(), 'src/components/CPAnalysisManager.tsx');
-  const compSource = fs.readFileSync(compPath, 'utf-8');
+  const compSource = fs.readFileSync(compPath, 'utf-8').replace(/\r\n/g, '\n');
 
   // Verify handleSave implementation preserves existing basedOnCpUpdatedAt
   const match = compSource.match(/const handleSave = \(\): boolean => \{([\s\S]*?)\n  \};/);
@@ -637,7 +637,7 @@ runTest('23. Ordinary save preserves previous basedOnCpUpdatedAt to prevent stal
 
 runTest('24. Ordinary save preserves needsReview / isCPOutdated condition', () => {
   const compPath = path.resolve(process.cwd(), 'src/components/CPAnalysisManager.tsx');
-  const compSource = fs.readFileSync(compPath, 'utf-8');
+  const compSource = fs.readFileSync(compPath, 'utf-8').replace(/\r\n/g, '\n');
 
   const match = compSource.match(/const handleSave = \(\): boolean => \{([\s\S]*?)\n  \};/);
   assert.ok(match, 'handleSave must exist');
@@ -655,7 +655,7 @@ runTest('24. Ordinary save preserves needsReview / isCPOutdated condition', () =
 
 runTest('25. handleSave evaluates candidate to determine final workflowStatus', () => {
   const compPath = path.resolve(process.cwd(), 'src/components/CPAnalysisManager.tsx');
-  const compSource = fs.readFileSync(compPath, 'utf-8');
+  const compSource = fs.readFileSync(compPath, 'utf-8').replace(/\r\n/g, '\n');
 
   const match = compSource.match(/const handleSave = \(\): boolean => \{([\s\S]*?)\n  \};/);
   assert.ok(match, 'handleSave must exist');
@@ -669,7 +669,7 @@ runTest('25. handleSave evaluates candidate to determine final workflowStatus', 
 
 runTest('26. Rebase paths (executeAIAnalysis & handleGenerateFromCP) rebase to active cp.updatedAt and clear needsReview', () => {
   const compPath = path.resolve(process.cwd(), 'src/components/CPAnalysisManager.tsx');
-  const compSource = fs.readFileSync(compPath, 'utf-8');
+  const compSource = fs.readFileSync(compPath, 'utf-8').replace(/\r\n/g, '\n');
 
   // Both rebase handlers must use active cp.updatedAt and clear needsReview
   const aiMatch = compSource.match(/executeAIAnalysis = async \(\) => \{([\s\S]*?)\n  \};/);
@@ -727,7 +727,7 @@ runTest('27. CP invalid -> CPAnalysis tidak SIAP (CP prerequisite restored)', ()
 
 runTest('28. handleSave mempunyai return type boolean', () => {
   const compPath = path.resolve(process.cwd(), 'src/components/CPAnalysisManager.tsx');
-  const compSource = fs.readFileSync(compPath, 'utf-8');
+  const compSource = fs.readFileSync(compPath, 'utf-8').replace(/\r\n/g, '\n');
 
   assert.ok(
     compSource.includes('const handleSave = (): boolean =>'),
@@ -745,7 +745,7 @@ runTest('28. handleSave mempunyai return type boolean', () => {
 
 runTest('29. Navigation memanggil onNextStep() hanya jika handleSave() mengembalikan true', () => {
   const compPath = path.resolve(process.cwd(), 'src/components/CPAnalysisManager.tsx');
-  const compSource = fs.readFileSync(compPath, 'utf-8');
+  const compSource = fs.readFileSync(compPath, 'utf-8').replace(/\r\n/g, '\n');
 
   assert.ok(
     compSource.includes('const ready = handleSave();\n            if (ready) {\n              onNextStep();\n            }') ||

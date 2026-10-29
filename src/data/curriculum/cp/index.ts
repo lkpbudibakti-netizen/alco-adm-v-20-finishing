@@ -3,7 +3,11 @@ import { MasterCPEntry } from './types';
 import { SD_CP_ENTRIES } from './sd';
 import { SMP_CP_ENTRIES } from './smp';
 import { SMA_CP_ENTRIES } from './sma';
-import { findSubjectByNameOrAlias, findSubjectByCode } from '../subjects';
+import { findSubjectByNameOrAlias, findSubjectByCode, findCP046Subject } from '../subjects';
+
+import { SMP_REVIEW_CP_ENTRIES } from './smp';
+import { SMA_REVIEW_CP_ENTRIES } from './sma';
+export const REVIEW_CP046_ENTRIES: MasterCPEntry[] = [...SMP_REVIEW_CP_ENTRIES, ...SMA_REVIEW_CP_ENTRIES];
 
 export * from './types';
 export { SD_CP_ENTRIES } from './sd';
@@ -17,6 +21,8 @@ export const ALL_MASTER_CP_ENTRIES: MasterCPEntry[] = [
 ];
 
 export interface ResolveCPOptions {
+  /** Explicit opt-in; never used by legacy resolution or project migration. */
+  sourceSet?: 'review046';
   subjectCode?: string;
   subjectInput?: string;
   subjectCodeOrName?: string;
@@ -97,8 +103,11 @@ export function resolveCPContext(
   let academicYear: string | undefined;
   let levelFilter: SchoolLevel | undefined;
   let sourcePool = ALL_MASTER_CP_ENTRIES;
+  let reviewed = false;
 
   if (typeof subjectOrOptions === 'object' && subjectOrOptions !== null) {
+    reviewed = subjectOrOptions.sourceSet === 'review046';
+    if (reviewed) sourcePool = REVIEW_CP046_ENTRIES;
     subjectInput =
       subjectOrOptions.subjectCode ||
       subjectOrOptions.subjectInput ||
@@ -127,7 +136,7 @@ export function resolveCPContext(
   }
 
   const subject =
-    findSubjectByCode(subjectInput) || findSubjectByNameOrAlias(subjectInput);
+    reviewed ? findCP046Subject(subjectInput) : findSubjectByCode(subjectInput) || findSubjectByNameOrAlias(subjectInput);
   const code = subject ? subject.code : subjectInput.toUpperCase().trim();
 
   let baseCandidates = sourcePool.filter(

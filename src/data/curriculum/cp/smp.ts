@@ -1,10 +1,12 @@
+import review from './sources/cp-smp-bskap-046-2025-v5-review.json';
+import { adaptCP046Review } from './review046Adapter';
 import { MasterCPEntry } from './types';
 
 /**
  * MASTER CAPAIAN PEMBELAJARAN RESMI JENJANG SMP (FASE D)
  * Sumber Resmi: Keputusan Kepala BSKAP No. 032/H/KR/2024 & Permendikdasmen No. 13 Tahun 2025
  */
-export const SMP_CP_ENTRIES: MasterCPEntry[] = [
+export const SMP_HISTORICAL_CP_ENTRIES: MasterCPEntry[] = [
   {
     id: 'cp25-smp-fase-d-pai',
     subjectCode: 'PAI',
@@ -457,3 +459,7 @@ export const SMP_CP_ENTRIES: MasterCPEntry[] = [
     ],
   },
 ];
+
+export const SMP_REVIEW_CP_ENTRIES = adaptCP046Review(review, 'SMP');
+// Existing consumers retain the exact historical registry from main.
+export const SMP_CP_ENTRIES: MasterCPEntry[] = SMP_HISTORICAL_CP_ENTRIES;
