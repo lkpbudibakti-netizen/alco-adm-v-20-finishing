@@ -1907,7 +1907,7 @@ export function App() {
                   Mata Pelajaran <span className="text-rose-500">*</span>
                 </label>
                 <SubjectSelect id="new-workspace-subject" required level={newWorkspaceLevel} grade={newWsGrade}
-                  curriculum="KURIKULUM_MERDEKA" value={newWsSubject} onChange={setNewWsSubject}
+                  academicYear={newWsYear} curriculum="KURIKULUM_MERDEKA" value={newWsSubject} onChange={setNewWsSubject}
                   className="w-full text-sm px-3.5 py-2.5 rounded-xl border border-slate-300 focus:outline-hidden focus:ring-2 focus:ring-blue-600 bg-white" />
               </div>
 

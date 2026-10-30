@@ -320,7 +320,7 @@ export const TeacherTeachingLoadModal: React.FC<TeacherTeachingLoadModalProps> =
               {/* Add Assignment Sub-form */}
               <div className="p-3 bg-slate-100/70 border-t border-slate-200 flex flex-wrap items-center gap-2 text-xs">
                 <SubjectSelect id="teaching-load-subject" level={newLevel} grade={newGrade}
-                  curriculum={getCurriculumTypeFromSetting(currentSetting)} value={newSubject}
+                  academicYear={currentSetting.academicYear} curriculum={getCurriculumTypeFromSetting(currentSetting)} value={newSubject}
                   onChange={value => handleNewSubjectSelect(value, newLevel, newGrade)}
                   className="px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg text-xs w-44" />
                 <select
