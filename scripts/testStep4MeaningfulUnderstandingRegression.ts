@@ -1,3 +1,4 @@
+import { withCP4Health } from './fixtures/cp4BackendHealth';
 import { validateCP4Input,planCP4Repair,stageCP4Proposal,applyCP4Proposal } from '../src/services/cpAnalysisDraft';
 import { newCP4RequestId, initialCP4Trace } from '../src/services/cpAnalysisRun';
 import assert from 'node:assert/strict';
@@ -77,17 +78,17 @@ console.log('PASS: row-keyed retry, column isolation, canonical IDs, partial suc
 
 const originalFetch=globalThis.fetch;
 try {
-  globalThis.fetch=async()=>new Response(JSON.stringify(complete.body),{headers:{'Content-Type':'application/json'}});
+  globalThis.fetch=withCP4Health(async()=>new Response(JSON.stringify(complete.body),{headers:{'Content-Type':'application/json'}}));
   assert((await analyzeCPWithAI(input)).validation!.valid);
-  globalThis.fetch=async()=>new Response(JSON.stringify(part.body),{headers:{'Content-Type':'application/json'}});
+  globalThis.fetch=withCP4Health(async()=>new Response(JSON.stringify(part.body),{headers:{'Content-Type':'application/json'}}));
   assert(!(await analyzeCPWithAI(input)).validation!.valid);
-  globalThis.fetch=async()=>new Response('<html>SECRET</html>');
+  globalThis.fetch=withCP4Health(async()=>new Response('<html>SECRET</html>'));
   await assert.rejects(()=>analyzeCPWithAI(input),(e:any)=>e.code==='RESPONSE_INVALID'&&!e.message.includes('SECRET'));
-  globalThis.fetch=async()=>new Response(JSON.stringify({error:'SECRET API key token raw CP',code:'unknown'}),{status:500});
+  globalThis.fetch=withCP4Health(async()=>new Response(JSON.stringify({error:'SECRET API key token raw CP',code:'unknown'}),{status:500}));
   await assert.rejects(()=>analyzeCPWithAI(input),(e:any)=>e.code==='AI_API_ERROR'&&!e.message.includes('SECRET'));
-  globalThis.fetch=async()=>{throw Error('SECRET transport');};
+  globalThis.fetch=withCP4Health(async()=>{throw Error('SECRET transport');});
   await assert.rejects(()=>analyzeCPWithAI(input),(e:any)=>e.code==='AI_API_ERROR'&&!e.message.includes('SECRET'));
-  globalThis.fetch=()=>new Promise<Response>(()=>{});
+  globalThis.fetch=withCP4Health(()=>new Promise<Response>(()=>{}));
   await assert.rejects(()=>analyzeCPWithAI(input,5),(e:any)=>e.code==='AI_TIMEOUT');
 } finally {globalThis.fetch=originalFetch;}
 console.log('PASS: actual client handles complete/partial payload, non-JSON, HTTP/network failure and bounded timeout without leaking provider text.');

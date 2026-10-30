@@ -1,3 +1,4 @@
+import { checkCP4Backend } from './cpAnalysisBackend';
 import { validateCP4Input, validateCP4Targets } from './cpAnalysisDraft';
 import type { CP4RepairTarget } from './cpAnalysisAIContract';
 import { CP4ResponseError, parseCP4JSON, responseMime, safeResponseInfo } from './cpAnalysisResponse';
@@ -557,10 +558,14 @@ export async function analyzeCPWithAI(params: {
   activeCP4Requests.add(requestId);
   const controller = new AbortController();
   let timer: ReturnType<typeof setTimeout>;
+  let backendReady=false;
   const check=()=>{if(controller.signal.aborted)throw failure(trace.timeoutSource==='client'?'AI_TIMEOUT':'AI_ABORTED',trace.lastStage);if(Date.now()>=deadlineAt){trace.timeoutSource='client';controller.abort();throw failure('AI_TIMEOUT',trace.lastStage);}};
   const request = async (): Promise<CanonicalCPAnalysisResult> => {
     check();trace.lastStage='transport';
+    await checkCP4Backend(controller.signal,requestId);
+    check();backendReady=true;
     const res = await fetch('/api/ai/analyze-cp', {
+      redirect:'error',
       method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CP4-Request-ID':requestId,'X-CP4-Deadline':String(deadlineAt),...(localKey?{'X-Gemini-API-Key':localKey}:{}) },
       body: JSON.stringify(params), signal: controller.signal,
     });
@@ -605,8 +610,11 @@ export async function analyzeCPWithAI(params: {
   });
   try { return await Promise.race([Promise.resolve().then(request),interrupted]); }
   catch(error) {
-    if(error instanceof CP4ResponseError){const invalid=failure('RESPONSE_INVALID','response');invalid.responseInfo=error.info;throw invalid;}
-    if(error instanceof CPAnalysisAIError)throw error;
+    if(error instanceof CP4ResponseError){const invalid=failure(error.info.phase==='health'?'BACKEND_UNAVAILABLE':'RESPONSE_INVALID',error.info.phase==='health'?'transport':'response');invalid.responseInfo=error.info;throw invalid;}
+    if(error instanceof CPAnalysisAIError){
+      if(!backendReady && ['AI_TIMEOUT','AI_ABORTED'].includes(error.code))error.responseInfo={source:'endpoint',phase:'health',reason:error.code==='AI_TIMEOUT'?'TIMEOUT':'ABORTED'};
+      throw error;
+    }
     throw failure(controller.signal.aborted?(trace.timeoutSource==='client'?'AI_TIMEOUT':'AI_ABORTED'):'AI_API_ERROR',trace.lastStage);
   } finally {clearTimeout(timer!);settings.signal?.removeEventListener('abort',onAbort);activeCP4Requests.delete(requestId);}
 }

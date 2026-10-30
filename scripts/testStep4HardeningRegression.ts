@@ -1,3 +1,4 @@
+import { withCP4Health } from './fixtures/cp4BackendHealth';
 import assert from 'node:assert/strict';
 import { analyzeCPWithAI } from '../src/services/aiService';
 import { parseCP4JSON, CP4ResponseError } from '../src/services/cpAnalysisResponse';
@@ -37,7 +38,7 @@ if(phase==='p0') {
       [200,'application/json','[]','RESPONSE_INVALID','CONTRACT'],
       [200,'application/json','{"items":[]}','RESPONSE_INVALID','CONTRACT'],
     ] as const) {
-      globalThis.fetch=async()=>new Response(text,{status,headers:{'Content-Type':mime}});
+      globalThis.fetch=withCP4Health(async()=>new Response(text,{status,headers:{'Content-Type':mime}}));
       await assert.rejects(()=>analyzeCPWithAI(input),(error:any)=> {
         assert.equal(error.code,code);assert.equal(error.responseInfo.reason,reason);assert.equal(error.responseInfo.httpStatus,status);
         const report=formatCPAnalysisDiagnosis(createCPAnalysisDiagnosis(input,2,error.code,error.stage,[],error.trace,error.responseInfo));
@@ -45,7 +46,7 @@ if(phase==='p0') {
       });
     }
     for(const mime of ['application/json','application/problem+json']) {
-      globalThis.fetch=async()=>new Response(JSON.stringify({data:payload,engine:'gemini'}),{headers:{'Content-Type':mime}});
+      globalThis.fetch=withCP4Health(async()=>new Response(JSON.stringify({data:payload,engine:'gemini'}),{headers:{'Content-Type':mime}}));
       assert((await analyzeCPWithAI(input)).validation!.valid);
     }
     for(const [text,reason] of [['<html>SECRET</html>','HTML'],['{"items":[','TRUNCATED'],['{}','CONTRACT'],['','EMPTY']] as const) {
@@ -124,7 +125,7 @@ if(phase==='p2') {
 if(phase==='p1') {
   for(const bad of [[],[null],[{...elements[0],content:' '}],[elements[0],elements[0]]])assert(validateCP4Input(bad).length);
   let calls=0;const original=globalThis.fetch;
-  try {globalThis.fetch=async()=>{calls++;throw Error('must not send');};await assert.rejects(()=>analyzeCPWithAI({...input,elements:[{...elements[0],content:''}]}),(e:any)=>e.code==='CP_INPUT_INVALID');assert.equal(calls,0);} finally {globalThis.fetch=original;}
+  try {globalThis.fetch=withCP4Health(async()=>{calls++;throw Error('must not send');});await assert.rejects(()=>analyzeCPWithAI({...input,elements:[{...elements[0],content:''}]}),(e:any)=>e.code==='CP_INPUT_INVALID');assert.equal(calls,0);} finally {globalThis.fetch=original;}
   assert.equal((await handleCPAnalysisAI({...input,elements:[{...elements[0],name:' '}]})).status,400);
   const multi={...payload,items:[{...payload.items[0],cpCompetence:'Membandingkan',suggestedTp:'Murid membandingkan nilai pecahan.'},{...payload.items[0],cpCompetence:'Menjelaskan',suggestedTp:'Murid menjelaskan hubungan bilangan pecahan.'},payload.items[1]]};
   const full=await handleCPAnalysisAI(input,async()=>multi);assert(full.body.validation!.valid);assert.equal(full.body.data!.items.length,3);

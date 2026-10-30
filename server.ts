@@ -1,4 +1,6 @@
 import { serveCP4Analysis } from './server/cpAnalysisDeadline';
+import { CP4_BACKEND_SERVICE, CP4_BACKEND_PROTOCOL } from './src/services/cpAnalysisBackend';
+import { isCP4RequestId } from './src/services/cpAnalysisRun';
 import { assignGeneratedTPCodes, TP_CODE_FORMAT_DESCRIPTION } from './src/services/tpCodeContract';
 import { validateLearningPlanActivityMeetings } from './src/services/learningPlanActivityMeetingService';
 import express from 'express';
@@ -363,9 +365,13 @@ const assessmentAIResponseSchema = {
   },
 };
 
-// Health check endpoint
+// Health check endpoint: same origin/process as the Step 4 API, never cached by preview intermediaries.
 app.get('/api/health', (req, res) => {
+  res.setHeader('Cache-Control','no-store');
   res.json({
+    service: CP4_BACKEND_SERVICE,
+    cpAnalysisProtocol: CP4_BACKEND_PROTOCOL,
+    requestId: isCP4RequestId(req.get('X-CP4-Request-ID')) ? req.get('X-CP4-Request-ID') : undefined,
     status: 'ok',
     timestamp: new Date().toISOString(),
     geminiConfigured: !!process.env.GEMINI_API_KEY,
