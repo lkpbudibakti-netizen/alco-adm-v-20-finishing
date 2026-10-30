@@ -1,3 +1,4 @@
+import { SubjectSelect } from './SubjectSelect';
 import React, { useState, useEffect, useMemo } from 'react';
 import {
   SlidersHorizontal,
@@ -25,7 +26,6 @@ import {
   SEMESTERS,
   EDUCATION_LEVELS,
   GRADE_PHASE_MAP,
-  SUBJECT_OPTIONS,
   getPhaseFromGrade,
 } from '../data/curriculumDefaults';
 import { getSubjectJP } from '../services/jpEngine';
@@ -76,7 +76,6 @@ const AcademicSettingsForm: React.FC<AcademicSettingsFormProps> = ({
   });
   const [workspaceName, setWorkspaceName] = useState<string>(workspace?.name || '');
   const [documentDate, setDocumentDate] = useState<string>(workspace?.documentDate || '');
-  const [isCustomSubject, setIsCustomSubject] = useState(false);
   const [saveSuccessNotice, setSaveSuccessNotice] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [showUnsavedPrompt, setShowUnsavedPrompt] = useState(false);
@@ -103,12 +102,6 @@ const AcademicSettingsForm: React.FC<AcademicSettingsFormProps> = ({
     });
     setWorkspaceName(workspace?.name || '');
     setDocumentDate(workspace?.documentDate || '');
-    const currentSubjectList = SUBJECT_OPTIONS[setting.level] || [];
-    if (setting.subject && !currentSubjectList.includes(setting.subject)) {
-      setIsCustomSubject(true);
-    } else {
-      setIsCustomSubject(false);
-    }
   }, [setting, workspace]);
 
   // Dirty State Calculation: Check if form data or workspace name or documentDate differs from saved setting
@@ -148,10 +141,7 @@ const AcademicSettingsForm: React.FC<AcademicSettingsFormProps> = ({
     const validGrade = availableGrades.some((g) => g.grade === formData.grade) ? formData.grade : '';
     const derivedPhase = getPhaseFromGrade(level, validGrade);
 
-    const currentSubjectList = SUBJECT_OPTIONS[level] || [];
-    const validSubject = isCustomSubject
-      ? formData.subject
-      : (currentSubjectList.includes(formData.subject) ? formData.subject : '');
+    const validSubject = formData.subject;
 
     const jpLookup = lookupOfficialWeeklyJP(formData.curriculum, level, validGrade, validSubject);
 
@@ -185,6 +175,7 @@ const AcademicSettingsForm: React.FC<AcademicSettingsFormProps> = ({
 
   // Handle Subject Change
   const handleSubjectChange = (subject: string) => {
+    if (subject === formData.subject) return;
     const jpLookup = lookupOfficialWeeklyJP(formData.curriculum, formData.level, formData.grade, subject);
     setFormData((prev) => ({
       ...prev,
@@ -286,7 +277,6 @@ const AcademicSettingsForm: React.FC<AcademicSettingsFormProps> = ({
   };
 
   const availableGrades = GRADE_PHASE_MAP[formData.level] || [];
-  const standardSubjects = SUBJECT_OPTIONS[formData.level] || [];
 
   return (
     <div className="space-y-6">
@@ -609,40 +599,11 @@ const AcademicSettingsForm: React.FC<AcademicSettingsFormProps> = ({
                   <BookOpen className="w-3.5 h-3.5 text-blue-600" />
                   <span>Mata Pelajaran <span className="text-rose-500">*</span></span>
                 </label>
-                <button
-                  type="button"
-                  onClick={() => setIsCustomSubject(!isCustomSubject)}
-                  className="text-xs text-blue-600 hover:text-blue-800 font-semibold cursor-pointer"
-                >
-                  {isCustomSubject ? 'Pilih dari daftar standar' : '+ Tulis mapel lainnya'}
-                </button>
               </div>
-
-              {isCustomSubject ? (
-                <input
-                  id="input-custom-subject"
-                  type="text"
-                  required
-                  placeholder="Ketik nama mata pelajaran kustom / muatan lokal..."
-                  value={formData.subject || ''}
-                  onChange={(e) => handleSubjectChange(e.target.value)}
-                  className="w-full text-sm px-3.5 py-2.5 rounded-xl border border-slate-300 focus:outline-hidden focus:ring-2 focus:ring-blue-600 bg-white"
-                />
-              ) : (
-                <select
-                  id="select-subject"
-                  value={formData.subject || ''}
-                  onChange={(e) => handleSubjectChange(e.target.value)}
-                  className="w-full text-sm px-3.5 py-2.5 rounded-xl border border-slate-300 focus:outline-hidden focus:ring-2 focus:ring-blue-600 bg-white cursor-pointer"
-                >
-                  <option value="">— Pilih Mata Pelajaran —</option>
-                  {standardSubjects.map((sub) => (
-                    <option key={sub} value={sub}>
-                      {sub}
-                    </option>
-                  ))}
-                </select>
-              )}
+              <SubjectSelect key={setting.id} id="select-subject" required level={formData.level} grade={formData.grade}
+                phase={formData.phase} curriculum={getCurriculumTypeFromSetting(formData)} value={formData.subject || ''}
+                onChange={handleSubjectChange}
+                className="w-full text-sm px-3.5 py-2.5 rounded-xl border border-slate-300 focus:outline-hidden focus:ring-2 focus:ring-blue-600 bg-white" />
             </div>
 
             <div className="sm:col-span-5 space-y-1.5">

@@ -1,3 +1,4 @@
+import { SubjectSelect } from './SubjectSelect';
 import React, { useState, useEffect } from 'react';
 import {
   User,
@@ -1267,14 +1268,9 @@ export const ProfileManager: React.FC<ProfileManagerProps> = ({
                 <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
                   Mata Pelajaran Utama (Default)
                 </label>
-                <input
-                  id="input-teacher-subject"
-                  type="text"
-                  placeholder="Contoh: Bahasa Indonesia / Guru Kelas"
-                  value={profileForm.defaultSubject}
-                  onChange={(e) => setProfileForm({ ...profileForm, defaultSubject: e.target.value })}
-                  className="w-full text-sm px-3 py-2 rounded-xl border border-slate-300 focus:outline-hidden focus:ring-2 focus:ring-blue-600"
-                />
+                <SubjectSelect key={profileForm.id} id="input-teacher-subject" level={profileForm.defaultLevel || ''}
+                  value={profileForm.defaultSubject || ''} onChange={value => setProfileForm({ ...profileForm, defaultSubject: value })}
+                  className="w-full text-sm px-3 py-2 rounded-xl border border-slate-300 focus:outline-hidden focus:ring-2 focus:ring-blue-600 bg-white" />
               </div>
 
               <div>
