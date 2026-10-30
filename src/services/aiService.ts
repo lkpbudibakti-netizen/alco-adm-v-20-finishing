@@ -571,6 +571,9 @@ export async function analyzeCPWithAI(params: {
     });
     check();trace.lastStage='response';
     const mime=responseMime(res.headers.get('Content-Type'));
+    const echoedId=res.headers.get('X-CP4-Request-ID');
+    const echoedService=res.headers.get('X-CP4-Service');
+    const isExpressBackend=Boolean(echoedService==='administrasi-guru-ai'||(echoedId&&echoedId===requestId));
     const raw=await res.text();check();
     if(!res.ok) {
       let body:any=null;
@@ -579,10 +582,10 @@ export async function analyzeCPWithAI(params: {
       const code = ['AI_ABORTED','AI_DUPLICATE_REQUEST','AI_REQUEST_BUSY','AI_NOT_CONFIGURED','AI_PROVIDER_ERROR','AI_TIMEOUT','CP_ELEMENTS_REQUIRED','RETRY_TARGET_INVALID','RESPONSE_INVALID'].includes(body?.code) ? body.code : 'AI_API_ERROR';
       const error=failure(code, ['provider','request','transport','response','validation','apply','backoff','aborted'].includes(body?.stage)?body.stage:'response');
       const reported=safeResponseInfo(body?.responseInfo);
-      error.responseInfo=reported?{...reported,httpStatus:res.status}:{source:'endpoint',httpStatus:res.status,mime,reason:mime==='html'?'HTML':'HTTP_ERROR'};
+      error.responseInfo=reported?{...reported,httpStatus:res.status}:{source:'endpoint',httpStatus:res.status,mime,reason:mime==='html'?'HTML':'HTTP_ERROR',gatewayIntercepted:!isExpressBackend&&mime==='html'};
       throw error;
     }
-    if(mime!=='json')throw new CP4ResponseError({source:'endpoint',httpStatus:res.status,mime,reason:mime==='html'?'HTML':'CONTENT_TYPE'});
+    if(mime!=='json')throw new CP4ResponseError({source:'endpoint',httpStatus:res.status,mime,reason:mime==='html'?'HTML':'CONTENT_TYPE',gatewayIntercepted:!isExpressBackend&&mime==='html'});
     const body=parseCP4JSON(raw,{source:'endpoint',httpStatus:res.status,mime},false);
     if(body.engine!==undefined&&!['gemini','pedagogical_engine'].includes(body.engine))throw new CP4ResponseError({source:'endpoint',httpStatus:res.status,mime,reason:'CONTRACT'});
     if(body?.trace && !sanitizeCP4Trace(body.trace,requestId))throw failure('RESPONSE_INVALID','response');

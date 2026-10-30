@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import { CP4_RUN_POLICY, CP4_MODEL, initialCP4Trace, isCP4RequestId, newCP4RequestId, type CP4Trace } from '../src/services/cpAnalysisRun';
 import { buildCPAnalysisRequest, handleCPAnalysisAI, parseCPAnalysisJSON } from './cpAnalysisAI';
 import { CP4ResponseError, parseCP4JSON } from '../src/services/cpAnalysisResponse';
+import { CP4_BACKEND_SERVICE } from '../src/services/cpAnalysisBackend';
 
 export class CP4DeadlineError extends Error {
   constructor(public code:'AI_TIMEOUT'|'AI_ABORTED'|'AI_PROVIDER_ERROR', public trace:CP4Trace) {super(code);}
@@ -27,6 +28,8 @@ export async function runCP4Provider(request:ReturnType<typeof buildCPAnalysisRe
     check();
     trace.model=CP4_MODEL;trace.attempt=attempt;trace.lastStage='provider';
     const attemptStart=Date.now(),remaining=run.deadlineAt-attemptStart;
+    const minAttemptBudget=Math.min(Math.floor(policy.attemptMs/3),8_000);
+    if(attempt>1 && remaining<minAttemptBudget)throw fail('AI_PROVIDER_ERROR');
     const timeoutMs=Math.min(policy.attemptMs,remaining),source=remaining<=policy.attemptMs?'server':'provider';
     const controller=new AbortController();let timer:ReturnType<typeof setTimeout>|undefined;
     let onAbort:()=>void=()=>{};
@@ -55,7 +58,7 @@ export async function runCP4Provider(request:ReturnType<typeof buildCPAnalysisRe
       const status=Number((error as {status?:number})?.status);
       const sdkTimeout=error instanceof Error && /timeout|timed out|abort/i.test(error.name+' '+error.message);
       const deadlineExpired=Date.now()>=run.deadlineAt;
-      trace.attempts.push({attempt,elapsedMs:Date.now()-attemptStart,httpStatus:Number.isInteger(status)&&status>=100&&status<=599?status:undefined,outcome:sdkTimeout?(deadlineExpired?'server_timeout':'provider_timeout'):status===429?'429':status===503?'503':'provider_error'});
+      trace.attempts.push({attempt,elapsedMs:Date.now()-attemptStart,httpStatus:Number.isInteger(status)&&status>=100&&status<=599?status:undefined,outcome:sdkTimeout?(deadlineExpired?'server_timeout':'provider_timeout'):status===429?'429':status===503?'503':status===504?'504':'provider_error'});
       if(sdkTimeout)throw fail('AI_TIMEOUT',Date.now()>=run.deadlineAt?'server':'provider');
       check();
       if(![429,503].includes(status) || attempt>=Math.min(2,policy.maxAttempts))throw fail('AI_PROVIDER_ERROR');
@@ -81,8 +84,13 @@ export async function serveCP4Analysis(req:Request,res:Response, apiKey:string|n
   const keySource:CP4Trace['keySource']=apiKey?(req.get('X-Gemini-API-Key')?.trim()?'request':'server'):'none';
   const identity=createHash('sha256').update(apiKey || 'unconfigured').update('\0').update(requestId).digest('hex');
   for(const [id,expires] of leases)if(expires<=started)leases.delete(id);
-  if(leases.has(identity))return res.status(409).json({code:'AI_DUPLICATE_REQUEST',stage:'request',trace:initialCP4Trace(requestId,keySource)});
-  if(leases.size>=512)return res.status(503).json({code:'AI_REQUEST_BUSY',stage:'request',trace:initialCP4Trace(requestId,keySource)});
+  if(typeof res.setHeader==='function') {
+    res.setHeader('X-CP4-Request-ID', requestId);
+    res.setHeader('X-CP4-Service', CP4_BACKEND_SERVICE);
+    res.setHeader('Cache-Control', 'no-store');
+  }
+  if(leases.has(identity))return res.status(409).json({service:CP4_BACKEND_SERVICE,requestId,code:'AI_DUPLICATE_REQUEST',stage:'request',trace:initialCP4Trace(requestId,keySource)});
+  if(leases.size>=512)return res.status(503).json({service:CP4_BACKEND_SERVICE,requestId,code:'AI_REQUEST_BUSY',stage:'request',trace:initialCP4Trace(requestId,keySource)});
   leases.set(identity,started+2*CP4_RUN_POLICY.totalMs);
   const controller=new AbortController();
   const abort=()=>controller.abort();
@@ -102,14 +110,26 @@ export async function serveCP4Analysis(req:Request,res:Response, apiKey:string|n
     if(controller.signal.aborted || res.destroyed)return;
     trace.lastStage=result.body.stage==='provider'?'provider':'validation';
     trace.elapsedMs=Date.now()-started;
+    if(typeof res.setHeader==='function')res.setHeader('X-CP4-Elapsed-Ms', String(trace.elapsedMs));
     if(deadlineAt<=Date.now() && result.status===200)throw new CP4DeadlineError('AI_TIMEOUT',{...trace,timeoutSource:'server'});
-    return res.status(result.status).json({...result.body,trace});
+    return res.status(result.status).json({service:CP4_BACKEND_SERVICE,requestId,...result.body,trace});
   } catch(error) {
     if(controller.signal.aborted || res.destroyed)return;
-    if(error instanceof CP4ResponseError)return res.status(502).json({code:'RESPONSE_INVALID',stage:'response',responseInfo:error.info,trace:{...trace,lastStage:'response',elapsedMs:Date.now()-started}});
+    const elapsedMs = Date.now() - started;
+    if(typeof res.setHeader==='function')res.setHeader('X-CP4-Elapsed-Ms', String(elapsedMs));
+    if(error instanceof CP4ResponseError)return res.status(502).json({service:CP4_BACKEND_SERVICE,requestId,code:'RESPONSE_INVALID',stage:'response',responseInfo:error.info,trace:{...trace,lastStage:'response',elapsedMs}});
     if(error instanceof CP4DeadlineError) {
-      return res.status(error.code==='AI_TIMEOUT'?504:502).json({code:error.code,stage:error.trace.lastStage,trace:{...error.trace,elapsedMs:Date.now()-started}});
+      const lastAttempt = error.trace.attempts[error.trace.attempts.length - 1];
+      const isTimeout = error.code === 'AI_TIMEOUT';
+      const errorMsg = isTimeout
+        ? 'Permintaan AI melewati batas waktu server.'
+        : lastAttempt?.httpStatus === 503
+        ? 'Layanan AI sedang mengalami lonjakan antrean trafik (HTTP 503). Silakan coba lagi.'
+        : lastAttempt?.httpStatus === 504
+        ? 'Layanan AI mengalami batas waktu koneksi upstream (HTTP 504).'
+        : 'Layanan AI gagal menghasilkan analisis.';
+      return res.status(isTimeout?504:502).json({service:CP4_BACKEND_SERVICE,requestId,code:error.code,stage:error.trace.lastStage,error:errorMsg,trace:{...error.trace,elapsedMs}});
     }
-    return res.status(502).json({code:'AI_PROVIDER_ERROR',stage:'provider',trace:{...trace,elapsedMs:Date.now()-started}});
+    return res.status(502).json({service:CP4_BACKEND_SERVICE,requestId,code:'AI_PROVIDER_ERROR',stage:'provider',error:'Layanan AI gagal menghasilkan analisis.',trace:{...trace,elapsedMs}});
   } finally {req.off('aborted',abort);res.off('close',disconnected);}
 }

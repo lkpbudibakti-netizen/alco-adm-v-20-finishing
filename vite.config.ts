@@ -38,7 +38,7 @@ export default defineConfig(() => {
           clientsClaim: true,
           globIgnores: ['**/build-info.json'],
           navigateFallbackDenylist: [/\/build-info\.json$/],
-          maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
+          maximumFileSizeToCacheInBytes: 8 * 1024 * 1024,
         },
         manifest: {
           id: '/',

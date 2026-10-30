@@ -1,5 +1,5 @@
 export type CP4ResponseReason='HTTP_ERROR'|'CONTENT_TYPE'|'HTML'|'EMPTY'|'TRUNCATED'|'JSON_SYNTAX'|'CONTRACT'|'TOO_LARGE'|'NETWORK_ERROR'|'TIMEOUT'|'ABORTED';
-export interface CP4ResponseInfo {source:'endpoint'|'provider';reason:CP4ResponseReason;httpStatus?:number;mime?:'json'|'html'|'text'|'other'|'missing';phase?:'health'|'analysis'}
+export interface CP4ResponseInfo {source:'endpoint'|'provider';reason:CP4ResponseReason;httpStatus?:number;mime?:'json'|'html'|'text'|'other'|'missing';phase?:'health'|'analysis';gatewayIntercepted?:boolean}
 export class CP4ResponseError extends Error {
   trace?:CP4Trace;
   constructor(public info:CP4ResponseInfo) {super('RESPONSE_INVALID');}
@@ -7,7 +7,7 @@ export class CP4ResponseError extends Error {
 export function safeResponseInfo(value:unknown):CP4ResponseInfo|undefined {
   const v=value as CP4ResponseInfo;
   if(!v||!['endpoint','provider'].includes(v.source)||!['HTTP_ERROR','CONTENT_TYPE','HTML','EMPTY','TRUNCATED','JSON_SYNTAX','CONTRACT','TOO_LARGE','NETWORK_ERROR','TIMEOUT','ABORTED'].includes(v.reason))return undefined;
-  return {source:v.source,reason:v.reason,httpStatus:Number.isInteger(v.httpStatus)&&v.httpStatus!>=100&&v.httpStatus!<=599?v.httpStatus:undefined,mime:['json','html','text','other','missing'].includes(v.mime || '')?v.mime:undefined,phase:['health','analysis'].includes(v.phase || '')?v.phase:undefined};
+  return {source:v.source,reason:v.reason,httpStatus:Number.isInteger(v.httpStatus)&&v.httpStatus!>=100&&v.httpStatus!<=599?v.httpStatus:undefined,mime:['json','html','text','other','missing'].includes(v.mime || '')?v.mime:undefined,phase:['health','analysis'].includes(v.phase || '')?v.phase:undefined,gatewayIntercepted:Boolean(v.gatewayIntercepted)};
 }
 export function responseMime(header:string|null):CP4ResponseInfo['mime'] {
   const mime=(header || '').split(';')[0].trim().toLowerCase();

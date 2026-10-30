@@ -35,6 +35,8 @@
     "test:step4-hardening": "tsx scripts/testStep4HardeningRegression.ts p0 && tsx scripts/testStep4HardeningRegression.ts p1 && tsx scripts/testStep4HardeningRegression.ts p2 && tsx scripts/testStep4HardeningRegression.ts p3",
     "test:step4-downstream": "tsx scripts/testStep4DownstreamCompatibility.ts",
     "test:step4-deadline": "tsx scripts/testStep4DeadlineRegression.ts",
+    "test:step4-gateway": "tsx scripts/testStep4GatewayAndBudgetRegression.ts",
+    "test:step4-benchmark": "tsx scripts/testStep4BenchmarkElements.ts",
     "test:step4-understanding": "tsx scripts/testStep4MeaningfulUnderstandingRegression.ts",
     "test:cp-semantic": "tsx scripts/testCPAnalysisSemanticReviewRegression.ts",
     "test:step4-final": "tsx scripts/testStep4FinalCheckWorkflow.ts",
