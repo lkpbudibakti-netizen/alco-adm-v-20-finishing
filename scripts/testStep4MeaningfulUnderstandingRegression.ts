@@ -1,3 +1,4 @@
+import { validateCP4Input,planCP4Repair,stageCP4Proposal,applyCP4Proposal } from '../src/services/cpAnalysisDraft';
 import { newCP4RequestId, initialCP4Trace } from '../src/services/cpAnalysisRun';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -116,20 +117,20 @@ function handler(name:string,bindings:Record<string,any>) {
 }
 function harness(rows:CPAnalysisItem[], answer:()=>Promise<any>) {
   const state:any={proposal:null,diagnoses:[],saved:[],items:rows,summary:'Manual summary'};
-  const bindings:any={items:rows,generalSummary:'Manual summary',isAnalyzing:false,cp:{id:'cp-stable',generalDescription:'',elements,updatedAt:'2026-01-01'},cpAnalysis:{id:'analysis-stable',workspaceId:'workspace-stable',items:rows,needsReview:true,reviewReason:'Keep review',basedOnCpUpdatedAt:'2025-01-01'},
-    context:input,academicSetting:{id:'year-stable'},activeAIRequest:{current:null},newCP4RequestId,initialCP4Trace,requestVersion:{current:0},latestItems:{current:rows},analyzeCPWithAI:answer,
+  const bindings:any={items:rows,approvedSuggestions:new Set(),aiProposal:null,generalSummary:'Manual summary',isAnalyzing:false,cp:{id:'cp-stable',generalDescription:'',elements,updatedAt:'2026-01-01'},cpAnalysis:{id:'analysis-stable',workspaceId:'workspace-stable',items:rows,needsReview:true,reviewReason:'Keep review',basedOnCpUpdatedAt:'2025-01-01'},
+    context:input,academicSetting:{id:'year-stable'},activeAIRequest:{current:null},validateCP4Input,planCP4Repair,stageCP4Proposal,applyCP4Proposal,newCP4RequestId,initialCP4Trace,requestVersion:{current:0},latestItems:{current:rows},analyzeCPWithAI:answer,
     validateAnalysisAI,getUnderstandingTargets,createUnderstandingPatches,applyUnderstandingPatches,createInitialAnalysisDraft,CPAnalysisAIError,
     setAIProposal:(value:any)=>state.proposal=value,setItems:(value:any)=>state.items=value,reportAIError:(...args:any[])=>state.diagnoses.push(args),
     onSaveCPAnalysis:(value:any)=>state.saved.push(value)};
-  for(const key of ['setIsAnalyzing','setAnalysisError','setAIDiagnosis','setNotificationToast','setGeneralSummary','setHasUnsavedChanges','setIsReviewStale','setAIDraftEngine'])bindings[key]=()=>{};
+  for(const key of ['setApprovedSuggestions','setIsAnalyzing','setAnalysisError','setAIDiagnosis','setNotificationToast','setGeneralSummary','setHasUnsavedChanges','setIsReviewStale','setAIDraftEngine'])bindings[key]=()=>{};
   bindings.setGeneralSummary=(value:string)=>state.summary=value;
-  return {state,bindings,run:()=>handler('executeAIAnalysis',bindings)()};
+  return {state,bindings,run:()=>handler('executeAIAnalysis',bindings)(undefined,rows.length?'repair':'full')};
 }
 const aiRetry={items:retried.items,generalSummary:'Do not replace summary',engine:'gemini',validation:retried};
 const existing=harness(old,async()=>aiRetry);await existing.run();
 assert.equal(existing.state.saved.length,0);assert.deepEqual(existing.state.items,old);
 handler('handleApplyAIProposal',{...existing.bindings,aiProposal:existing.state.proposal})();
-assert.deepEqual(existing.state.items,applied);assert.equal(existing.state.saved.length,0);
+assert.deepEqual(existing.state.items.slice(0,old.length),applied);assert(existing.state.items.slice(old.length).every((row:any)=>elements.some(e=>e.id===row.elementId)));assert.equal(existing.state.saved.length,0);
 const initial=harness([],async()=>({...full,engine:'gemini',validation:checked}));await initial.run();
 assert.equal(initial.state.items.length,0);assert(initial.state.proposal.items.length===2);assert.equal(initial.state.saved.length,0);
 handler('handleApplyAIProposal',{...initial.bindings,aiProposal:initial.state.proposal})();
@@ -144,10 +145,10 @@ const stale=harness(old,async()=>{stale.bindings.latestItems.current=[{...old[0]
 const contextChange=harness(old,async()=>{contextChange.bindings.requestVersion.current++;return aiRetry;});await contextChange.run();assert.equal(contextChange.state.proposal,null);
 for(const code of ['AI_TIMEOUT','AI_API_ERROR','RESPONSE_INVALID']) {
   const failed=harness(old,async()=>{throw new CPAnalysisAIError(code,code==='RESPONSE_INVALID'?'response':'transport');});await failed.run();
-  assert.equal(failed.state.saved.length,0);assert.equal(failed.state.diagnoses[0][0],code);assert.equal(failed.state.diagnoses[0][2].length,2);
+  assert.equal(failed.state.saved.length,0);assert.equal(failed.state.diagnoses[0][0],code);assert(failed.state.diagnoses[0][2].length>=1);assert(failed.state.diagnoses[0][2].every((issue:any)=>elements.some(e=>e.id===issue.elementId)));
 }
 const partialUI=harness([],async()=>({...partial,validation:validateAnalysisAI(partial,elements)}));await partialUI.run();assert.equal(partialUI.state.diagnoses[0][0],'VALIDATION_FAILED');
-const coverageUI=harness([],async()=>({...full,validation:{...checked,valid:false,issues:[{elementId:'e1',field:'items',code:'CP_COVERAGE_REVIEW'}]}}));await coverageUI.run();assert.equal(coverageUI.state.proposal,null,'Incomplete CP semantic coverage must not become a ready draft');
+const coverageUI=harness([],async()=>({...full,validation:{...checked,valid:false,issues:[{elementId:'e1',field:'items',code:'CP_COVERAGE_REVIEW'}]}}));await coverageUI.run();assert(coverageUI.state.proposal.issues.some((issue:any)=>issue.code==='CP_COVERAGE_REVIEW'),'Coverage findings must survive in reviewable draft instead of discarding valid elements');
 const save=harness(applied,async()=>aiRetry);
 const savedOk=handler('handleSave',{...save.bindings,generalSummary:'Preserved summary',aiDraftEngine:'gemini',isCPOutdated:true,validateCPAnalysisDataWorkflow,validateStep4Understanding,setShowSavedToast:()=>{},setTimeout:()=>0})();
 assert.equal(savedOk,false);assert.equal(save.state.saved[0].id,'analysis-stable');assert.equal(save.state.saved[0].workspaceId,'workspace-stable');assert.equal(save.state.saved[0].needsReview,true);assert.equal(save.state.saved[0].basedOnCpUpdatedAt,'2025-01-01');assert.deepEqual(save.state.saved[0].items,applied);assert.equal(save.state.saved[0].workflowStatus,'PERLU_DILENGKAPI');

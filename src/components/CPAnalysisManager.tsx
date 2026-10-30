@@ -1,5 +1,6 @@
+import { cp4ElementStatuses, validateCP4Input, planCP4Repair, stageCP4Proposal, applyCP4Proposal, mergeCP4Structure, type CP4Proposal } from '../services/cpAnalysisDraft';
 import { newCP4RequestId, initialCP4Trace, type CP4Trace } from '../services/cpAnalysisRun';
-import { validateAnalysisAI, explainAnalysisIssue, validateStep4Understanding, getUnderstandingTargets, createUnderstandingPatches, applyUnderstandingPatches, createInitialAnalysisDraft, type UnderstandingTarget, type UnderstandingPatch } from '../services/cpAnalysisAIContract';
+import { validateAnalysisAI, explainAnalysisIssue, validateStep4Understanding, type UnderstandingTarget } from '../services/cpAnalysisAIContract';
 import { CPAnalysisAIError, createCPAnalysisDiagnosis, formatCPAnalysisDiagnosis, copyCPAnalysisDiagnosis, type CPAnalysisDiagnosis } from '../services/cpAnalysisAIDiagnostics';
 import React, { useState, useEffect, useRef } from 'react';
 import {
@@ -82,6 +83,13 @@ export function deriveAnalysisItemsFromCP(cp: CPData): CPAnalysisItem[] {
   }));
 }
 
+export function CP4ElementProgress({rows,busy,onRepair,activeIds=[]}: {activeIds?:string[];rows:ReturnType<typeof cp4ElementStatuses>;busy:boolean;onRepair:(id:string)=>void}) {
+  return <div aria-label="Status analisis per elemen" aria-live="polite" className="border rounded-xl p-4 space-y-2">
+    <p className="font-semibold">{busy?'AI sedang memproses bagian yang diminta…':'Status hasil per elemen'}</p>
+    {rows.map(row=><div key={row.id} className="flex flex-wrap items-center gap-2 text-xs"><strong>{row.name}</strong><span>{busy&&activeIds.includes(row.id)?'Memproses':row.status}</span><span>{row.rowCount} butir · {row.structure} masalah struktur · {row.quality} temuan kualitas</span>{row.failedRequest&&<span>Permintaan terakhir gagal; data sebelumnya dipertahankan.</span>}<button type="button" disabled={busy||row.status==='Siap'&&!row.failedRequest} onClick={()=>onRepair(row.id)} className="underline">Perbaiki bagian bermasalah — {row.name}</button></div>)}
+  </div>;
+}
+
 export const CPAnalysisManager: React.FC<CPAnalysisManagerProps> = ({
   cp,
   cpAnalysis,
@@ -110,19 +118,21 @@ export const CPAnalysisManager: React.FC<CPAnalysisManagerProps> = ({
   const [manualDiagnosisCopy, setManualDiagnosisCopy] = useState(false);
   const [copyStatus, setCopyStatus] = useState('');
   const [aiDraftEngine, setAIDraftEngine] = useState<'gemini' | 'pedagogical_engine' | null>(null);
-  const [aiProposal, setAIProposal] = useState<{base: string; items?: CPAnalysisItem[]; patches: UnderstandingPatch[]; suggestions: Array<{itemId?:string; elementId:string; value:string}>; summary:string; engine:'gemini' | 'pedagogical_engine'} | null>(null);
+  const [aiProposal, setAIProposal] = useState<(CP4Proposal & {engine:'gemini'|'pedagogical_engine'}) | null>(null);
+  const [approvedSuggestions,setApprovedSuggestions]=useState<Set<string>>(new Set());
+  const [showStructureConfirm,setShowStructureConfirm]=useState(false);
   const requestVersion = useRef(0);
-  const activeAIRequest=useRef<{controller:AbortController;token:number;trace:CP4Trace}|null>(null);
+  const activeAIRequest=useRef<{controller:AbortController;token:number;trace:CP4Trace;elementIds?:string[]}|null>(null);
   const latestItems = useRef(items);
   latestItems.current = items;
   useEffect(() => {
     const cancel=()=>{requestVersion.current++;activeAIRequest.current?.controller.abort();activeAIRequest.current=null;};
-    cancel();setIsAnalyzing(false);
+    cancel();setIsAnalyzing(false);setShowStructureConfirm(false);setShowConfirmModal(false);setApprovedSuggestions(new Set());
     setAIProposal(null); setAIDraftEngine(null); setAIDiagnosis(null); setAnalysisError(null); setManualDiagnosisCopy(false); setCopyStatus('');
     return cancel;
   }, [cp, cpAnalysis, context.subject, context.phase, context.grade, context.academicYear, context.curriculum, context.profileId, academicSetting.id]);
-  const reportAIError = (code:string, stage:string, issues: Parameters<typeof createCPAnalysisDiagnosis>[4] = [], trace?:CP4Trace) => {
-    const diagnosis=createCPAnalysisDiagnosis(context, cp.elements?.length || 0, code, stage, issues, trace || activeAIRequest.current?.trace);
+  const reportAIError = (code:string, stage:string, issues: Parameters<typeof createCPAnalysisDiagnosis>[4] = [], trace?:CP4Trace, responseInfo?:CPAnalysisDiagnosis['responseInfo']) => {
+    const diagnosis=createCPAnalysisDiagnosis(context, cp.elements?.length || 0, code, stage, issues, trace || activeAIRequest.current?.trace, responseInfo);
     setAIDiagnosis(diagnosis); setAnalysisError(diagnosis.message); setManualDiagnosisCopy(false); setCopyStatus('');
   };
   const handleCopyDiagnosis = async () => {
@@ -381,96 +391,70 @@ export const CPAnalysisManager: React.FC<CPAnalysisManagerProps> = ({
     return true;
   };
 
-  const executeAIAnalysis = async (requestedTargets?: UnderstandingTarget[]) => {
+  const executeAIAnalysis = async (requestedTargets?: UnderstandingTarget[], mode:'full'|'repair'='repair', onlyElementId?:string) => {
     if(isAnalyzing || activeAIRequest.current) return;
-    const snapshot=JSON.stringify(items);
-    const token=++requestVersion.current;
-    const targets=requestedTargets || (items.length ? getUnderstandingTargets(items,cp.elements || []) : []);
-    if(items.length && !targets.length) {
-      setNotificationToast('Tidak ada kolom 3 bermasalah. Data analisis lama dipertahankan.');
-      return;
+    const inputIssues=validateCP4Input(cp.elements);
+    if(inputIssues.length){reportAIError('CP_INPUT_INVALID','request',inputIssues);return;}
+    const snapshot=JSON.stringify(items),token=++requestVersion.current;
+    const previous=mode==='repair' && aiProposal?.base===snapshot?aiProposal:null;
+    const working=previous?.items || items;
+    const plan=mode==='full'&&!items.length?{items:[],targets:[]}:planCP4Repair(working,cp.elements,mode,onlyElementId,cp);
+    if(requestedTargets) {
+      plan.targets=plan.targets.filter(t=>requestedTargets.some(r=>r.itemId===t.itemId&&r.elementId===t.elementId));
+      for(const target of plan.targets)target.fields=['meaningfulUnderstanding'];
     }
-    const requestId=newCP4RequestId();
-    const run={controller:new AbortController(),token,trace:initialCP4Trace(requestId,'server-or-none')};
+    if(mode==='repair' && !plan.targets.length){setNotificationToast('Tidak ada bagian bermasalah yang dapat diperbaiki AI. Data lama dipertahankan.');return;}
+    const scoped=plan.targets.length?cp.elements.filter(e=>plan.targets.some(t=>t.elementId===e.id)):cp.elements;
+    const requestId=newCP4RequestId(),run={controller:new AbortController(),token,trace:initialCP4Trace(requestId,'server-or-none'),elementIds:scoped.map(e=>e.id)};
     activeAIRequest.current=run;
-    // Keep the previous proposal and editor values until a new validated result is available.
-    setIsAnalyzing(true); setAnalysisError(null); setAIDiagnosis(null);
+    setIsAnalyzing(true);setAnalysisError(null);setAIDiagnosis(null);
     try {
-      const res=await analyzeCPWithAI({cpText:cp.generalDescription || '',elements:cp.elements || [],subject:context.subject,grade:context.grade,phase:context.phase,curriculum:context.curriculum,
-        ...(targets.length ? {retryTargets:targets} : {})},{signal:run.controller.signal,requestId});
-      if(token!==requestVersion.current || activeAIRequest.current!==run) return;
+      const res=await analyzeCPWithAI({cpText:cp.generalDescription || '',elements:scoped,subject:context.subject,grade:context.grade,phase:context.phase,curriculum:context.curriculum,
+        ...(plan.targets.length?{repairTargets:plan.targets}:{})},{signal:run.controller.signal,requestId});
+      if(token!==requestVersion.current||activeAIRequest.current!==run)return;
       if(run.controller.signal.aborted)throw new CPAnalysisAIError('AI_ABORTED','aborted',run.trace);
       run.trace=res.trace || run.trace;
-      if(snapshot!==JSON.stringify(latestItems.current)) {reportAIError('DRAFT_CHANGED','apply');return;}
-      const checked=res.validation || validateAnalysisAI(res,cp.elements || [],targets);
-      if(checked.issues.length) reportAIError('VALIDATION_FAILED','validation',checked.issues);
-      if(!checked.items.length) return;
-      if(!targets.length && checked.issues.some(issue=>['CP_COVERAGE_REVIEW','CANONICAL_REFERENCE_INVALID','RESPONSE_INVALID'].includes(issue.code))) return;
-      setAIProposal({base:snapshot,
-        items:items.length?undefined:createInitialAnalysisDraft(checked,cp.elements || []),
-        patches:targets.length?createUnderstandingPatches(items,checked):[],
-        suggestions:targets.length?checked.items.filter(row=>!checked.issues.some(issue=>issue.elementId===row.elementId && (!issue.itemId || issue.itemId===row.itemId))).map(row=>({itemId:row.itemId,elementId:row.elementId,value:row.meaningfulUnderstanding})):[],
-        summary:res.generalSummary || '',engine:res.engine || 'pedagogical_engine'});
+      if(snapshot!==JSON.stringify(latestItems.current)){reportAIError('DRAFT_CHANGED','apply');return;}
+      const checked=res.validation || validateAnalysisAI(res,scoped,[],plan.targets);
+      if(checked.issues.length)reportAIError('VALIDATION_FAILED','validation',checked.issues);
+      if(!checked.items.length)return;
+      const proposal=stageCP4Proposal(items,plan.items,checked,cp.elements,mode,previous?.summary || res.generalSummary || '',plan.targets,cp);
+      if(proposal.issues.length)reportAIError('VALIDATION_FAILED','validation',proposal.issues);
+      if(previous)proposal.suggestions=[...previous.suggestions.filter(old=>!proposal.suggestions.some(next=>next.itemId===old.itemId&&next.field===old.field)),...proposal.suggestions];
+      setAIProposal({...proposal,engine:res.engine || 'pedagogical_engine'});setApprovedSuggestions(new Set());
     } catch(error) {
-      if(token!==requestVersion.current || activeAIRequest.current!==run) return;
+      if(token!==requestVersion.current||activeAIRequest.current!==run)return;
       const failure=error instanceof CPAnalysisAIError?error:new CPAnalysisAIError('AI_API_ERROR','transport');
-      reportAIError(failure.code,failure.stage,targets.length?targets.map(target=>({elementId:target.elementId,itemId:target.itemId,field:'meaningfulUnderstanding',code:failure.code})):(cp.elements || []).map(element=>({elementId:element.id,field:'items',code:failure.code})),failure.trace || run.trace);
+      reportAIError(failure.code,failure.stage,scoped.map(e=>({elementId:e.id,field:'items',code:failure.code,category:'technical' as const})),failure.trace || run.trace,failure.responseInfo);
     } finally {if(activeAIRequest.current===run){activeAIRequest.current=null;setIsAnalyzing(false);}}
   };
 
   const handleApplyAIProposal = () => {
-    if(!aiProposal) return;
-    if(aiProposal.base!==JSON.stringify(items)) {reportAIError('DRAFT_CHANGED','apply');setAIProposal(null);return;}
-    setItems(aiProposal.items || applyUnderstandingPatches(items,aiProposal.patches));
-    if(aiProposal.items && !generalSummary.trim()) setGeneralSummary(aiProposal.summary);
-    setAIDraftEngine(aiProposal.engine);
-    setHasUnsavedChanges(true); setIsReviewStale(true); setAIProposal(null);
-    setNotificationToast('Hasil diterapkan ke draft. Periksa lalu klik Simpan Analisis; data tersimpan belum berubah.');
+    if(!aiProposal||isAnalyzing)return;
+    const next=applyCP4Proposal(items,aiProposal,approvedSuggestions);
+    if(!next){reportAIError('DRAFT_CHANGED','apply');setAIProposal(null);return;}
+    if(JSON.stringify(next)===JSON.stringify(items)){setAIProposal(null);setNotificationToast('Tidak ada perubahan yang disetujui. Data dan metadata lama dipertahankan.');return;}
+    setItems(next);if(!generalSummary.trim())setGeneralSummary(aiProposal.summary);
+    setAIDraftEngine(aiProposal.engine);setHasUnsavedChanges(true);setIsReviewStale(true);setAIProposal(null);
+    setNotificationToast('Hasil diterapkan ke draft. Periksa lalu Simpan Analisis; data tersimpan belum berubah.');
   };
 
   const handleRunAIAnalysis = () => {
-    if (!cp.generalDescription && (!cp.elements || cp.elements.length === 0)) {
-      reportAIError('CP_ELEMENTS_REQUIRED','request');
-      return;
-    }
-
-    if (items.length > 0) {
-      setShowConfirmModal(true);
-    } else {
-      executeAIAnalysis();
-    }
+    const issues=validateCP4Input(cp.elements);
+    if(issues.length){reportAIError('CP_INPUT_INVALID','request',issues);return;}
+    if(items.length)setShowConfirmModal(true);else executeAIAnalysis(undefined,'full');
   };
 
-  const handleGenerateFromCP = () => {
-    if (!cp.elements || cp.elements.length === 0) {
-      setAnalysisError('Elemen CP belum tersedia. Silakan isi elemen pada tahap CP terlebih dahulu.');
-      return;
-    }
-    const derived: CPAnalysisItem[] = deriveAnalysisItemsFromCP(cp);
-    setItems(derived);
-    const updated: CPAnalysisData = {
-      id: cpAnalysis?.id || `cpanalysis-${academicSetting.id}`,
-      academicSettingId: academicSetting.id,
-      cpId: cp.id,
-      cpSourceId: cp.source?.id || cp.source?.title,
-      cpRegulationIds: cp.source?.regulationIds || cp.regulationIds || [],
-      cpVersion: cp.cpVersion ?? cp.source?.versionCode,
-      academicYear: context.academicYear,
-      subjectCode: context.subject,
-      phase: context.phase,
-      generalSummary,
-      items: derived,
-      generatedBy: 'TEACHER',
-      generatedAt: new Date().toISOString(),
-      workflowStatus: 'PERLU_DILENGKAPI',
-      needsReview: false,
-      reviewReason: undefined,
-      basedOnCpUpdatedAt: cp.updatedAt || new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
-    onSaveCPAnalysis(updated);
-    setShowSavedToast(true);
-    setTimeout(() => setShowSavedToast(false), 2500);
+  const handleGenerateFromCP = (approved=false) => {
+    if(isAnalyzing||activeAIRequest.current)return;
+    const issues=validateCP4Input(cp.elements);
+    if(issues.length){reportAIError('CP_INPUT_INVALID','request',issues);return;}
+    if(!approved&&(items.length||cpAnalysis?.items.length)){setShowStructureConfirm(true);return;}
+    const next=mergeCP4Structure(items,cp.elements);setShowStructureConfirm(false);
+    if(JSON.stringify(next)===JSON.stringify(items)){setNotificationToast('Semua elemen sudah terwakili. Tidak ada perubahan pada data lama.');return;}
+    setItems(next);
+    setHasUnsavedChanges(true);setIsReviewStale(true);setAIProposal(null);
+    setNotificationToast('Struktur yang belum ada ditambahkan ke draft. Baris lama dipertahankan; belum disimpan.');
   };
 
   return (
@@ -550,17 +534,18 @@ export const CPAnalysisManager: React.FC<CPAnalysisManagerProps> = ({
             ) : (
               <>
                 <Sparkles className="w-4 h-4 text-purple-200" />
-                <span>Analisis dengan AI</span>
+                <span>Analisis Ulang Seluruh CP</span>
               </>
             )}
           </button>
+          <button type="button" disabled={isAnalyzing} onClick={()=>executeAIAnalysis(undefined,'repair')} className="px-3 py-2 rounded border text-xs font-semibold">Perbaiki Hasil Bermasalah</button>
           <button
             type="button"
-            onClick={handleGenerateFromCP}
+            onClick={()=>handleGenerateFromCP()}
             className="px-3.5 py-2 rounded-xl text-xs font-semibold bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200 flex items-center gap-1.5 transition-colors cursor-pointer"
           >
             <FileSpreadsheet className="w-4 h-4 text-blue-600" />
-            Salin Struktur Elemen CP
+            Tarik dari Elemen CP
           </button>
           <button
             type="button"
@@ -616,31 +601,33 @@ export const CPAnalysisManager: React.FC<CPAnalysisManagerProps> = ({
         </div>
       )}
 
+      <CP4ElementProgress rows={cp4ElementStatuses(aiProposal?.items || items,cp.elements || [],aiDiagnosis?.issues.filter(i=>i.category==='technical').map(i=>i.elementId) || [],cp)} busy={isAnalyzing} activeIds={activeAIRequest.current?.elementIds} onRepair={id=>executeAIAnalysis(undefined,'repair',id)} />
       {isAnalyzing && <button type="button" onClick={()=>activeAIRequest.current?.controller.abort()} className="rounded border px-3 py-2 text-sm">Batalkan Analisis AI</button>}
       {analysisError && (
         <div className="p-4 bg-rose-50 border border-rose-300 rounded-2xl flex items-start gap-3 text-xs text-rose-900 shadow-xs">
           <AlertCircle className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
           <div className="space-y-1">
-            <span className="font-bold text-rose-950">Gagal Melakukan Analisis AI</span>
+            <span className="font-bold text-rose-950">{aiDiagnosis?.code==='VALIDATION_FAILED' ? aiDiagnosis.issues.some(i=>i.category==='quality')&&!aiDiagnosis.issues.some(i=>i.category==='structure'||i.field==='workflow')?'Temuan kualitas perlu ditinjau':'Struktur atau prasyarat belum lengkap' : 'Gangguan teknis atau input AI'}</span>
             <p className="text-rose-800">{analysisError}</p>
-            {aiDiagnosis && <ul>{aiDiagnosis.issues.map((issue,index)=><li key={index}>{issue.elementId || 'Respons'} / {issue.field}: {issue.code} — {explainAnalysisIssue(issue.code)}</li>)}</ul>}
+            {aiDiagnosis?.responseInfo && <p>{aiDiagnosis.responseInfo.source} · {aiDiagnosis.responseInfo.reason} · HTTP {aiDiagnosis.responseInfo.httpStatus || '—'} · {aiDiagnosis.responseInfo.mime || 'provider text'}</p>}
+            {aiDiagnosis && <ul>{aiDiagnosis.issues.map((issue,index)=><li key={index}>{issue.category || 'technical'} · {issue.elementId || 'Respons'} / {issue.field}: {issue.code} — {explainAnalysisIssue(issue.code)}</li>)}</ul>}
             <button type="button" onClick={handleCopyDiagnosis} className="rounded border px-3 py-2 font-bold">Salin Diagnosis</button>
             {copyStatus && <p role="status">{copyStatus}</p>}
             {manualDiagnosisCopy && <textarea aria-label="Diagnosis AI untuk disalin manual" readOnly rows={10} className="w-full" value={formatCPAnalysisDiagnosis(aiDiagnosis || createCPAnalysisDiagnosis(context, cp.elements?.length || 0,'VALIDATION_FAILED','save'))} onFocus={event=>event.target.select()} />}
-            {getUnderstandingTargets(items,cp.elements || []).map(target=><button type="button" key={target.itemId} disabled={isAnalyzing} onClick={()=>executeAIAnalysis([target])} className="block underline">Coba Lagi Kolom 3 — {target.elementId} / {target.itemId}</button>)}
-            {!items.length && <button type="button" disabled={isAnalyzing} onClick={()=>executeAIAnalysis()} className="block underline">Coba Lagi Analisis</button>}
+            <button type="button" disabled={isAnalyzing} onClick={()=>executeAIAnalysis(undefined,'repair')} className="block underline">Perbaiki hanya hasil bermasalah</button>
           </div>
         </div>
       )}
 
       {aiProposal && <div className="p-4 border rounded-xl space-y-3 bg-purple-50">
         <p className="font-bold">Tinjau Hasil AI — belum disimpan</p>
-        {aiProposal.items?.map(item=><div key={item.id}><strong>{item.elementName}</strong><p>1. {item.cpCompetence}</p><p>2. {item.materialScope}</p><p>3. {item.meaningfulUnderstanding || '(Perlu retry / input guru)'}</p><p>4. {item.suggestedTp}</p></div>)}
-        {aiProposal.suggestions.map((suggestion,index)=><div key={index}><strong>{suggestion.elementId} / {suggestion.itemId}</strong><p>Usulan kolom 3: {suggestion.value}</p><p>Nilai lama: {items.find(item=>item.id===suggestion.itemId)?.meaningfulUnderstanding || '(kosong)'}</p></div>)}
-        <p className="text-xs">Data manual yang sudah terisi tidak ditimpa. Gunakan usulan sebagai referensi untuk edit manual bila diperlukan.</p>
-        <button type="button" disabled={isAnalyzing || (!aiProposal.items && !aiProposal.patches.length)} onClick={handleApplyAIProposal} className="rounded bg-purple-700 text-white px-3 py-2">Terapkan ke Draft {aiProposal.items?'Baru':'Kolom 3 Kosong'}</button>
-        <button type="button" onClick={()=>setAIProposal(null)} className="px-3 py-2">Abaikan Hasil AI</button>
+        {aiProposal.items.map(item=><div key={item.id}><strong>{item.elementName} / {item.id}</strong><p>1. {item.cpCompetence}</p><p>2. {item.materialScope}</p><p>3. {item.meaningfulUnderstanding || '(Belum lengkap)'}</p><p>4. {item.suggestedTp}</p></div>)}
+        {aiProposal.suggestions.map(suggestion=>{const key=suggestion.itemId+':'+suggestion.field;return <label key={key} className="block border rounded p-2"><input type="checkbox" checked={approvedSuggestions.has(key)} onChange={event=>setApprovedSuggestions(old=>{const next=new Set(old);event.target.checked?next.add(key):next.delete(key);return next;})} /> Setujui penggantian {suggestion.field} — {suggestion.itemId}<p>Sebelum: {suggestion.before}</p><p>Usulan: {suggestion.after}</p></label>;})}
+        <p className="text-xs">Kolom kosong dapat dilengkapi. Nilai terisi hanya diganti bila Anda mencentang persetujuan khusus di atas. Simpan tetap terpisah.</p>
+        <button type="button" disabled={isAnalyzing} onClick={handleApplyAIProposal} className="rounded bg-purple-700 text-white px-3 py-2">Terapkan ke Draft</button>
+        <button type="button" disabled={isAnalyzing} onClick={()=>setAIProposal(null)} className="px-3 py-2">Abaikan Hasil AI</button>
       </div>}
+      {showStructureConfirm && <div role="dialog" aria-label="Konfirmasi tarik struktur CP" className="p-4 rounded border bg-amber-50 space-y-2"><p>Analisis sudah berisi data. Tambahkan hanya struktur elemen yang belum ada? Baris, ID, isian lama, dan data tersimpan tetap dipertahankan.</p><button type="button" onClick={()=>handleGenerateFromCP(true)}>Tambahkan ke Draft</button><button type="button" onClick={()=>setShowStructureConfirm(false)}>Batal</button></div>}
 
       {semanticReview && (() => {
         const visibleFindings = (semanticReview.findings || []).filter(
@@ -1133,7 +1120,7 @@ export const CPAnalysisManager: React.FC<CPAnalysisManagerProps> = ({
               <h3 className="text-base font-bold text-slate-900">Konfirmasi Analisis AI</h3>
             </div>
             <p className="text-xs text-slate-600 leading-relaxed">
-              Analisis sudah berisi data. AI hanya akan mengusulkan perbaikan kolom 3 yang bermasalah. Kolom lain, ID baris dan data manual dipertahankan. Hasil harus ditinjau sebelum diterapkan dan disimpan.
+              Analisis ulang akan meminta usulan untuk seluruh CP. ID dan isian lama tetap dipertahankan; penggantian nilai terisi memerlukan persetujuan per kolom pada pratinjau. Tidak disimpan otomatis.
             </p>
             <div className="flex items-center justify-end gap-2 pt-2">
               <button
@@ -1147,11 +1134,11 @@ export const CPAnalysisManager: React.FC<CPAnalysisManagerProps> = ({
                 type="button"
                 onClick={() => {
                   setShowConfirmModal(false);
-                  executeAIAnalysis();
+                  executeAIAnalysis(undefined,'full');
                 }}
                 className="px-4 py-2 rounded-xl text-xs font-semibold bg-purple-600 hover:bg-purple-700 text-white shadow-xs transition cursor-pointer"
               >
-                Lanjutkan Analisis AI
+                Minta Usulan Seluruh CP
               </button>
             </div>
           </div>

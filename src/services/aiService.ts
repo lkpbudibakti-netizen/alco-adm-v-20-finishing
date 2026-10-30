@@ -1,3 +1,6 @@
+import { validateCP4Input, validateCP4Targets } from './cpAnalysisDraft';
+import type { CP4RepairTarget } from './cpAnalysisAIContract';
+import { CP4ResponseError, parseCP4JSON, responseMime, safeResponseInfo } from './cpAnalysisResponse';
 import { CP4_RUN_POLICY, initialCP4Trace, newCP4RequestId, isCP4RequestId, sanitizeCP4Trace, type CP4Trace } from './cpAnalysisRun';
 import { validateAnalysisAI, type UnderstandingTarget, type AnalysisAIValidation } from './cpAnalysisAIContract';
 import { CPAnalysisAIError } from './cpAnalysisAIDiagnostics';
@@ -539,7 +542,10 @@ const activeCP4Requests=new Set<string>();
 export async function analyzeCPWithAI(params: {
   cpText: string; elements: CPElem[]; subject: string; grade: string; phase: string; curriculum: string;
   retryTargets?: UnderstandingTarget[];
+  repairTargets?:CP4RepairTarget[];
 }, options: number | {timeoutMs?:number; signal?:AbortSignal;requestId?:string} = {}): Promise<CanonicalCPAnalysisResult> {
+  if(validateCP4Input(params.elements).length)throw new CPAnalysisAIError('CP_INPUT_INVALID','request');
+  if(params.repairTargets && !validateCP4Targets(params.repairTargets,params.elements))throw new CPAnalysisAIError('RETRY_TARGET_INVALID','request');
   const settings=typeof options==='number'?{timeoutMs:options}:options;
   const timeoutMs=Math.max(1,Math.min(CP4_RUN_POLICY.totalMs,settings.timeoutMs ?? CP4_RUN_POLICY.totalMs));
   const requestId=isCP4RequestId(settings.requestId)?settings.requestId:newCP4RequestId();
@@ -559,23 +565,30 @@ export async function analyzeCPWithAI(params: {
       body: JSON.stringify(params), signal: controller.signal,
     });
     check();trace.lastStage='response';
+    const mime=responseMime(res.headers.get('Content-Type'));
+    const raw=await res.text();check();
     if(!res.ok) {
-      const body = await res.json().catch(()=>null);
-      check();
+      let body:any=null;
+      if(mime==='json')try {body=parseCP4JSON(raw,{source:'endpoint',mime,httpStatus:res.status},false);}catch {}
       trace=sanitizeCP4Trace(body?.trace,requestId) || trace;
-      const code = ['AI_ABORTED','AI_DUPLICATE_REQUEST','AI_REQUEST_BUSY','AI_NOT_CONFIGURED','AI_PROVIDER_ERROR','AI_TIMEOUT','CP_ELEMENTS_REQUIRED','RETRY_TARGET_INVALID'].includes(body?.code) ? body.code : 'AI_API_ERROR';
-      throw failure(code, ['provider','request','transport','response','validation','apply','backoff','aborted'].includes(body?.stage)?body.stage:'transport');
+      const code = ['AI_ABORTED','AI_DUPLICATE_REQUEST','AI_REQUEST_BUSY','AI_NOT_CONFIGURED','AI_PROVIDER_ERROR','AI_TIMEOUT','CP_ELEMENTS_REQUIRED','RETRY_TARGET_INVALID','RESPONSE_INVALID'].includes(body?.code) ? body.code : 'AI_API_ERROR';
+      const error=failure(code, ['provider','request','transport','response','validation','apply','backoff','aborted'].includes(body?.stage)?body.stage:'response');
+      const reported=safeResponseInfo(body?.responseInfo);
+      error.responseInfo=reported?{...reported,httpStatus:res.status}:{source:'endpoint',httpStatus:res.status,mime,reason:mime==='html'?'HTML':'HTTP_ERROR'};
+      throw error;
     }
-    const body = await res.json().catch(()=>{throw failure('RESPONSE_INVALID','response');});
-    check();
+    if(mime!=='json')throw new CP4ResponseError({source:'endpoint',httpStatus:res.status,mime,reason:mime==='html'?'HTML':'CONTENT_TYPE'});
+    const body=parseCP4JSON(raw,{source:'endpoint',httpStatus:res.status,mime},false);
+    if(body.engine!==undefined&&!['gemini','pedagogical_engine'].includes(body.engine))throw new CP4ResponseError({source:'endpoint',httpStatus:res.status,mime,reason:'CONTRACT'});
     if(body?.trace && !sanitizeCP4Trace(body.trace,requestId))throw failure('RESPONSE_INVALID','response');
     trace=sanitizeCP4Trace(body?.trace,requestId) || trace;trace.lastStage='validation';
     const payload = body?.data || body;
-    const validation = validateAnalysisAI(payload, params.elements, params.retryTargets);
+    if(!payload || !Array.isArray(payload.items) || !payload.items.length)throw new CP4ResponseError({source:'endpoint',httpStatus:res.status,mime,reason:'CONTRACT'});
+    const validation = validateAnalysisAI(payload, params.elements, params.retryTargets,params.repairTargets);
     // Server-only semantic coverage findings are additive, not a replacement for client validation.
     if(Array.isArray(body?.validation?.issues)) for(const issue of body.validation.issues) {
       if(['CP_COVERAGE_REVIEW','CANONICAL_REFERENCE_INVALID','DUPLICATE_TARGET','RESPONSE_INVALID'].includes(issue.code)) {
-        validation.issues.push({elementId:params.elements.find(e=>e.id===issue.elementId)?.id || '',field:'items',code:issue.code});
+        validation.issues.push({elementId:params.elements.find(e=>e.id===issue.elementId)?.id || '',field:issue.code==='CP_COVERAGE_REVIEW'?'coverage':'items',code:issue.code,clauseIndex:Number.isInteger(issue.clauseIndex)?issue.clauseIndex:undefined,category:issue.code==='CP_COVERAGE_REVIEW'?'quality':'structure'});
       }
     }
     validation.valid=validation.issues.length===0;
@@ -592,6 +605,7 @@ export async function analyzeCPWithAI(params: {
   });
   try { return await Promise.race([Promise.resolve().then(request),interrupted]); }
   catch(error) {
+    if(error instanceof CP4ResponseError){const invalid=failure('RESPONSE_INVALID','response');invalid.responseInfo=error.info;throw invalid;}
     if(error instanceof CPAnalysisAIError)throw error;
     throw failure(controller.signal.aborted?(trace.timeoutSource==='client'?'AI_TIMEOUT':'AI_ABORTED'):'AI_API_ERROR',trace.lastStage);
   } finally {clearTimeout(timer!);settings.signal?.removeEventListener('abort',onAbort);activeCP4Requests.delete(requestId);}
