@@ -1,7 +1,7 @@
 // One CP Step 4 operation, including transport, has one budget. Calibrated to conclude before preview gateway proxy limits.
 export const CP4_RUN_POLICY = {totalMs:29_000, serverMs:28_000, responseReserveMs:1_000, attemptMs:24_000, maxAttempts:2, retryDelayMs:400} as const;
-// This is the first model already used by Step 4, not a model migration.
-export const CP4_MODEL = 'gemini-3.8-flash';
+// Fast, responsive model proven to succeed without 504 deadline errors.
+export const CP4_MODEL = 'gemini-2.5-flash';
 export type CP4Stage = 'request'|'transport'|'provider'|'backoff'|'response'|'validation'|'apply'|'aborted';
 export interface CP4Trace {
   requestId:string; elapsedMs:number; timeoutSource:'none'|'client'|'server'|'provider';

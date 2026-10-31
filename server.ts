@@ -84,8 +84,8 @@ async function generateContentWithRetry(
 ): Promise<{ text?: string }> {
   // Standard non-paid models ordered by capability and availability
   const modelsToTry = [
-    'gemini-3.8-flash',
-    'gemini-3.1-flash-lite',
+    'gemini-2.5-flash',
+    'gemini-2.5-flash-lite',
     'gemini-flash-latest',
   ];
   let lastError: any = null;
