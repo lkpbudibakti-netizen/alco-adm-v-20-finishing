@@ -645,6 +645,7 @@ export function App() {
   const activeCPAnalysis: CPAnalysisData = runtimeContext.annualData?.cpAnalysis || {
     id: '',
     academicSettingId: activeYearPlan?.id || '',
+    items: [],
     elements: [],
     updatedAt: '',
   };
@@ -778,7 +779,7 @@ export function App() {
     }
   };
 
-  const handleSaveCPAnalysis = (analysis: CPAnalysisData) => {
+  const handleSaveCPAnalysis = (analysis: CPAnalysisData): boolean => {
     const persistedCP = runtimeContext.annualData?.cp;
     if (!activeYearPlan || !persistedCP) {
       setAppNotice({
@@ -787,7 +788,7 @@ export function App() {
           ? 'Tidak ada Tahun Ajaran (YearPlan) aktif untuk menyimpan Analisis CP.'
           : 'Capaian Pembelajaran (CP) harus disimpan terlebih dahulu sebelum menyimpan Analisis CP.',
       });
-      return;
+      return false;
     }
 
     try {
@@ -803,11 +804,13 @@ export function App() {
 
       saveCPAnalysisV5(activeYearPlan.id, canonicalAnalysis);
       refreshV5();
+      return true;
     } catch (err: any) {
       setAppNotice({
         type: 'error',
         message: err instanceof Error ? err.message : 'Gagal menyimpan Analisis CP ke penyimpanan tahunan.',
       });
+      return false;
     }
   };
 

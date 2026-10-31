@@ -53,13 +53,13 @@ interface CPAnalysisManagerProps {
   context: ActiveContext;
   academicSetting: AcademicSetting;
   profile: TeacherProfile;
-  onSaveCPAnalysis: (analysis: CPAnalysisData) => void;
+  onSaveCPAnalysis: (analysis: CPAnalysisData) => boolean;
   onNextStep: () => void;
   onBackToCP: () => void;
 }
 
 export function getInitialCPAnalysisItems(cpAnalysis?: CPAnalysisData | null): CPAnalysisItem[] {
-  if (cpAnalysis?.items && cpAnalysis.items.length > 0) {
+  if (Array.isArray(cpAnalysis?.items) && cpAnalysis.items.length > 0) {
     return cpAnalysis.items;
   }
   return [];
@@ -224,7 +224,7 @@ export const CPAnalysisManager: React.FC<CPAnalysisManagerProps> = ({
   };
 
   useEffect(() => {
-    if (cpAnalysis?.items && cpAnalysis.items.length > 0) {
+    if (Array.isArray(cpAnalysis?.items) && cpAnalysis.items.length > 0) {
       setItems(cpAnalysis.items);
       setGeneralSummary(cpAnalysis.generalSummary || '');
     } else {
@@ -338,7 +338,7 @@ export const CPAnalysisManager: React.FC<CPAnalysisManagerProps> = ({
 
   const handleSave = (): boolean => {
     const nextGeneratedBy =
-      aiDraftEngine==='gemini' ? (cpAnalysis?.items.length ? 'AI_EDITED_BY_TEACHER' : 'AI') : cpAnalysis?.generatedBy === 'AI' ? 'AI_EDITED_BY_TEACHER' : cpAnalysis?.generatedBy || 'TEACHER';
+      aiDraftEngine==='gemini' ? ((Array.isArray(cpAnalysis?.items) && cpAnalysis.items.length) ? 'AI_EDITED_BY_TEACHER' : 'AI') : cpAnalysis?.generatedBy === 'AI' ? 'AI_EDITED_BY_TEACHER' : cpAnalysis?.generatedBy || 'TEACHER';
 
     const shouldKeepReview = Boolean(cpAnalysis?.needsReview || isCPOutdated);
 
@@ -377,7 +377,11 @@ export const CPAnalysisManager: React.FC<CPAnalysisManagerProps> = ({
       workflowStatus: ready ? 'SIAP' : 'PERLU_DILENGKAPI',
     };
 
-    onSaveCPAnalysis(updated);
+    const saveSuccess = onSaveCPAnalysis(updated);
+    if (!saveSuccess) {
+      return false;
+    }
+
     setHasUnsavedChanges(false);
     setShowSavedToast(true);
     setTimeout(() => setShowSavedToast(false), 2500);
@@ -449,7 +453,7 @@ export const CPAnalysisManager: React.FC<CPAnalysisManagerProps> = ({
     if(isAnalyzing||activeAIRequest.current)return;
     const issues=validateCP4Input(cp.elements);
     if(issues.length){reportAIError('CP_INPUT_INVALID','request',issues);return;}
-    if(!approved&&(items.length||cpAnalysis?.items.length)){setShowStructureConfirm(true);return;}
+    if(!approved && (items.length || (Array.isArray(cpAnalysis?.items) && cpAnalysis.items.length))){setShowStructureConfirm(true);return;}
     const next=mergeCP4Structure(items,cp.elements);setShowStructureConfirm(false);
     if(JSON.stringify(next)===JSON.stringify(items)){setNotificationToast('Semua elemen sudah terwakili. Tidak ada perubahan pada data lama.');return;}
     setItems(next);
