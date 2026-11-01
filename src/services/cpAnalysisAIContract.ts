@@ -97,11 +97,19 @@ export function understandingIssue(
   if(value.trim().length < 20 || /^(?:-|n\/?a|null|undefined|belum|tidak ada|contoh|lorem ipsum)\.?$/i.test(value.trim())) return 'MU_INVALID';
   if(value.toLowerCase().replace(/[\s.]+/g,'')===(element.content || '').toLowerCase().replace(/[\s.]+/g,'')) return 'MU_INVALID';
 
-  // If teacher already confirmed this exact row and CP hasn't changed, review is satisfied
-  if (reviewMetadata?.reviewConfirmed && reviewMetadata.reviewedText === value.trim()) {
-    if (!reviewMetadata.reviewedCpText || reviewMetadata.reviewedCpText === (element.content || '')) {
-      return null;
-    }
+  // Strict review confirmation check: requires teacher confirmation, non-empty reviewedText matching current value, and non-empty valid reviewedCpText matching element content
+  const currentText = typeof value === 'string' ? value.trim() : '';
+  const canonicalCp = (element.content || '').trim();
+  if (
+    reviewMetadata?.reviewConfirmed === true &&
+    typeof reviewMetadata.reviewedText === 'string' &&
+    reviewMetadata.reviewedText.trim() === currentText &&
+    currentText.length > 0 &&
+    typeof reviewMetadata.reviewedCpText === 'string' &&
+    reviewMetadata.reviewedCpText.trim().length > 0 &&
+    reviewMetadata.reviewedCpText.trim() === canonicalCp
+  ) {
+    return null;
   }
 
   const sourceContent = ((element.content || '') + ' ' + (element.name || '')).trim();
@@ -177,10 +185,21 @@ export function getUnderstandingTargets(items: CPAnalysisItem[], elements: CPEle
 export function validateStep4Understanding(items:CPAnalysisItem[], elements:CPElem[]):AnalysisIssue[] {
   return items.flatMap(item=> {
     const element=elements.find(e=>e.id===item.elementId);
-    // Existing/manual prose is not rewritten or subjected to AI vocabulary restrictions.
     const value=item.meaningfulUnderstanding;
-    const code=!element?'CANONICAL_REFERENCE_INVALID':typeof value!=='string'||!value.trim()?'MU_EMPTY':/^(?:-|n\/?a|null|undefined|belum|tidak ada|lorem ipsum)\.?$/i.test(value.trim())?'MU_INVALID':null;
-    return code?[{elementId:item.elementId || '',itemId:item.id,field:'meaningfulUnderstanding',code}]:[];
+    const baseCode=!element?'CANONICAL_REFERENCE_INVALID':typeof value!=='string'||!value.trim()?'MU_EMPTY':/^(?:-|n\/?a|null|undefined|belum|tidak ada|lorem ipsum)\.?$/i.test(value.trim())?'MU_INVALID':null;
+    if (baseCode) return [{elementId:item.elementId || '',itemId:item.id,field:'meaningfulUnderstanding',code:baseCode}];
+    if (element && value) {
+      const issueCode = understandingIssue(value, element, {
+        reviewConfirmed: item.reviewConfirmed,
+        reviewedText: item.reviewedText,
+        reviewedCpText: item.reviewedCpText,
+      });
+      // Only treat MU_GROUNDING_REVIEW as an issue if NOT reviewed and confirmed
+      if (issueCode && (issueCode !== 'MU_GROUNDING_REVIEW' || !item.reviewConfirmed)) {
+        return [{elementId:item.elementId || '',itemId:item.id,field:'meaningfulUnderstanding',code:issueCode}];
+      }
+    }
+    return [];
   });
 }
 
