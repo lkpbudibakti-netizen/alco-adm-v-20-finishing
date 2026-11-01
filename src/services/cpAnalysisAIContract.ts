@@ -12,19 +12,124 @@ export interface AnalysisAIRow {
 }
 export interface AnalysisAIValidation { items: AnalysisAIRow[]; issues: AnalysisIssue[]; valid: boolean }
 const text = (value: unknown) => typeof value === 'string' ? value.trim() : '';
-const tokens = (value: string) => value.toLowerCase().match(/[a-zà-ž]{4,}/g)?.filter(word => !['peserta','didik','murid','memahami','pemahaman','bermakna','dalam','untuk','dengan','serta','yang','dapat','mampu','secara','pada','bahwa','menjadi','mereka'].includes(word)) || [];
-const relationalWords=new Set(['membantu','berkaitan','saling','hubungan','konsep','menunjukkan','terkait','keterkaitan','mendasari','menghubungkan','berarti','memungkinkan','penting','sehingga','antara','terhadap','bukan','hanya','lebih','juga','merupakan','mendukung','berdasarkan','melibatkan','melalui','tersebut','tentang','suatu']);
+const tokens = (value: string) => value.toLowerCase().match(/[a-zà-ž]{4,}/g)?.filter(word => !['peserta','didik','murid','memahami','pemahaman','bermakna','dalam','untuk','dengan','serta','yang','dapat','mampu','secara','pada','bahwa','menjadi','mereka','kepada','dari','atas','oleh','akan','tentang','seperti','ialah','yakni','yaitu','bisa','harus','pula','hari'].includes(word)) || [];
+
+export function stemIndonesianWord(word: string): string {
+  let w = word.toLowerCase().trim();
+  if (w.length <= 4) return w;
+  // Suffixes: -kan, -nya, -lah, -kah, -pun
+  w = w.replace(/(?:kan|nya|lah|kah|pun)$/, '');
+  if (w.length > 5 && !['teman','halaman','zaman','pedoman','peradaban','minuman','makanan','akhlak','ibadah'].includes(w)) {
+    w = w.replace(/(?:an|i)$/, '');
+  }
+  // Prefixes:
+  if (/^memper/.test(w)) {
+    w = w.slice(6);
+  } else if (/^mem[aeiou]/.test(w) && w.length > 5) {
+    w = 'p' + w.slice(3);
+  } else if (/^men[aeiou]/.test(w) && w.length > 5) {
+    w = 't' + w.slice(3);
+  } else if (/^meng[aeiou]/.test(w) && w.length > 6) {
+    w = 'k' + w.slice(4);
+  } else if (/^meny[aeiou]/.test(w) && w.length > 6) {
+    w = 's' + w.slice(4);
+  } else if (/^pem[aeiou]/.test(w) && w.length > 5) {
+    w = 'p' + w.slice(3);
+  } else if (/^pen[aeiou]/.test(w) && w.length > 5) {
+    w = 't' + w.slice(3);
+  } else if (/^peng[aeiou]/.test(w) && w.length > 6) {
+    w = 'k' + w.slice(4);
+  } else if (/^peny[aeiou]/.test(w) && w.length > 6) {
+    w = 's' + w.slice(4);
+  } else {
+    w = w.replace(/^(?:meng|men|mem|meny|me)(?=[a-z]{4,})/, '');
+  }
+  w = w.replace(/^(?:peng|pen|pem|peny|pel|per|pe)(?=[a-z]{4,})/, '');
+  w = w.replace(/^(?:ber|bel)(?=[a-z]{4,})/, '');
+  w = w.replace(/^ter(?=[a-z]{4,})/, '');
+  w = w.replace(/^(?:di|ke|se)(?=[a-z]{4,})/, '');
+  return w;
+}
+
+export const STANDARD_PEDAGOGICAL_TERMS = new Set([
+  // Connective & relational
+  'membantu','berkaitan','saling','hubungan','konsep','menunjukkan','terkait','keterkaitan','mendasari',
+  'menghubungkan','berarti','memungkinkan','penting','sehingga','antara','terhadap','bukan','hanya','lebih',
+  'juga','merupakan','mendukung','berdasarkan','melibatkan','melalui','tersebut','tentang','suatu',
+  'memperkuat','memperteguh','membangun','membentuk','mengembangkan','memudahkan','mempermudah','mencerminkan',
+  'meneladani','mengamalkan','membiasakan','menerapkan','mewujudkan','mengarahkan','meningkatkan','menumbuhkan',
+  'karena','agar','supaya','sebagai','sebagaimana','berperan','mempunyai','memiliki','berfungsi','memfasilitasi','mencapai',
+  'menjalin','jalin','hubungan','pengakuan','mengakui',
+  // Real world & context
+  'kehidupan','sehari','keseharian','harian','lingkungan','masyarakat','keluarga','dunia','nyata','situasi','konteks',
+  'kondisi','aktivitas','kegiatan','kebiasaan','pengalaman','praktik','penerapan','kebutuhan','sekolah','rumah',
+  'pergaulan','interaksi','sosial','komunikasi','pengawasan','keberadaan','perbuatan','tindakan','wujud','bentuk',
+  'pedoman','hidup','keselamatan','manusia','akhirat','respons','kejadian','kerukunan','terpercaya','amanah',
+  'usia','dini','sejak','masa','kanak','remaja','kisah','sejarah','peradaban','gelar','sebutan',
+  // Character, attitude, mindset
+  'sikap','tindakan','perilaku','karakter','kesadaran','tanggung','jawab','moral','etika','pribadi','sesama',
+  'menghargai','menghormati','peduli','mandiri','kreatif','kritis','gotong','royong','kebhinekaan','sifat',
+  'sabar','kesabaran','jujur','kejujuran','disiplin','santun','adab','tertib','teratur','mulia','terpuji',
+  'cinta','kecintaan','sayang','menyayangi','kasih','peduli','biasa','kebiasaan','pembiasaan',
+  // Religious & spiritual (PAI & Budi Pekerti, Pancasila)
+  'allah','tuhan','pencipta','ciptaan','iman','takwa','taqwa','ketakwaan','ketaatan','keyakinan','akhlak',
+  'ibadah','amal','amalan','pengamalan','kebaikan','pahala','syukur','mensyukuri','doa','teladan','ajaran',
+  'kebenaran','budi','pekerti','adab','santun','jujur','disiplin','kasih','sayang','rukun','damai',
+  'toleransi','bertaqwa','bertakwa','beriman','berakhlak','mulia','tartil','fasih','lafal','pelafalan','melafalkan',
+  'ayat','suci','surah','hijaiah','harakat','tartil','syahadat','syahadatain','salat','fardu','wudu','wudhu',
+  'nabi','rasul','rasulullah','muhammad','amin','al-amin','kitab','malaikat','keesaan','kerasulan','islam','agama',
+  'beragama','lisan','ucap','mengucap','pujian','tayibah','thayyibah','fondasi','utama',
+  // Cognitive & mathematical (Matematika, Sains, Umum)
+  'bilangan','angka','jumlah','menjumlahkan','penjumlahan','pengurangan','mengurangi','operasi','hitung',
+  'perhitungan','menghitung','membilang','cacah','pecahan','ukuran','mengukur','pengukuran','pola','aturan',
+  'urutan','langkah','proses','hasil','pemecahan','masalah','penalaran','logika','analisis','kesimpulan',
+  'strategi','solusi','dasar','fondasi','keterampilan','kemampuan','benda','objek','konkret','abstrak',
+  'perbandingan','membandingkan','posisi','ruang','bentuk','bangun','geometri','data','kelompok','mengelompokkan'
+]);
 
 // Conservative grounding screen, not a claim of semantic equivalence. Never invent a replacement.
-export function understandingIssue(value: unknown, element: Pick<CPElem,'content'>): string | null {
+export function understandingIssue(
+  value: unknown,
+  element: Pick<CPElem,'content'> & { name?: string },
+  reviewMetadata?: { reviewConfirmed?: boolean; reviewedText?: string; reviewedCpText?: string }
+): string | null {
   if(typeof value !== 'string' || !value.trim()) return 'MU_EMPTY';
   if(value.trim().length < 20 || /^(?:-|n\/?a|null|undefined|belum|tidak ada|contoh|lorem ipsum)\.?$/i.test(value.trim())) return 'MU_INVALID';
   if(value.toLowerCase().replace(/[\s.]+/g,'')===(element.content || '').toLowerCase().replace(/[\s.]+/g,'')) return 'MU_INVALID';
-  const source = new Set(tokens(element.content || ''));
-  const overlap = new Set(tokens(value).filter(word => source.has(word)));
-  if(!source.size || overlap.size < Math.min(2,source.size)) return 'MU_GROUNDING_REVIEW';
-  // Unknown content terms require review; overlap alone must not admit a new topic.
-  if(tokens(value).some(word=>!source.has(word)&&!relationalWords.has(word))) return 'MU_GROUNDING_REVIEW';
+
+  // If teacher already confirmed this exact row and CP hasn't changed, review is satisfied
+  if (reviewMetadata?.reviewConfirmed && reviewMetadata.reviewedText === value.trim()) {
+    if (!reviewMetadata.reviewedCpText || reviewMetadata.reviewedCpText === (element.content || '')) {
+      return null;
+    }
+  }
+
+  const sourceContent = ((element.content || '') + ' ' + (element.name || '')).trim();
+  const rawSourceTokens = tokens(sourceContent);
+  const source = new Set(rawSourceTokens);
+  const sourceStems = new Set(rawSourceTokens.map(stemIndonesianWord));
+  if (source.has('nabi') || source.has('muhammad')) {
+    source.add('rasulullah');
+    source.add('rasul');
+    sourceStems.add('rasulullah');
+    sourceStems.add('rasul');
+  }
+
+  const valTokens = tokens(value);
+  if(!valTokens.length) return 'MU_INVALID';
+
+  const overlap = valTokens.filter(word => source.has(word) || sourceStems.has(stemIndonesianWord(word)));
+
+  // Grounding and pedagogical domain alignment: allow reasonable paraphrasing while flagging alien topics
+  const isAllowed = (w: string) => source.has(w) || sourceStems.has(stemIndonesianWord(w)) || STANDARD_PEDAGOGICAL_TERMS.has(w) || STANDARD_PEDAGOGICAL_TERMS.has(stemIndonesianWord(w));
+  const supportedTokens = valTokens.filter(isAllowed);
+  const supportedRatio = supportedTokens.length / valTokens.length;
+  const unsupportedCount = valTokens.length - supportedTokens.length;
+
+  const hasGroundedOverlap = overlap.length >= 2 || (overlap.length >= 1 && supportedRatio >= 0.85);
+  if(!source.size || !hasGroundedOverlap) return 'MU_GROUNDING_REVIEW';
+
+  if (supportedRatio < 0.65 || unsupportedCount > 3) return 'MU_GROUNDING_REVIEW';
   return null;
 }
 
@@ -49,16 +154,17 @@ export function validateAnalysisAI(payload: unknown, elements: CPElem[], targets
     if(!targets.length) for(const field of (repair?.fields || ['cpCompetence','materialScope','suggestedTp']) as typeof CP4_FIELDS[number][]) {
       if(!row[field]) issues.push({elementId,itemId:itemId||undefined,rowIndex,field,code:field==='meaningfulUnderstanding'?'MU_EMPTY':'FIELD_EMPTY'});
     }
-    const code=(!repair || repair.fields.includes('meaningfulUnderstanding'))?understandingIssue(input.meaningfulUnderstanding,element):null;
+    const code=(!repair || repair.fields.includes('meaningfulUnderstanding'))?understandingIssue(input.meaningfulUnderstanding,element,input):null;
     if(code) issues.push({elementId,itemId:itemId||undefined,rowIndex,field:'meaningfulUnderstanding',code});
     items.push(row);
   }
   for(const target of repairTargets.length ? repairTargets : targets.length ? targets : elements.map(e=>({elementId:e.id,itemId:''}))) {
     if(!seen.has(targets.length || repairTargets.length ? target.itemId : target.elementId)) issues.push({elementId:target.elementId,itemId:target.itemId||undefined,field:'items',code:'ELEMENT_MISSING'});
   }
-  for(const issue of issues)issue.category=['MU_GROUNDING_REVIEW','CP_COVERAGE_REVIEW','MU_INVALID'].includes(issue.code)?'quality':issue.code==='RESPONSE_INVALID'?'technical':'structure';
+  for(const issue of issues)issue.category=['MU_GROUNDING_REVIEW','CP_COVERAGE_REVIEW'].includes(issue.code)?'quality':issue.code==='RESPONSE_INVALID'?'technical':'structure';
   const keys=new Set<string>();const unique=issues.filter(issue=>{const key=JSON.stringify([issue.elementId,issue.itemId,issue.rowIndex,issue.field,issue.code,issue.clauseIndex]);if(keys.has(key))return false;keys.add(key);return true;});
-  return {items,issues:unique,valid:unique.length===0};
+  const hasBlocking = unique.some(i => i.category === 'structure' || i.category === 'technical');
+  return {items,issues:unique,valid:!hasBlocking};
 }
 
 export function getUnderstandingTargets(items: CPAnalysisItem[], elements: CPElem[]): UnderstandingTarget[] {

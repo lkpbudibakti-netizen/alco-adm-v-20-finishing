@@ -15,7 +15,7 @@ export function validateCP4Input(elements:unknown):CP4Issue[] {
   return issues;
 }
 export function classifyCP4Issue(issue:AnalysisIssue):CP4Issue {
-  return {...issue,category:['MU_GROUNDING_REVIEW','CP_COVERAGE_REVIEW','MU_INVALID'].includes(issue.code)?'quality':issue.code==='RESPONSE_INVALID'?'technical':'structure'};
+  return {...issue,category:['MU_GROUNDING_REVIEW','CP_COVERAGE_REVIEW'].includes(issue.code)?'quality':issue.code==='RESPONSE_INVALID'?'technical':'structure'};
 }
 export function cp4Clauses(element:CPElem):string[] {return element.content.split(/;\s*|[.!?]\s+(?=[A-ZÀ-Ž])/).map(s=>s.replace(/[.;]\s*$/,'').trim()).filter(Boolean);}
 const tokens=(s:string)=>s.toLowerCase().match(/[a-zà-ž]{4,}/g)?.filter(w=>!['peserta','didik','murid','mampu','untuk','dengan','yang','dalam','serta','pada','secara'].includes(w)) || [];
@@ -37,7 +37,14 @@ export function inspectCP4Draft(items:CPAnalysisItem[],elements:CPElem[],cp?:CPD
     if(!e||ids.has(item.id)){issues.push({elementId:item.elementId || '',itemId:item.id,field:'elementId',code:'CANONICAL_REFERENCE_INVALID',category:'structure'});continue;}
     ids.add(item.id);
     for(const field of CP4_FIELDS)if(typeof item[field]!=='string'||!item[field]?.trim())issues.push({elementId:e.id,itemId:item.id,field,code:field==='meaningfulUnderstanding'?'MU_EMPTY':'FIELD_EMPTY',category:'structure'});
-    if(item.meaningfulUnderstanding?.trim()) {const code=understandingIssue(item.meaningfulUnderstanding,e);if(code)issues.push(classifyCP4Issue({elementId:e.id,itemId:item.id,field:'meaningfulUnderstanding',code}));}
+    if(item.meaningfulUnderstanding?.trim()) {
+      const code=understandingIssue(item.meaningfulUnderstanding,e,{
+        reviewConfirmed: item.reviewConfirmed,
+        reviewedText: item.reviewedText,
+        reviewedCpText: item.reviewedCpText,
+      });
+      if(code)issues.push(classifyCP4Issue({elementId:e.id,itemId:item.id,field:'meaningfulUnderstanding',code}));
+    }
   }
   for(const e of elements)if(!items.some(i=>i.elementId===e.id))issues.push({elementId:e.id,field:'items',code:'ELEMENT_MISSING',category:'structure'});
   if(cp)for(const finding of reviewCPAnalysisSemantic(items,cp).findings.filter(f=>f.severity==='WARNING')) {

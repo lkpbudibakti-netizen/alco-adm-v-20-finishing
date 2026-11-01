@@ -1,6 +1,6 @@
 import { cp4ElementStatuses, validateCP4Input, planCP4Repair, stageCP4Proposal, applyCP4Proposal, mergeCP4Structure, type CP4Proposal } from '../services/cpAnalysisDraft';
 import { newCP4RequestId, initialCP4Trace, type CP4Trace } from '../services/cpAnalysisRun';
-import { validateAnalysisAI, explainAnalysisIssue, validateStep4Understanding, type UnderstandingTarget } from '../services/cpAnalysisAIContract';
+import { validateAnalysisAI, explainAnalysisIssue, validateStep4Understanding, understandingIssue, type UnderstandingTarget } from '../services/cpAnalysisAIContract';
 import { CPAnalysisAIError, createCPAnalysisDiagnosis, formatCPAnalysisDiagnosis, copyCPAnalysisDiagnosis, type CPAnalysisDiagnosis } from '../services/cpAnalysisAIDiagnostics';
 import React, { useState, useEffect, useRef } from 'react';
 import {
@@ -246,8 +246,57 @@ export const CPAnalysisManager: React.FC<CPAnalysisManagerProps> = ({
       setIsReviewStale(true);
     }
     setItems((prev) =>
-      prev.map((it) => (it.id === id ? { ...it, [field]: finalValue } : it))
+      prev.map((it) => {
+        if (it.id !== id) return it;
+        const updated = { ...it, [field]: finalValue };
+        // Invalidate row confirmation if substance or reference element changes
+        if (field === 'meaningfulUnderstanding' || field === 'cpText' || field === 'elementId') {
+          updated.reviewConfirmed = false;
+          updated.reviewedText = undefined;
+          updated.reviewedCpText = undefined;
+        }
+        return updated;
+      })
     );
+  };
+
+  const handleConfirmRowReview = (itemId: string) => {
+    setItems((prev) =>
+      prev.map((it) => {
+        if (it.id !== itemId) return it;
+        const el = (cp.elements || []).find((e) => e.id === it.elementId);
+        return {
+          ...it,
+          reviewConfirmed: true,
+          reviewedText: (it.meaningfulUnderstanding || '').trim(),
+          reviewedCpText: (it.cpText || el?.content || '').trim(),
+        };
+      })
+    );
+    setHasUnsavedChanges(true);
+    if (semanticReview) {
+      setIsReviewStale(true);
+    }
+    setNotificationToast('Substansi baris telah disetujui guru. Klik Simpan Analisis untuk menyimpan.');
+    setTimeout(() => setNotificationToast(null), 3500);
+  };
+
+  const handleRevokeRowReview = (itemId: string) => {
+    setItems((prev) =>
+      prev.map((it) => {
+        if (it.id !== itemId) return it;
+        return {
+          ...it,
+          reviewConfirmed: false,
+          reviewedText: undefined,
+          reviewedCpText: undefined,
+        };
+      })
+    );
+    setHasUnsavedChanges(true);
+    if (semanticReview) {
+      setIsReviewStale(true);
+    }
   };
 
   const handleAddItem = () => {
@@ -284,6 +333,9 @@ export const CPAnalysisManager: React.FC<CPAnalysisManagerProps> = ({
             elementId: '',
             elementName: '',
             cpText: '',
+            reviewConfirmed: false,
+            reviewedText: undefined,
+            reviewedCpText: undefined,
           };
         }
         return {
@@ -291,6 +343,9 @@ export const CPAnalysisManager: React.FC<CPAnalysisManagerProps> = ({
           elementId: canonicalElem.id,
           elementName: canonicalElem.name,
           cpText: canonicalElem.content,
+          reviewConfirmed: false,
+          reviewedText: undefined,
+          reviewedCpText: undefined,
         };
       })
     );
@@ -1059,9 +1114,25 @@ export const CPAnalysisManager: React.FC<CPAnalysisManagerProps> = ({
               {/* Grid: Pemahaman Bermakna & Rumusan Awal TP */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div className="space-y-1">
-                  <label className="text-[11px] font-semibold text-slate-600 block">
-                    3. Pemahaman Bermakna / Konteks / Variasi:
-                  </label>
+                  <div className="flex items-center justify-between">
+                    <label className="text-[11px] font-semibold text-slate-600 block">
+                      3. Pemahaman Bermakna / Konteks / Variasi:
+                    </label>
+                    {item.reviewConfirmed ? (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-100 text-emerald-800">
+                        <Check className="w-3 h-3 text-emerald-600" />
+                        <span>Disetujui Guru</span>
+                        <button
+                          type="button"
+                          onClick={() => handleRevokeRowReview(item.id)}
+                          className="ml-1 text-emerald-600 hover:text-emerald-900 underline cursor-pointer"
+                          title="Batalkan persetujuan baris"
+                        >
+                          Batal
+                        </button>
+                      </span>
+                    ) : null}
+                  </div>
                   <input
                     type="text"
                     value={item.meaningfulUnderstanding || ''}
@@ -1084,6 +1155,47 @@ export const CPAnalysisManager: React.FC<CPAnalysisManagerProps> = ({
                   />
                 </div>
               </div>
+
+              {/* Baris Peringatan REVIEW Substansi jika ada temuan keselarasan non-blocking */}
+              {(() => {
+                const el = (cp.elements || []).find((e) => e.id === item.elementId);
+                if (!el || !item.meaningfulUnderstanding?.trim()) return null;
+                const issueCode = understandingIssue(item.meaningfulUnderstanding, el, {
+                  reviewConfirmed: item.reviewConfirmed,
+                  reviewedText: item.reviewedText,
+                  reviewedCpText: item.reviewedCpText,
+                });
+                if (!issueCode) return null;
+
+                return (
+                  <div className="mt-2 p-3 bg-amber-50 border border-amber-300 rounded-xl flex items-start justify-between gap-3 text-xs text-amber-950">
+                    <div className="flex items-start gap-2.5 flex-1">
+                      <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                      <div className="space-y-1">
+                        <span className="font-bold text-amber-900 block">
+                          Tinjauan Keselarasan Substansi (REVIEW): {explainAnalysisIssue(issueCode)}
+                        </span>
+                        <div className="text-[11px] text-amber-800 space-y-0.5">
+                          <p>
+                            <span className="font-semibold">CP Rujukan:</span> {item.cpText || el.content}
+                          </p>
+                          <p>
+                            <span className="font-semibold">Pemahaman Bermakna:</span> {item.meaningfulUnderstanding}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleConfirmRowReview(item.id)}
+                      className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-amber-600 hover:bg-amber-700 text-white shrink-0 shadow-2xs cursor-pointer flex items-center gap-1.5"
+                    >
+                      <Check className="w-3.5 h-3.5" />
+                      <span>Setujui Substansi Baris</span>
+                    </button>
+                  </div>
+                );
+              })()}
             </div>
           )))}
         </div>

@@ -348,6 +348,9 @@ export interface CPAnalysisItem {
   meaningfulUnderstanding?: string; // Pemahaman Bermakna / Variasi
   suggestedTp?: string; // Rumusan Awal TP
   order: number;
+  reviewConfirmed?: boolean;
+  reviewedText?: string;
+  reviewedCpText?: string;
 }
 
 export interface CPAnalysisData {
