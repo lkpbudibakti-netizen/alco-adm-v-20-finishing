@@ -41,10 +41,31 @@ function contextState(context:SubjectSelectionContext):{status:SubjectCPAvailabi
 const allEntries=[...ALL_MASTER_CP_ENTRIES,...REVIEW_CP046_ENTRIES];
 function catalog(context:SubjectSelectionContext):CurriculumSubject[] {
   const state=contextState(context);
-  const pool=context.sourceSet==='review046'?REVIEW_CP046_ENTRIES:context.sourceSet==='historical'?ALL_MASTER_CP_ENTRIES:allEntries;
-  const codes=new Set(pool.filter(e=>e.level===context.level&&e.verificationStatus!=='SUPERSEDED'
-    &&(state.status==='NOT_APPLICABLE'||!state.phase||e.phase===state.phase)).map(e=>e.subjectCode));
-  return master.filter(s=>codes.has(s.code));
+  const lvl=context.level;
+  const phase=state.phase;
+
+  if(!['SD','SMP','SMA','SMK'].includes(lvl)) return [];
+
+  // Filter master subjects based on school level and phase relevance
+  if(lvl==='SD') {
+    const sdCodes=['PAI','PAK','PKAT','PHINDU','PBUDDHA','PKHONGHUCU','PANCASILA','BINDO','MAT','PJOK','BING','SENI_RUPA','SENI_MUSIK','SENI_TARI','SENI_TEATER','PRAKARYA','CODING_AI','LOCAL_CONTENT'];
+    if(phase==='B'||phase==='C') sdCodes.splice(9,0,'IPAS');
+    return master.filter(s=>sdCodes.includes(s.code));
+  }
+  if(lvl==='SMP') {
+    const smpCodes=['PAI','PAK','PKAT','PHINDU','PBUDDHA','PKHONGHUCU','PANCASILA','BINDO','MAT','IPA','IPS','BING','PJOK','INFORMATIKA','SENI_RUPA','SENI_MUSIK','SENI_TARI','SENI_TEATER','PRAKARYA','PRAKARYA_BUDI_DAYA','PRAKARYA_KERAJINAN','PRAKARYA_PENGOLAHAN','PRAKARYA_REKAYASA','CODING_AI','LOCAL_CONTENT'];
+    return master.filter(s=>smpCodes.includes(s.code));
+  }
+  if(lvl==='SMA'||lvl==='SMK') {
+    if(phase==='E') {
+      const smaECodes=['PAI','PAK','PKAT','PHINDU','PBUDDHA','PKHONGHUCU','PANCASILA','BINDO','MAT','IPA','IPS','BING','PJOK','INFORMATIKA','SENI_RUPA','SENI_MUSIK','SENI_TARI','SENI_TEATER','FISIKA','KIMIA','BIOLOGI','SOSIOLOGI','EKONOMI','GEOGRAFI','SEJARAH','PRAKARYA','PRAKARYA_BUDI_DAYA','PRAKARYA_KERAJINAN','PRAKARYA_PENGOLAHAN','PRAKARYA_REKAYASA','PKWU_BUDI_DAYA','PKWU_KERAJINAN','PKWU_PENGOLAHAN','PKWU_REKAYASA','CODING_AI','LOCAL_CONTENT'];
+      return master.filter(s=>smaECodes.includes(s.code));
+    } else {
+      const smaFCodes=['PAI','PAK','PKAT','PHINDU','PBUDDHA','PKHONGHUCU','PANCASILA','BINDO','MAT','BING','PJOK','INFORMATIKA','SENI_RUPA','SENI_MUSIK','SENI_TARI','SENI_TEATER','PRAKARYA','CODING_AI','LOCAL_CONTENT','FISIKA','KIMIA','BIOLOGI','SOSIOLOGI','EKONOMI','GEOGRAFI','SEJARAH','ANTROPOLOGI','MAT_LANJUT','BINDO_LANJUT','BING_LANJUT','BAHASA_ASING_LAIN','SEJARAH_LANJUT','PRAKARYA_BUDI_DAYA','PRAKARYA_KERAJINAN','PRAKARYA_PENGOLAHAN','PRAKARYA_REKAYASA','PKWU_BUDI_DAYA','PKWU_KERAJINAN','PKWU_PENGOLAHAN','PKWU_REKAYASA','B_ARAB','B_JEPANG','B_JERMAN','B_KOREA','B_MANDARIN','B_PRANCIS'];
+      return master.filter(s=>smaFCodes.includes(s.code));
+    }
+  }
+  return master;
 }
 
 export function getSubjectCPAvailability(value:string,context:SubjectSelectionContext):SubjectCPAvailability {
@@ -65,14 +86,13 @@ export function getSubjectCPAvailability(value:string,context:SubjectSelectionCo
   if(sources.length)return {status:'RESOLVED',sources,blockedSources,reason:'Pilihan sumber CP diperiksa terpisah; pilih sumber secara eksplisit di Step 3. CP tersimpan tidak berubah.'};
   const ambiguous=blockedSources.some(s=>s.status==='AMBIGUOUS');
   return {status:ambiguous?'AMBIGUOUS':'UNRESOLVED',sources,blockedSources,
-    reason:(ambiguous?'CP ambigu (AMBIGUOUS).':'CP tidak tersedia (UNRESOLVED).')+' Tinjau sumber atau gunakan CP manual di Step 3.'};
+    reason:(ambiguous?'CP ambigu (AMBIGUOUS).':'CP belum tersedia bawaan.')+' Mapel tetap dapat dipilih, lanjutkan pengisian CP manual di Step 3.'};
 }
 
 export function getSubjectChoices(context:SubjectSelectionContext):CurriculumSubject[] {
   const state=contextState(context);
   if(state.status==='UNRESOLVED')return [];
-  const candidates=catalog(context);
-  return state.status==='RESOLVED'?candidates.filter(s=>getSubjectCPAvailability(s.code,context).status==='RESOLVED'):candidates;
+  return catalog(context);
 }
 
 export function subjectCPLabel(availability:SubjectCPAvailability):string {
