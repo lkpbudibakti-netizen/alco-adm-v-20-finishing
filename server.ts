@@ -378,6 +378,25 @@ app.get('/api/health', (req, res) => {
   });
 });
 
+// Diagnostic ping endpoint for Step 4 connection verification (dev only, no CP/key payload)
+if (process.env.NODE_ENV !== 'production') {
+  app.post('/api/diagnostics/cp4-ping', (req, res) => {
+    const rawId = req.get('X-CP4-Request-ID') || req.body?.requestId;
+    const reqId = isCP4RequestId(rawId) ? rawId : undefined;
+    console.log(`[CP4-DIAG] INCOMING ping reqId=${reqId || 'unknown'}`);
+    res.setHeader('Cache-Control', 'no-store');
+    res.setHeader('X-CP4-Service', CP4_BACKEND_SERVICE);
+    if (reqId) res.setHeader('X-CP4-Request-ID', reqId);
+    res.json({
+      service: CP4_BACKEND_SERVICE,
+      requestId: reqId,
+      status: 'ok',
+      timestamp: new Date().toISOString(),
+    });
+    console.log(`[CP4-DIAG] COMPLETED ping reqId=${reqId || 'unknown'}`);
+  });
+}
+
 // Official Education Reference School Search Endpoint
 app.get('/api/schools/search', async (req, res) => {
   try {
@@ -543,12 +562,24 @@ function getSubstantiveTokens(text: string): string[] {
 
 // 1. Endpoint: AI Analyze CP -> Return canonical CPAnalysisData items
 app.post('/api/ai/analyze-cp', async (req, res) => {
+  const reqId = req.get('X-CP4-Request-ID');
+  console.log(`[CP4-DIAG] INCOMING analyze-cp reqId=${reqId || 'unknown'} elementsCount=${Array.isArray(req.body?.elements) ? req.body.elements.length : 0}`);
   const apiKey = resolveApiKey(req);
-  return serveCP4Analysis(req,res,apiKey,apiKey ? async (request,attempt) => {
-    // Step 4 owns retries. Disable SDK retries and use the same pre-existing primary model.
-    return createAIClient(apiKey).models.generateContent({model:attempt.model,contents:request.contents,
-      config:{...request.config,abortSignal:attempt.signal,httpOptions:{timeout:attempt.timeoutMs,retryOptions:{attempts:1}}}});
-  } : undefined);
+  try {
+    const result = await serveCP4Analysis(req, res, apiKey, apiKey ? async (request, attempt) => {
+      // Step 4 owns retries. Disable SDK retries and use the same pre-existing primary model.
+      return createAIClient(apiKey).models.generateContent({
+        model: attempt.model,
+        contents: request.contents,
+        config: { ...request.config, abortSignal: attempt.signal, httpOptions: { timeout: attempt.timeoutMs, retryOptions: { attempts: 1 } } }
+      });
+    } : undefined);
+    console.log(`[CP4-DIAG] COMPLETED analyze-cp reqId=${reqId || 'unknown'} statusCode=${res.statusCode}`);
+    return result;
+  } catch (err: any) {
+    console.log(`[CP4-DIAG] ERROR analyze-cp reqId=${reqId || 'unknown'} err=${err?.message || 'unknown'}`);
+    throw err;
+  }
 });
 
 // Runtime validator for AI TP response

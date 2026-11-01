@@ -566,7 +566,8 @@ export async function analyzeCPWithAI(params: {
     check();backendReady=true;
     const res = await fetch('/api/ai/analyze-cp', {
       redirect:'error',
-      method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CP4-Request-ID':requestId,'X-CP4-Deadline':String(deadlineAt),...(localKey?{'X-Gemini-API-Key':localKey}:{}) },
+      credentials:'include',
+      method: 'POST', headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-CP4-Request-ID':requestId,'X-CP4-Deadline':String(deadlineAt),...(localKey?{'X-Gemini-API-Key':localKey}:{}) },
       body: JSON.stringify(params), signal: controller.signal,
     });
     check();trace.lastStage='response';

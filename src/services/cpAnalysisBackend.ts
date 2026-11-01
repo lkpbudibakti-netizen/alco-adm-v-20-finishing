@@ -6,7 +6,7 @@ export const CP4_BACKEND_PROTOCOL = 1;
 export async function checkCP4Backend(signal: AbortSignal, requestId: string): Promise<void> {
   const info: CP4ResponseInfo = {source:'endpoint',reason:'CONTRACT',phase:'health'};
   try {
-    const res = await fetch('/api/health', {method:'GET',cache:'no-store',redirect:'error',signal,
+    const res = await fetch('/api/health', {method:'GET',cache:'no-store',credentials:'include',redirect:'error',signal,
       headers:{Accept:'application/json','X-CP4-Request-ID':requestId}});
     info.httpStatus=res.status;info.mime=responseMime(res.headers.get('Content-Type'));
     if(!res.ok)throw new CP4ResponseError({...info,reason:'HTTP_ERROR'});
