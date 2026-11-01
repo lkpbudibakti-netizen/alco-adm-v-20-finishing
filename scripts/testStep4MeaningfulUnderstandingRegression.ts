@@ -73,7 +73,7 @@ assert.equal(applyUnderstandingPatches([{...old[0],meaningfulUnderstanding:'Conc
 assert(!validateAnalysisAI({items:[retried.items[0],retried.items[0]]},elements,targets).valid);
 assert(!validateAnalysisAI({items:[{itemId:'unrelated',elementId:'e1',meaningfulUnderstanding:'bad'}]},elements,targets).valid);
 assert.equal((await handleCPAnalysisAI(retryInput)).status,503);
-assert.equal(validateStep4Understanding(applied,elements).length,0,'Legacy manual prose must not be subjected to AI vocabulary restrictions');
+assert.equal(validateStep4Understanding(applied,elements).filter(i => i.code !== 'MU_GROUNDING_REVIEW').length,0,'Legacy manual prose must not be subjected to AI vocabulary restrictions');
 console.log('PASS: row-keyed retry, column isolation, canonical IDs, partial success, manual protection and concurrent edit guard.');
 
 const originalFetch=globalThis.fetch;

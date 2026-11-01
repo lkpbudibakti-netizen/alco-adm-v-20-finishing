@@ -84,7 +84,8 @@ export const STANDARD_PEDAGOGICAL_TERMS = new Set([
   'perhitungan','menghitung','membilang','cacah','pecahan','ukuran','mengukur','pengukuran','pola','aturan',
   'urutan','langkah','proses','hasil','pemecahan','masalah','penalaran','logika','analisis','kesimpulan',
   'strategi','solusi','dasar','fondasi','keterampilan','kemampuan','benda','objek','konkret','abstrak',
-  'perbandingan','membandingkan','posisi','ruang','bentuk','bangun','geometri','data','kelompok','mengelompokkan'
+  // General pedagogy & teacher notes
+  'catatan','manual','mandiri','guru','pendidik','siswa','peserta','didik','penjelasan','uraian','diskusi','tanya','jawab','pembelajaran'
 ]);
 
 // Conservative grounding screen, not a claim of semantic equivalence. Never invent a replacement.
@@ -94,7 +95,7 @@ export function understandingIssue(
   reviewMetadata?: { reviewConfirmed?: boolean; reviewedText?: string; reviewedCpText?: string }
 ): string | null {
   if(typeof value !== 'string' || !value.trim()) return 'MU_EMPTY';
-  if(value.trim().length < 20 || /^(?:-|n\/?a|null|undefined|belum|tidak ada|contoh|lorem ipsum)\.?$/i.test(value.trim())) return 'MU_INVALID';
+  if(value.trim().length < 15 || /^(?:-|n\/?a|null|undefined|belum|tidak ada|contoh|lorem ipsum)\.?$/i.test(value.trim())) return 'MU_INVALID';
   if(value.toLowerCase().replace(/[\s.]+/g,'')===(element.content || '').toLowerCase().replace(/[\s.]+/g,'')) return 'MU_INVALID';
 
   // Strict review confirmation check: requires teacher confirmation, non-empty reviewedText matching current value, and non-empty valid reviewedCpText matching element content
@@ -194,10 +195,7 @@ export function validateStep4Understanding(items:CPAnalysisItem[], elements:CPEl
         reviewedText: item.reviewedText,
         reviewedCpText: item.reviewedCpText,
       });
-      // Only treat MU_GROUNDING_REVIEW as an issue if NOT reviewed and confirmed
-      if (issueCode && (issueCode !== 'MU_GROUNDING_REVIEW' || !item.reviewConfirmed)) {
-        return [{elementId:item.elementId || '',itemId:item.id,field:'meaningfulUnderstanding',code:issueCode}];
-      }
+      if (issueCode) return [{elementId:item.elementId || '',itemId:item.id,field:'meaningfulUnderstanding',code:issueCode}];
     }
     return [];
   });
