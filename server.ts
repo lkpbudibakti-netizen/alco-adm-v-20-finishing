@@ -380,20 +380,28 @@ app.get('/api/health', (req, res) => {
 
 // Diagnostic ping endpoint for Step 4 connection verification (dev only, no CP/key payload)
 if (process.env.NODE_ENV !== 'production') {
-  app.post('/api/diagnostics/cp4-ping', (req, res) => {
-    const rawId = req.get('X-CP4-Request-ID') || req.body?.requestId;
-    const reqId = isCP4RequestId(rawId) ? rawId : undefined;
-    console.log(`[CP4-DIAG] INCOMING ping reqId=${reqId || 'unknown'}`);
-    res.setHeader('Cache-Control', 'no-store');
-    res.setHeader('X-CP4-Service', CP4_BACKEND_SERVICE);
-    if (reqId) res.setHeader('X-CP4-Request-ID', reqId);
-    res.json({
-      service: CP4_BACKEND_SERVICE,
-      requestId: reqId,
-      status: 'ok',
-      timestamp: new Date().toISOString(),
-    });
-    console.log(`[CP4-DIAG] COMPLETED ping reqId=${reqId || 'unknown'}`);
+  app.post('/api/diagnostics/cp4-ping', (req, res, next) => {
+    try {
+      const rawId = req.get('X-CP4-Request-ID') || req.body?.requestId;
+      const reqId = isCP4RequestId(rawId) ? rawId : undefined;
+      console.log(`[CP4-DIAG] INCOMING ping reqId=${reqId || 'unknown'}`);
+      if (!res.headersSent) {
+        res.setHeader('Cache-Control', 'no-store');
+        res.setHeader('X-CP4-Service', CP4_BACKEND_SERVICE);
+        if (reqId) res.setHeader('X-CP4-Request-ID', reqId);
+      }
+      if (!res.writableEnded && !res.headersSent) {
+        res.json({
+          service: CP4_BACKEND_SERVICE,
+          requestId: reqId,
+          status: 'ok',
+          timestamp: new Date().toISOString(),
+        });
+      }
+      console.log(`[CP4-DIAG] COMPLETED ping reqId=${reqId || 'unknown'}`);
+    } catch (err) {
+      next(err);
+    }
   });
 }
 
@@ -561,7 +569,7 @@ function getSubstantiveTokens(text: string): string[] {
 }
 
 // 1. Endpoint: AI Analyze CP -> Return canonical CPAnalysisData items
-app.post('/api/ai/analyze-cp', async (req, res) => {
+app.post('/api/ai/analyze-cp', async (req, res, next) => {
   const reqId = req.get('X-CP4-Request-ID');
   console.log(`[CP4-DIAG] INCOMING analyze-cp reqId=${reqId || 'unknown'} elementsCount=${Array.isArray(req.body?.elements) ? req.body.elements.length : 0}`);
   const apiKey = resolveApiKey(req);
@@ -578,7 +586,7 @@ app.post('/api/ai/analyze-cp', async (req, res) => {
     return result;
   } catch (err: any) {
     console.log(`[CP4-DIAG] ERROR analyze-cp reqId=${reqId || 'unknown'} err=${err?.message || 'unknown'}`);
-    throw err;
+    return next(err);
   }
 });
 
@@ -4135,6 +4143,21 @@ Berikan evaluasi kualitas untuk butir-butir soal dan instrumen tersebut dalam fo
     const isAuth = error?.status === 401 || error?.status === 403;
     return res.status(isAuth ? error.status : 500).json({ error: error.message || 'Gagal telaah kualitas via Gemini' });
   }
+});
+
+// Global Express error handler for /api routes - guarantee JSON, proper status code, and no double response
+app.use('/api', (err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+  if (res.headersSent || res.writableEnded) {
+    return next(err);
+  }
+  const statusCode = Number.isInteger(err?.status || err?.statusCode) && (err.status || err.statusCode) >= 400 && (err.status || err.statusCode) <= 599
+    ? (err.status || err.statusCode)
+    : 500;
+  res.status(statusCode).json({
+    service: CP4_BACKEND_SERVICE,
+    error: err?.message || 'Internal Server Error',
+    requestId: req.get('X-CP4-Request-ID') || undefined,
+  });
 });
 
 // Final /api 404 handler - must return JSON and never fall through to Vite static HTML fallback
