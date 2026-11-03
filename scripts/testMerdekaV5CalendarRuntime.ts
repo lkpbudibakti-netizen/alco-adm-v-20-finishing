@@ -1,3 +1,4 @@
+import ts from 'typescript';
 import assert from 'node:assert';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -8,6 +9,10 @@ import {
   createSchoolV5,
   createYearHierarchyV5,
   saveAcademicCalendarV5,
+  saveSemesterJPSettingV5,
+  setActiveYearPlanV5,
+  setActiveSemesterPlanV5,
+  STORAGE_KEY_V5,
 } from '../src/services/storageV5';
 import { getRuntimeContextV5 } from '../src/services/runtimeV5';
 import { AcademicCalendar, CalendarDay } from '../src/types';
@@ -38,12 +43,16 @@ function runTest(description: string, fn: () => void) {
 // Mock localStorage in Node environment
 class MockLocalStorage {
   private store: Map<string, string> = new Map();
+  public writeCount=0;
+  public failWrite=false;
 
   getItem(key: string): string | null {
     return this.store.has(key) ? this.store.get(key)! : null;
   }
 
   setItem(key: string, value: string): void {
+    if(this.failWrite) throw new Error('Simulated storage quota failure');
+    this.writeCount++;
     this.store.set(key, String(value));
   }
 
@@ -53,6 +62,8 @@ class MockLocalStorage {
 
   clear(): void {
     this.store.clear();
+    this.writeCount=0;
+    this.failWrite=false;
   }
 
   get length(): number {
@@ -68,13 +79,44 @@ class MockLocalStorage {
 const mockStorage = new MockLocalStorage();
 (globalThis as any).localStorage = mockStorage;
 const appPath = path.resolve(process.cwd(), 'src/App.tsx');
-const appSource = fs.readFileSync(appPath, 'utf-8');
+const appSource = readSource(appPath, 'utf-8');
 
 const tpmPath = path.resolve(process.cwd(), 'src/components/administration/TimePlanningManager.tsx');
-const tpmSource = fs.readFileSync(tpmPath, 'utf-8');
+const tpmSource = readSource(tpmPath, 'utf-8');
 
 const adminHubPath = path.resolve(process.cwd(), 'src/components/administration/AdministrationHub.tsx');
-const adminHubSource = fs.readFileSync(adminHubPath, 'utf-8');
+const adminHubSource = readSource(adminHubPath, 'utf-8');
+
+const appAst = ts.createSourceFile(appPath, appSource, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+const tpmAst = ts.createSourceFile(tpmPath, tpmSource, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+function matchingNodes(root: ts.Node, predicate: (node: ts.Node) => boolean): ts.Node[] {
+  const matches: ts.Node[] = [];
+  function visit(node: ts.Node) { if (predicate(node)) matches.push(node); ts.forEachChild(node, visit); }
+  visit(root);
+  return matches;
+}
+function namedVariable(root: ts.Node, name: string): ts.VariableDeclaration {
+  const matches = matchingNodes(root, node => ts.isVariableDeclaration(node) && node.name.getText() === name);
+  assert.strictEqual(matches.length, 1, 'Expected one variable: ' + name);
+  return matches[0] as ts.VariableDeclaration;
+}
+function namedCalls(root: ts.Node, name: string): ts.CallExpression[] {
+  return matchingNodes(root, node => ts.isCallExpression(node) && node.expression.getText() === name) as ts.CallExpression[];
+}
+function jsxAttribute(root: ts.SourceFile, component: string, name: string): ts.Expression {
+  const elements = matchingNodes(root, node => (ts.isJsxSelfClosingElement(node) || ts.isJsxOpeningElement(node)) && node.tagName.getText() === component);
+  assert.strictEqual(elements.length, 1, 'Expected one component: ' + component);
+  const element = elements[0] as ts.JsxSelfClosingElement;
+  const attribute = element.attributes.properties.find(node => ts.isJsxAttribute(node) && node.name.getText() === name) as ts.JsxAttribute;
+  assert.ok(attribute && attribute.initializer && ts.isJsxExpression(attribute.initializer) && attribute.initializer.expression);
+  return (attribute.initializer as ts.JsxExpression).expression!;
+}
+function compileCalendarSaver(dependencies: Record<string, unknown>): (calendar: AcademicCalendar, days: CalendarDay[], explicitId?: string) => boolean {
+  const declaration = namedVariable(appAst, 'handleSaveCalendar');
+  const source = 'const handler = ' + declaration.initializer!.getText() + ';';
+  const javascript = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
+  return new Function(...Object.keys(dependencies), javascript + '\nreturn handler;')(...Object.values(dependencies));
+}
 
 // -----------------------------------------------------------------------------
 // TEST 1: TimePlanningManager calls resolveCalendarOnline() before resolveOfficialCalendar()
@@ -120,19 +162,14 @@ runTest('3. Search criteria states initialize from school.regency and school.pro
 // -----------------------------------------------------------------------------
 // TEST 4: Online search does not depend on static availableProvinces
 // -----------------------------------------------------------------------------
-runTest('4. Online search input for Province is free-text and does not depend on static availableProvinces dropdown', () => {
-  assert.ok(
-    tpmSource.includes('<input\n                    type="text"\n                    value={searchProvince}'),
-    'TimePlanningManager must render searchProvince as free-text input'
-  );
-  assert.ok(
-    !tpmSource.includes('availableProvinces.map'),
-    'TimePlanningManager must NOT restrict Province search to availableProvinces.map'
-  );
-  assert.ok(
-    !tpmSource.includes('getAvailableProvinces'),
-    'TimePlanningManager must NOT require getAvailableProvinces'
-  );
+runTest('4. Province search remains a free-text input rather than a restricted dropdown', () => {
+  const fields = matchingNodes(tpmAst, node => ts.isJsxSelfClosingElement(node) && node.attributes.properties.some(prop => ts.isJsxAttribute(prop) && prop.name.getText() === 'value' && prop.initializer && ts.isJsxExpression(prop.initializer) && prop.initializer.expression?.getText() === 'searchProvince')) as ts.JsxSelfClosingElement[];
+  assert.strictEqual(fields.length,1);
+  assert.strictEqual(fields[0].tagName.getText(),'input');
+  const type = fields[0].attributes.properties.find(prop => ts.isJsxAttribute(prop) && prop.name.getText() === 'type') as ts.JsxAttribute;
+  assert.ok(type.initializer && ts.isStringLiteral(type.initializer));
+  assert.strictEqual((type.initializer as ts.StringLiteral).text,'text');
+  assert.strictEqual(namedCalls(tpmAst,'getAvailableProvinces').length,0);
 });
 
 // -----------------------------------------------------------------------------
@@ -259,36 +296,121 @@ runTest('10. resolveOfficialCalendar acts as verified local cache fallback when 
 });
 
 // -----------------------------------------------------------------------------
-// TEST 11: handleSaveCalendar requires activeSemesterPlan and uses saveAcademicCalendarV5
+// TEST 11/12: Behavioral persistence contract and caller wiring
 // -----------------------------------------------------------------------------
-runTest('11. App.tsx handleSaveCalendar requires activeSemesterPlan and calls saveAcademicCalendarV5', () => {
-  assert.ok(
-    appSource.includes('saveAcademicCalendarV5(activeSemesterPlan.id,'),
-    'App.tsx handleSaveCalendar must call saveAcademicCalendarV5 with activeSemesterPlan.id'
-  );
-  assert.ok(
-    appSource.includes('if (!activeSemesterPlan || !activeYearPlan)'),
-    'App.tsx handleSaveCalendar must validate activeSemesterPlan and activeYearPlan'
-  );
+runTest('11. Actual App callback saves explicit/fallback targets, canonical IDs and isolated persisted data', () => {
+  const cases = [
+    { name: 'explicit S1 wins over active S2', active: 's2', explicit: 's1', target: 's1', calendarId: 'teacher-calendar' },
+    { name: 'explicit S2 wins over active S1', active: 's1', explicit: 's2', target: 's2', calendarId: '' },
+    { name: 'annual planning S1 without active semester', explicit: 's1', target: 's1', calendarId: '   ' },
+    { name: 'annual planning S2 without active semester', explicit: 's2', target: 's2', calendarId: 'teacher-calendar' },
+    { name: 'fallback active S1', active: 's1', target: 's1', calendarId: '' },
+    { name: 'fallback active S2', active: 's2', target: 's2', calendarId: 'teacher-calendar' },
+    { name: 'empty explicit uses active fallback', active: 's2', explicit: '', target: 's2', calendarId: '' },
+    { name: 'explicit parent year wins over active year', active: 's1', explicit: 'other', target: 'other', calendarId: '' },
+    { name: 'invalid explicit must not fall back to active', active: 's1', explicit: 'missing', calendarId: '' },
+    { name: 'invalid explicit without active semester', explicit: 'missing', calendarId: '' },
+    { name: 'no target', calendarId: '' },
+    { name: 'stale view references missing stored semester', active: 's1', explicit: 'stale', calendarId: '' },
+    { name: 'storage write failure leaves all persisted data intact', active: 's2', target: 's2', calendarId: '', failWrite: true },
+  ];
+  for (const item of cases) {
+    mockStorage.clear();
+    const legacy = '{"teacher":"unchanged legacy sentinel"}';
+    mockStorage.setItem('administrasi_guru_ai_storage_v3', legacy);
+    const school = createSchoolV5({ name:'Calendar School', npsn:'1', address:'', village:'', district:'', regency:'', province:'', principalName:'', principalNip:'' });
+    const profile = createProfileV5({ name:'Calendar Teacher', nip:'', status:'PNS', defaultSubject:'IPAS', defaultLevel:'SD', schoolId:school.id });
+    const year = createYearHierarchyV5({profileId:profile.id,schoolId:school.id,academicYear:'2026/2027',level:'SD',grade:'Kelas 4',phase:'B',subject:'IPAS',curriculumType:'KURIKULUM_MERDEKA'});
+    const otherYear = createYearHierarchyV5({profileId:profile.id,schoolId:school.id,academicYear:'2027/2028',level:'SD',grade:'Kelas 5',phase:'C',subject:'IPAS',curriculumType:'KURIKULUM_MERDEKA'});
+    const plans = {s1:year.semesterPlans.find(s=>s.semester===1)!,s2:year.semesterPlans.find(s=>s.semester===2)!,other:otherYear.semesterPlans[0]};
+    for (const [index, plan] of [...year.semesterPlans,...otherYear.semesterPlans].entries()) {
+      const calendar: AcademicCalendar = {id:'existing-'+plan.id,academicSettingId:plan.id,academicYear:plan.yearPlanId===year.yearPlan.id?'2026/2027':'2027/2028',semester:plan.semester===1?'1 (Ganjil)':'2 (Genap)',startDate:'2026-07-13',endDate:'2026-12-18',schoolDaysPerWeek:5,sourceType:'SCHOOL_OVERRIDE',workflowStatus:'CONFIRMED',updatedAt:'2026-01-01T00:00:00Z'};
+      saveAcademicCalendarV5(plan.id,{calendar,days:[{id:'existing-day-'+plan.id,academicCalendarId:calendar.id,date:calendar.startDate,status:'effective',notes:'Keep this semester'}]});
+      saveSemesterJPSettingV5(plan.id,{semesterPlanId:plan.id,actualScheduledWeeklyJP:index+2,source:'TEACHER_CONFIRMED'});
+    }
+    const state = loadStorageV5();
+    state.activeProfileId=profile.id;
+    state.activeYearPlanId=year.yearPlan.id;
+    state.activeWorkspaceId=year.workspace.id;
+    state.activeSemesterPlanId=item.active?plans[item.active as 's1'|'s2'].id:undefined;
+    saveStorageV5(state);
+    const before = loadStorageV5();
+    const rawBefore = mockStorage.getItem(STORAGE_KEY_V5);
+    const view = structuredClone(before);
+    if (item.explicit==='stale') view.semesterPlans.push({...plans.s1,id:'stale'});
+    const explicit = item.explicit && item.explicit in plans ? plans[item.explicit as keyof typeof plans].id : item.explicit;
+    const target = item.target ? plans[item.target as keyof typeof plans] : undefined;
+    const targetYear=target?.yearPlanId===otherYear.yearPlan.id?2027:2026;
+    const startDate=target?.semester===2?(targetYear+1)+'-01-11':targetYear+'-07-13';
+    const endDate=target?.semester===2?(targetYear+1)+'-06-19':targetYear+'-12-18';
+    const nextDate=new Date(Date.parse(startDate+'T00:00:00Z')+86400000).toISOString().slice(0,10);
+    const input: AcademicCalendar = {id:item.calendarId,academicSettingId:'wrong-input-semester',academicYear:'1900/1901',semester:'wrong',startDate,endDate,schoolDaysPerWeek:5,sourceType:'SCHOOL_OVERRIDE',workflowStatus:'REVIEWED',updatedAt:'2026-10-29T00:00:00Z'};
+    const days: CalendarDay[] = [{id:'teacher-day-1',academicCalendarId:'wrong-calendar',date:startDate,status:'effective',notes:'Teacher note'},{id:'teacher-day-2',academicCalendarId:'another-wrong-calendar',date:nextDate,status:'holiday',sourceType:'SCHOOL_OVERRIDE',notes:'School event'}];
+    const inputBefore=JSON.stringify({input,days});
+    let refreshes=0;
+    let saveCalls=0;
+    const notices: {type:string;message:string}[]=[];
+    const handler=compileCalendarSaver({
+      activeSemesterPlan:item.active?plans[item.active as 's1'|'s2']:undefined,
+      activeYearPlan:year.yearPlan,v5State:view,
+      saveAcademicCalendarV5:(...args:Parameters<typeof saveAcademicCalendarV5>)=>{saveCalls++;return saveAcademicCalendarV5(...args);},
+      refreshV5:()=>{refreshes++;},setAppNotice:(notice:{type:string;message:string})=>notices.push(notice),
+    });
+    const writesBefore=mockStorage.writeCount;
+    let saved:boolean;
+    mockStorage.failWrite=Boolean(item.failWrite);
+    try {saved=handler(input,days,explicit);} finally {mockStorage.failWrite=false;}
+    const success=Boolean(target&&!item.failWrite);
+    assert.strictEqual(saved,success,item.name);
+    assert.strictEqual(JSON.stringify({input,days}),inputBefore,'Caller-owned input must remain unchanged');
+    assert.strictEqual(mockStorage.getItem('administrasi_guru_ai_storage_v3'),legacy);
+    assert.strictEqual(mockStorage.writeCount-writesBefore,success?1:0,item.name);
+    assert.strictEqual(refreshes,success?1:0,item.name);
+    if (!success) {
+      assert.strictEqual(mockStorage.getItem(STORAGE_KEY_V5),rawBefore,item.name);
+      assert.deepStrictEqual(loadStorageV5(),before);
+      assert.strictEqual(saveCalls,item.failWrite||item.explicit==='stale'?1:0,item.name);
+      assert.strictEqual(notices.length,1);
+      assert.strictEqual(notices[0].type,'error');
+      continue;
+    }
+    assert.strictEqual(saveCalls,1);
+    assert.deepStrictEqual(notices,[]);
+    const after=loadStorageV5();
+    const entry=after.semesterData.academicCalendar.find(e=>e.semesterPlanId===target!.id)!;
+    assert.ok(entry,item.name);
+    assert.strictEqual(after.semesterData.academicCalendar.filter(e=>e.semesterPlanId===target!.id).length,1);
+    const expectedId=item.calendarId.trim()?item.calendarId:'cal-'+target!.id;
+    const expectedCalendar={...input,id:expectedId,academicSettingId:target!.id,academicYear:target!.yearPlanId===year.yearPlan.id?'2026/2027':'2027/2028',semester:target!.semester===1?'1 (Ganjil)':'2 (Genap)',workflowStatus:'CONFIRMED'};
+    assert.deepStrictEqual(entry.value.calendar,expectedCalendar,item.name);
+    assert.deepStrictEqual(entry.value.days,days.map(day=>({...day,academicCalendarId:expectedId})),item.name);
+    assert.deepStrictEqual(after.semesterData.academicCalendar.filter(e=>e.semesterPlanId!==target!.id),before.semesterData.academicCalendar.filter(e=>e.semesterPlanId!==target!.id));
+    const outsideCalendar=(value:typeof before)=>{const copy=structuredClone(value);copy.semesterData.academicCalendar=[];return copy;};
+    assert.deepStrictEqual(outsideCalendar(after),outsideCalendar(before),'All other stored data, JP and active selection must remain unchanged');
+    assert.deepStrictEqual(JSON.parse(mockStorage.getItem(STORAGE_KEY_V5)!).semesterData.academicCalendar,after.semesterData.academicCalendar);
+    setActiveYearPlanV5(target!.yearPlanId);
+    setActiveSemesterPlanV5(target!.id);
+    assert.deepStrictEqual(getRuntimeContextV5().semesterData!.academicCalendar,entry.value,'Reloaded runtime must read the target calendar and days');
+    assert.deepStrictEqual(loadStorageV5().semesterData.academicCalendar,after.semesterData.academicCalendar);
+  }
 });
 
-// -----------------------------------------------------------------------------
-// TEST 12: Canonical calendar and CalendarDay structure
-// -----------------------------------------------------------------------------
-runTest('12. handleSaveCalendar canonicalizes academicSettingId and links calendar days to canonical calendar ID', () => {
-  assert.ok(
-    appSource.includes('academicSettingId: activeSemesterPlan.id,'),
-    'Canonical calendar academicSettingId must equal activeSemesterPlan.id'
-  );
-  assert.ok(
-    appSource.includes('academicCalendarId: canonicalCalendar.id'),
-    'Canonical days must reference canonicalCalendar.id'
-  );
+runTest('12. Annual and semester callers forward calendar handler and explicit semester through parsed JSX', () => {
+  const annualPath=path.resolve('src/components/AnnualPlanningManager.tsx');
+  const annualAst=ts.createSourceFile(annualPath,readSource(annualPath,'utf-8'),ts.ScriptTarget.Latest,true,ts.ScriptKind.TSX);
+  const hubAst=ts.createSourceFile(adminHubPath,adminHubSource,ts.ScriptTarget.Latest,true,ts.ScriptKind.TSX);
+  assert.strictEqual(jsxAttribute(appAst,'AnnualPlanningManager','onSaveCalendar').getText(),'handleSaveCalendar');
+  assert.strictEqual(jsxAttribute(appAst,'AdministrationHub','onSaveCalendar').getText(),'handleSaveCalendar');
+  assert.strictEqual(jsxAttribute(annualAst,'TimePlanningManager','explicitSemesterPlanId').getText(),'activeSelectedPlan.id');
+  assert.strictEqual(jsxAttribute(annualAst,'TimePlanningManager','onSaveCalendar').getText(),'onSaveCalendar');
+  assert.strictEqual(jsxAttribute(hubAst,'TimePlanningManager','onSaveCalendar').getText(),'onSaveCalendar');
+  const confirm=namedVariable(tpmAst,'handleConfirmCalendar');
+  const calls=namedCalls(confirm,'onSaveCalendar');
+  assert.strictEqual(calls.length,1);
+  assert.deepStrictEqual(calls[0].arguments.map(arg=>arg.getText()),['res.calendar','res.days','effectiveSemesterPlanId']);
 });
 
-// -----------------------------------------------------------------------------
-// TEST 13: End-to-End V5 Calendar Persistence, Read Model & Reload Fidelity
-// -----------------------------------------------------------------------------
+
 runTest('13. V5 Storage persists academic calendar and runtimeContext reads it accurately', () => {
   mockStorage.clear();
   const school = createSchoolV5({
@@ -619,18 +741,25 @@ runTest('AY. Incomplete source status: Candidate with absent semester boundaries
 // -----------------------------------------------------------------------------
 // TEST AZ: Complete Source Status (REVIEWED + PARTIALLY_RESOLVED if no schoolDays, RESOLVED if 5/6, never CONFIRMED)
 // -----------------------------------------------------------------------------
-runTest('AZ. Complete source status: Valid start/end sets REVIEWED and status based on schoolDaysPerWeek', () => {
-  assert.ok(
-    tpmSource.includes("const isComplete = schoolDaysPerWeek === 5 || schoolDaysPerWeek === 6;") &&
-      tpmSource.includes("setWorkflowStatus('REVIEWED');") &&
-      tpmSource.includes("setResolutionStatus(isComplete ? 'RESOLVED' : 'PARTIALLY_RESOLVED');"),
-    'Applying complete candidate boundaries must set REVIEWED and RESOLVED only when schoolDaysPerWeek is 5 or 6'
-  );
-  assert.ok(
-    !tpmSource.includes("setWorkflowStatus('CONFIRMED')") ||
-      !tpmSource.includes("handleApplyOnlineCandidate = (candidate: CalendarSourceCandidate) => {\n    setWorkflowStatus('CONFIRMED')"),
-    'Applying online candidate must NEVER set workflowStatus to CONFIRMED'
-  );
+runTest('AZ. Candidate readiness requires verified source, complete dates and configured school days', () => {
+  const apply=namedVariable(tpmAst,'handleApplyOnlineCandidate');
+  const schoolDays=namedVariable(apply,'hasSchoolDays').initializer!;
+  const resolved=namedVariable(apply,'isResolved').initializer!;
+  const statusCall=namedCalls(apply,'setResolutionStatus').find(call=>call.arguments[0] && ts.isConditionalExpression(call.arguments[0]));
+  assert.ok(statusCall);
+  function evaluate(expression:ts.Expression,scope:Record<string,unknown>) {
+    return new Function(...Object.keys(scope),'return ('+expression.getText()+');')(...Object.values(scope));
+  }
+  for(const verificationStatus of ['VERIFIED','UNVERIFIED']) for(const hasCompleteDates of [false,true]) for(const schoolDaysPerWeek of [null,4,5,6]) {
+    const hasSchoolDays=evaluate(schoolDays,{schoolDaysPerWeek});
+    const isResolved=evaluate(resolved,{candidate:{verificationStatus},hasCompleteDates,hasSchoolDays});
+    const expected=verificationStatus==='VERIFIED' && hasCompleteDates && (schoolDaysPerWeek===5 || schoolDaysPerWeek===6);
+    assert.strictEqual(isResolved,expected);
+    assert.strictEqual(evaluate(statusCall!.arguments[0],{isResolved}),expected?'RESOLVED':'PARTIALLY_RESOLVED');
+  }
+  const workflows=namedCalls(apply,'setWorkflowStatus').map(call=>ts.isStringLiteral(call.arguments[0])?call.arguments[0].text:undefined);
+  assert.ok(workflows.includes('REVIEWED'));
+  assert.ok(!workflows.includes('CONFIRMED'));
 });
 
 // -----------------------------------------------------------------------------
@@ -1175,66 +1304,32 @@ runTest('DT. Full final lifecycle: Default dates -> Generate -> HE/ME > 0 -> Con
 // -----------------------------------------------------------------------------
 // TEST 44: Source Contract - Calendar / JP Persistence Separation
 // -----------------------------------------------------------------------------
-runTest('DU. Source Contract: Calendar / JP persistence separation across App.tsx and TimePlanningManager', () => {
-  const appSource = fs.readFileSync(
-    path.resolve(process.cwd(), 'src/App.tsx'),
-    'utf-8'
-  );
-  const managerSource = fs.readFileSync(
-    path.resolve(process.cwd(), 'src/components/administration/TimePlanningManager.tsx'),
-    'utf-8'
-  );
-
-  // Extract handleSaveCalendar in App.tsx
-  const saveCalMatch = appSource.match(/const handleSaveCalendar = \([\s\S]*?\n  \};/);
-  assert.ok(saveCalMatch, 'handleSaveCalendar must exist in App.tsx');
-  assert.ok(
-    !saveCalMatch[0].includes('saveSemesterJPSettingV5'),
-    'handleSaveCalendar in App.tsx must NOT call saveSemesterJPSettingV5'
-  );
-
-  // Extract handleSaveSemesterJPSetting in App.tsx
-  const saveJpMatch = appSource.match(/const handleSaveSemesterJPSetting = \([\s\S]*?\n  \};/);
-  assert.ok(saveJpMatch, 'handleSaveSemesterJPSetting must exist in App.tsx');
-  assert.ok(
-    saveJpMatch[0].includes('saveSemesterJPSettingV5'),
-    'handleSaveSemesterJPSetting in App.tsx MUST call saveSemesterJPSettingV5'
-  );
-
-  // Extract handleConfirmCalendar in TimePlanningManager
-  const confirmCalMatch = managerSource.match(/const handleConfirmCalendar = \(\) => {([\s\S]*?)\n  \};/);
-  assert.ok(confirmCalMatch, 'handleConfirmCalendar must exist in TimePlanningManager');
-  assert.ok(
-    confirmCalMatch[0].includes('onSaveCalendar(res.calendar, res.days)'),
-    'handleConfirmCalendar must call onSaveCalendar(res.calendar, res.days)'
-  );
-  assert.ok(
-    !confirmCalMatch[0].includes('onSaveCalendar(res.calendar, res.days, jpPerWeek)'),
-    'handleConfirmCalendar must NOT pass jpPerWeek to onSaveCalendar'
-  );
-
-  // Extract handleSaveJP in TimePlanningManager
-  const saveJPHandlerMatch = managerSource.match(/const handleSaveJP = \(\) => {([\s\S]*?)\n  \};/);
-  assert.ok(saveJPHandlerMatch, 'handleSaveJP must exist in TimePlanningManager');
-  assert.ok(
-    saveJPHandlerMatch[0].includes('onSaveSemesterJPSetting(jpPerWeek)'),
-    'handleSaveJP must use onSaveSemesterJPSetting(jpPerWeek)'
-  );
+runTest('DU. Calendar and JP persistence stay separate and forward the effective semester', () => {
+  assert.strictEqual(namedCalls(namedVariable(appAst,'handleSaveCalendar'),'saveSemesterJPSettingV5').length,0);
+  assert.strictEqual(namedCalls(namedVariable(appAst,'handleSaveSemesterJPSetting'),'saveSemesterJPSettingV5').length,1);
+  const confirm=namedVariable(tpmAst,'handleConfirmCalendar');
+  const calendarCalls=namedCalls(confirm,'onSaveCalendar');
+  assert.strictEqual(calendarCalls.length,1);
+  assert.deepStrictEqual(calendarCalls[0].arguments.map(arg=>arg.getText()),['res.calendar','res.days','effectiveSemesterPlanId']);
+  assert.strictEqual(namedCalls(confirm,'onSaveSemesterJPSetting').length,0);
+  const jpCalls=namedCalls(namedVariable(tpmAst,'handleSaveJP'),'onSaveSemesterJPSetting');
+  assert.strictEqual(jpCalls.length,1);
+  assert.deepStrictEqual(jpCalls[0].arguments.map(arg=>arg.getText()),['jpPerWeek','effectiveSemesterPlanId']);
 });
 
 // -----------------------------------------------------------------------------
 // TEST 45: Source Contract - Semester Reset
 // -----------------------------------------------------------------------------
-runTest('DV. Source Contract: TimePlanningManager semester reset keyed by academicSetting.id and clean fallback', () => {
-  const managerSource = fs.readFileSync(
+runTest('DV. Source Contract: TimePlanningManager semester reset keyed by effectiveSemesterPlanId and clean fallback', () => {
+  const managerSource = readSource(
     path.resolve(process.cwd(), 'src/components/administration/TimePlanningManager.tsx'),
     'utf-8'
   );
 
-  // Must contain semester reset effect keyed by academicSetting.id
+  // Must contain semester reset effect keyed by effectiveSemesterPlanId
   assert.ok(
-    managerSource.includes('useEffect(() => {') && managerSource.includes('[academicSetting.id]'),
-    'TimePlanningManager must contain semester reset effect keyed by academicSetting.id'
+    managerSource.includes('useEffect(() => {') && managerSource.includes('[effectiveSemesterPlanId]'),
+    'TimePlanningManager must contain semester reset effect keyed by effectiveSemesterPlanId'
   );
 
   // Must clear state in no-calendar branch
@@ -1254,55 +1349,23 @@ runTest('DV. Source Contract: TimePlanningManager semester reset keyed by academ
 // -----------------------------------------------------------------------------
 // TEST 46: Source Contract - Readiness UX
 // -----------------------------------------------------------------------------
-runTest('DW. Source Contract: Readiness UX visible labels, capacity indicators, and dynamic action button', () => {
-  const componentSource = fs.readFileSync(
-    path.resolve(process.cwd(), 'src/components/administration/TimePlanningManager.tsx'),
-    'utf-8'
-  );
-
-  // Visible presence of Semester 1 and Semester 2
-  assert.ok(componentSource.includes('Semester 1'), 'Must visibly contain Semester 1 label');
-  assert.ok(componentSource.includes('Semester 2'), 'Must visibly contain Semester 2 label');
-
-  // Visible presence of status and capacity labels
-  assert.ok(componentSource.includes('Kalender:'), 'Must visibly contain "Kalender:" label');
-  assert.ok(componentSource.includes('JP Tersimpan:'), 'Must visibly contain "JP Tersimpan:" label');
-  assert.ok(componentSource.includes('Kapasitas:'), 'Must visibly contain "Kapasitas:" label');
-
-  // S1 & S2 capacity fields
-  assert.ok(
-    componentSource.includes('autoAllocationReadiness.s1Capacity?.availableJP'),
-    'Must display S1 canonical capacity directly from autoAllocationReadiness'
-  );
-  assert.ok(
-    componentSource.includes('autoAllocationReadiness.s2Capacity?.availableJP'),
-    'Must display S2 canonical capacity directly from autoAllocationReadiness'
-  );
-
-  // Dynamic button label
-  assert.ok(
-    componentSource.includes('Susun Alokasi Semester {activeSemester} dari ATP Tahunan'),
-    'Button label must dynamically specify active semester from ATP Tahunan'
-  );
-
-  // Visible helper text
-  assert.ok(
-    componentSource.includes('Pembagian ATP tahunan menggunakan kapasitas tersimpan Semester 1 dan Semester 2.'),
-    'Must contain visible helper text explaining S1 & S2 saved capacity partitioning'
-  );
-
-  // Verify "Resmi Canonical" is NOT used
-  assert.ok(
-    !componentSource.includes('Resmi Canonical'),
-    'Must not use "Resmi Canonical" label; use "Tersimpan" / "Draf"'
-  );
+runTest('DW. Annual planning owns both semester readiness cards and explicit calendar target', () => {
+  const annualSource = readSource(path.resolve('src/components/AnnualPlanningManager.tsx'), 'utf-8');
+  for (const label of ['Waktu Semester 1','Waktu Semester 2','Kesiapan Semester 1','Kesiapan Semester 2']) {
+    assert.ok(annualSource.includes(label), label + ' must remain visible in annual planning');
+  }
+  assert.ok(annualSource.includes('s1Capacity?.availableJP') && annualSource.includes('s2Capacity?.availableJP'));
+  assert.ok(annualSource.includes('s1PlannedCapacity.totalJP') && annualSource.includes('s2PlannedCapacity.totalJP'));
+  assert.ok(annualSource.includes('explicitSemesterPlanId={activeSelectedPlan.id}'), 'Calendar editor must receive the explicitly selected annual-planning semester');
+  assert.ok(tpmSource.includes('semesterPlanId={effectiveSemesterPlanId}'), 'Time setup must retain canonical semester authority');
+  assert.ok(!annualSource.includes('Resmi Canonical'));
 });
 
 // -----------------------------------------------------------------------------
 // TEST 47: Source Contract A, B & C - Generated draft preservation and canonical sync
 // -----------------------------------------------------------------------------
 runTest('DX. Source Contract: Generated draft preservation across storage refresh and clean canonical sync', () => {
-  const componentSource = fs.readFileSync(
+  const componentSource = readSource(
     path.resolve(process.cwd(), 'src/components/administration/TimePlanningManager.tsx'),
     'utf-8'
   );
@@ -1335,7 +1398,7 @@ runTest('DX. Source Contract: Generated draft preservation across storage refres
 // TEST 48: Source Contract F - Save Time Allocation Gating for Kurikulum Merdeka
 // -----------------------------------------------------------------------------
 runTest('DY. Source Contract: Save Time Allocation gating requires active semester canonical capacity', () => {
-  const componentSource = fs.readFileSync(
+  const componentSource = readSource(
     path.resolve(process.cwd(), 'src/components/administration/TimePlanningManager.tsx'),
     'utf-8'
   );
@@ -1361,7 +1424,7 @@ runTest('DY. Source Contract: Save Time Allocation gating requires active semest
 // TEST 49: Source Contract G - 3-State Calendar Status UI Labels
 // -----------------------------------------------------------------------------
 runTest('DZ. Source Contract: 3-state calendar status UI distinguishes Belum dibuat, Draf — belum ditetapkan, and Tersimpan', () => {
-  const componentSource = fs.readFileSync(
+  const componentSource = readSource(
     path.resolve(process.cwd(), 'src/components/administration/TimePlanningManager.tsx'),
     'utf-8'
   );
@@ -1384,7 +1447,7 @@ runTest('DZ. Source Contract: 3-state calendar status UI distinguishes Belum dib
 // TEST 50: Source Contract H - Post-Generate Guidance & CTA
 // -----------------------------------------------------------------------------
 runTest('EA. Source Contract: Post-generate CTA displays guidance for saving and confirming calendar', () => {
-  const componentSource = fs.readFileSync(
+  const componentSource = readSource(
     path.resolve(process.cwd(), 'src/components/administration/TimePlanningManager.tsx'),
     'utf-8'
   );
@@ -1400,3 +1463,7 @@ runTest('EA. Source Contract: Post-generate CTA displays guidance for saving and
 });
 
 console.log(`\nAll ${totalTests} Merdeka V5 Academic Calendar Runtime audit tests PASSED successfully!\n`);
+
+function readSource(file: string, encoding: 'utf-8' | 'utf8'): string {
+  return fs.readFileSync(file, encoding).replace(/\r\n/g, '\n');
+}
